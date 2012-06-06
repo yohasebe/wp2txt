@@ -173,7 +173,7 @@ module Wp2txt
 
     def get_newline
       @buffer ||= [""]   
-      if @buffer.bytesize == 1
+      if @buffer.size == 1
         return nil unless fill_buffer
       end
       if @buffer.empty?
