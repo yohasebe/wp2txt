@@ -46,7 +46,7 @@ WP2TXT before version 0.4.0 came with Mac/Windows GUI. Now it's become a pure co
                 
 ### Author ###
 
-* Yoichiro Hasebe <yohasebe@gmail.com>
+* Yoichiro Hasebe (<yohasebe@gmail.com>)
 
 ### License ###
 
