@@ -1,0 +1,95 @@
+#!/usr/bin/env ruby
+# -*- coding: utf-8 -*-
+
+$: << File.join(File.dirname(__FILE__))
+$: << File.join(File.dirname(__FILE__), '..', 'lib')
+
+$DEBUG_MODE = false
+SHAREDIR = File.join(File.dirname(__FILE__), '..', 'share')
+DOCDIR = File.join(File.dirname(__FILE__), '..', 'doc')
+
+require 'wp2txt'
+require 'wp2txt/utils'
+require 'trollop'
+
+include Wp2txt
+
+opts = Trollop::options do
+	version Wp2txt::VERSION
+	banner <<-EOS
+WP2TXT extracts plain text data from Wikipedia dump file (encoded in XML/compressed with Bzip2) stripping all the MediaWiki markups and other metadata.
+
+Usage: wp2txt [options]
+where [options] are:
+EOS
+
+  opt :input_file,  "Wikipedia dump file with .bz2 or .txt format", :required => true
+  opt :output_dir,  "Output directory", :default => Dir::pwd, :type => String
+  opt :convert_off, "Output XML (without converting to plain text)", :default => false
+  opt :list_off,    "Exclude list items from output", :default => false
+  opt :heading_off, "Exclude section titles from output", :default => false, :short => "-d"
+  opt :title_off,   "Exclude page titles from output", :default => false
+  opt :table_off,   "Exclude page titles from output", :default => true
+  opt :file_size,   "Approximate size (in MB) of each output file", :default => 10  
+end
+Trollop::die :size, "must be larger than 0" unless opts[:file_size] >= 0
+Trollop::die :output_dir, "must exist" unless File.exist?(opts[:output_dir])
+
+input_file = ARGV[0]
+output_dir = opts[:output_dir]
+tfile_size = opts[:file_size]
+convert_off = opts[:convert_off]
+opt_array = [:title_off, :list_off, :heading_off, :table_off]
+config = {}
+opt_array.each do |opt|
+  config[opt] = opts[opt]
+end
+
+# a "parent" is either commandline progress bar or 
+# a gui window (not available for now)
+parent = Wp2txt::CmdProgbar.new
+wpconv = Wp2txt::Runner.new(parent, input_file, output_dir, tfile_size, convert_off)
+
+wpconv.extract_text do |article|
+  title = format_wiki article.title
+  title = "\n[[#{title}]]\n"
+  contents = ""
+
+  article.elements.each do |e|
+    case e.first
+    when :mw_heading
+      next if config[:heading_off]
+      line = format_wiki(e.last)
+      line += "+HEADING+" if $DEBUG_MODE
+    when :mw_paragraph
+      next if config[:paragraph_off]
+      line = format_wiki(e.last)
+      line += "+PARAGRAPH+" if $DEBUG_MODE
+    when :mw_table, :mw_htable
+      next if config[:table_off]
+      line = format_wiki(e.last)
+      line += "+TABLE+" if $DEBUG_MODE
+    when :mw_quote, :mw_pre
+      next if config[:quote_off]
+      line = e.last
+      line += "+QUOTE+" if $DEBUG_MODE
+    when :mw_unordered, :mw_ordered, :mw_definition
+      next if config[:list_off]
+      line = format_wiki(e.last)
+      line += "+LIST+" if $DEBUG_MODE
+    else
+      if $DEBUG_MODE
+        line = format_wiki(e.last) + "+DEBUG+"
+      end
+      next
+    end
+    contents += line unless /\A\s*\z/ =~ line
+  end
+
+  if /\A\W*\z/m =~ contents
+    result = ""
+  else
+    result = config[:title_off] ? contents : title + "\n" + contents
+  end
+  result.gsub(/\n\n\n+/, "\n\n")
+end
