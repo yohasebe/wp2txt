@@ -170,6 +170,9 @@ describe "Wp2txt" do
   
   describe "process_template" do
     it "removes brackets and leaving some text" do
+      str_before = "{{}}"
+      str_after = ""
+      process_template(str_before).should == str_after
       str_before = "{{lang|en|Japan}}"
       str_after  = "Japan"
       process_template(str_before).should == str_after

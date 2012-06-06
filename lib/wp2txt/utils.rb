@@ -101,6 +101,8 @@ module Wp2txt
     result = process_nested_structure(scanner, "{{", "}}") do |contents|
       parts = contents.split("|")
       case parts.size
+      when 0
+        ""
       when 1
         parts.first || ""
       else
