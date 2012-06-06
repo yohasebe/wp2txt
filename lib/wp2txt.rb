@@ -249,7 +249,7 @@ module Wp2txt
 
         article = Article.new(text, title)
         output_text += block.call(article)
-        @total_size = output_text.size
+        @total_size = output_text.bytesize
 
         # flagged when data exceeds the size of output file
         end_flag = true if @total_size > (@tfile_size * 1024 * 1024)
