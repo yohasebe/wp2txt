@@ -173,7 +173,7 @@ module Wp2txt
 
     def get_newline
       @buffer ||= [""]   
-      if @buffer.size == 1
+      if @buffer.bytesize == 1
         return nil unless fill_buffer
       end
       if @buffer.empty?
@@ -189,7 +189,7 @@ module Wp2txt
       page = ""
       while line = get_newline
         notify_parent        
-        @size_read ||=0; @size_read += line.size
+        @size_read ||=0; @size_read += line.bytesize
         
         if /<page>/ =~ line #
           page << line
@@ -281,8 +281,8 @@ module Wp2txt
       end_flag = false
       while text = get_newline
         @count ||= 0;@count += 1;
-        @size_read ||=0;@size_read += text.size
-        @total_size += text.size
+        @size_read ||=0;@size_read += text.bytesize
+        @total_size += text.bytesize
         output_text << text
         end_flag = true if @total_size > (@tfile_size * 1024 * 1024)
         notify_parent
