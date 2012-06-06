@@ -15,6 +15,8 @@ WP2TXT extracts plain text data from Wikipedia dump file (encoded in XML/compres
 WP2TXT before version 0.4.0 came with Mac/Windows GUI. Now it's become a pure command-line application--Sorry GUI folks, but there seems more demand for an easy-to-hack CUI package than an inflexible GUI app.
 
 ### Installation
+    
+`gem install` method will become available soon.  In the meantime, use the source code on Github.
 
     $ gem install wp2txt
 
