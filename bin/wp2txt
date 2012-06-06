@@ -10,6 +10,7 @@ DOCDIR = File.join(File.dirname(__FILE__), '..', 'doc')
 
 require 'wp2txt'
 require 'wp2txt/utils'
+require 'wp2txt/version'
 require 'trollop'
 
 include Wp2txt
