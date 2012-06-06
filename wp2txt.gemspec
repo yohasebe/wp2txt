@@ -19,7 +19,7 @@ Gem::Specification.new do |s|
   s.require_paths = ["lib"]
 
   s.add_development_dependency "rspec"
-  s.add_development_dependency "sanitize"
+  s.add_runtime_dependency "sanitize"
   s.add_runtime_dependency "bzip2-ruby"
   s.add_runtime_dependency "trollop"
   s.add_runtime_dependency "nokogiri"
