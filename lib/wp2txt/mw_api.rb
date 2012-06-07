@@ -62,16 +62,4 @@ module Wp2txt
   end
   
 end
-# 
-# class Test
-#   include Wp2txt
-# end
 
-#template = "{{quote-book|1503|year_published=1836|chapter=19 Henry VII. c. 5: Coin||A Collection of Statutes Connected with the General Administration of the Law|page=158|url=http://books.google.com/books?id=QtYuAAAAIAAJ
-#|passage={{...}} every of them, being gold, whole and weight, shall '''go''' and be current in payment throughout this his realm for the sum that they were coined for.}}"
-# word = "kick"
-# template = "{{en-verb}}"
-# p t = Test.new.expand_template(template, word)
-#word = "go"
-#template = "{{rfdef|lang=en}}"
-#p t = Test.new.expand_template(template, word)

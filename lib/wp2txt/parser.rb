@@ -4,7 +4,7 @@
 $: << File.join(File.dirname(__FILE__))
 
 require 'strscan'
-require 'text_utils'
+require 'utils'
 
 module Wp2txt::Parser
 

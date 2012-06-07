@@ -248,6 +248,7 @@ module Wp2txt
         lo = ch&0xff
         u = "\377\376" << lo.chr << hi.chr
         u.encode("UTF-8", "UTF-16")
+        u.encode("UTF-8", "UTF-8", :invalid => :replace, :undef => :replace, :replace => '?')        
       end
     rescue StandardError
       return num_str
