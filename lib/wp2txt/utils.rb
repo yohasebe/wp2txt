@@ -8,8 +8,8 @@ require 'sanitize'
 module Wp2txt
 
   def format_wiki(text)
-
-    text = escape_nowiki(text)           #
+    text = text + ""
+    text = escape_nowiki(text)
 
     text = special_chr(text)             #
     text = chrref_to_utf(text)           #
