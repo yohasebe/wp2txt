@@ -9,9 +9,10 @@ module Wp2txt
 
   def format_wiki(text)
 
+    text = escape_nowiki(text)           #
+
     text = special_chr(text)             #
     text = chrref_to_utf(text)           #
-    text = escape_nowiki(text)           #
     
     text = process_redirects(text)       #
     text = process_interwiki_links(text) #
@@ -252,7 +253,7 @@ module Wp2txt
     rescue StandardError
       return num_str
     end
-    return utf_str.encode("UTF-8", "UTF-8", :invalid => :replace, :undef => :replace, :replace => '?')        
+    return utf_str
   end
 
   def remove_directive(str)
