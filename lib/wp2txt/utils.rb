@@ -9,7 +9,7 @@ module Wp2txt
 
   def format_wiki(original_text, has_retried = false)
     begin 
-      text += ""
+      text = original_text + ""
       text = special_chr(text)             #
       text = chrref_to_utf(text)           #
 
