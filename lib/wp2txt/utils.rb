@@ -7,7 +7,7 @@ require 'sanitize'
 
 module Wp2txt
 
-  def format_wiki(text, has_retried = false)
+  def format_wiki(original_text, has_retried = false)
     begin 
       text = special_chr(text)             #
       text = chrref_to_utf(text)           #
@@ -35,8 +35,8 @@ module Wp2txt
         puts "invalid byte sequence detected"
         exit
       else
-        str = str.encode("UTF-16", :invalid => :replace, :replace => '').encode("UTF-8")
-        return format_wiki(str, true)
+        fixed_text = original_text.encode("UTF-16", :invalid => :replace, :replace => '').encode("UTF-8")
+        return format_wiki(fixed_text, true)
       end
     end
   end
