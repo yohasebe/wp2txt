@@ -7,30 +7,38 @@ require 'sanitize'
 
 module Wp2txt
 
-  def format_wiki(text)
-    text += ""
-    text = escape_nowiki(text)
+  def format_wiki(text, retry = false)
+    begin 
+      text = special_chr(text)             #
+      text = chrref_to_utf(text)           #
 
-    text = special_chr(text)             #
-    text = chrref_to_utf(text)           #
-    
-    text = process_redirects(text)       #
-    text = process_interwiki_links(text) #
-    text = process_external_links(text)  #
-    text = process_template(text)        #
-    text = remove_directive(text)        #
-    text = remove_emphasis(text)         #
+      text = escape_nowiki(text)
 
-    text = mndash(text)                  #
-    text = make_reference(text)          #
-    text = format_ref(text)              #
-    text = remove_table(text)            #
-    text = remove_clade(text)            #
-    text = remove_hr(text)               #
-    text = remove_tag(text)              #
-    
-    unescape_nowiki(text)                #
-    
+      text = process_redirects(text)       #
+      text = process_interwiki_links(text) #
+      text = process_external_links(text)  #
+      text = process_template(text)        #
+      text = remove_directive(text)        #
+      text = remove_emphasis(text)         #
+
+      text = mndash(text)                  #
+      text = make_reference(text)          #
+      text = format_ref(text)              #
+      text = remove_table(text)            #
+      text = remove_clade(text)            #
+      text = remove_hr(text)               #
+      text = remove_tag(text)              #
+
+      unescape_nowiki(text)                #
+    rescue # detect invalid byte sequence in UTF-8
+      if retry
+        puts "invalid byte sequence detected"
+        exit
+      else
+        str = str.encode("UTF-16", :invalid => :replace, :replace => '').encode("UTF-8")
+        return format_wiki(str, true)
+      end
+    end
   end
 
   #################### parser for nested structure ####################
@@ -75,7 +83,11 @@ module Wp2txt
   #################### methods used from format_wiki ####################
   
   def escape_nowiki(str)
-    @nowikis = {} unless @nowikis
+    if @nowikis
+      @nowikis.clear
+    else
+      @nowikis = {}
+    end
     str.gsub(/<nowiki>(.*?)<\/nowiki>/m) do
       nowiki = $1
       nowiki_id = nowiki.object_id
