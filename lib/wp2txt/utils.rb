@@ -34,6 +34,10 @@ module Wp2txt
     rescue # detect invalid byte sequence in UTF-8
       if has_retried
         puts "invalid byte sequence detected"
+        puts "******************************"
+        File.open("error_log.txt", "w") do |f|
+          f.write original_text
+        end
         exit
       else
         fixed_text = original_text.encode("UTF-16", :invalid => :replace, :replace => '').encode("UTF-8")
