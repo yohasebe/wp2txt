@@ -7,7 +7,7 @@ require 'sanitize'
 
 module Wp2txt
 
-  def format_wiki(text, retry = false)
+  def format_wiki(text, has_retried = false)
     begin 
       text = special_chr(text)             #
       text = chrref_to_utf(text)           #
@@ -31,7 +31,7 @@ module Wp2txt
 
       unescape_nowiki(text)                #
     rescue # detect invalid byte sequence in UTF-8
-      if retry
+      if has_retried
         puts "invalid byte sequence detected"
         exit
       else
