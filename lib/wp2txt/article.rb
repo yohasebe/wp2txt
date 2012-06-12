@@ -87,7 +87,7 @@ module Wp2txt
       mode = nil
       open_stack  = []
       close_stack = []
-      source.gsub!(/\<\!\-\-.*?\-\>/m){"\n"}
+      source.gsub!(/\<\!\-\-.*?\-\-\>/m){"\n"}
       source.each_line do |line|
 
         case mode
