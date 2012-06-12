@@ -39,11 +39,7 @@ module Wp2txt
     
     @@in_template_regex = Regexp.new('^\s*\{\{[^\}]+\}\}\s*$')
     @@in_link_regex = Regexp.new('^\s*\[.*\]\s*$')
-    
-    @@in_comment_regex = Regexp.new('^\s*<\!\-\-.*?\-\->\s*$')
-    @@in_comment_regex1 = Regexp.new('^\s*<\!\-\-')
-    @@in_comment_regex2 = Regexp.new('\-\->\s*$')
-    
+        
     @@in_inputbox_regex  = Regexp.new('<inputbox>.*?<\/inputbox>')
     @@in_inputbox_regex1  = Regexp.new('<inputbox>')
     @@in_inputbox_regex2  = Regexp.new('<\/inputbox>')
@@ -91,15 +87,10 @@ module Wp2txt
       mode = nil
       open_stack  = []
       close_stack = []
+      source.gsub!(/\<\!\-\-.*?\-\>/m){"\n"}
       source.each_line do |line|
 
         case mode
-        when :mw_comment
-          if @@in_comment_regex2 =~ line
-            mode = nil
-          end
-          @elements.last.last << line
-          next
         when :mw_summary
           open_stack  += line.scan(/\{\{/)
           close_stack += line.scan(/\}\}/)          
@@ -151,11 +142,6 @@ module Wp2txt
           @elements << create_element(:mw_template, line)
         when @@in_heading_regex
           @elements << create_element(:mw_heading, "\n" + line + "\n")
-        when @@in_comment_regex
-          @elements << create_element(:mw_comment, line)
-        when @@in_comment_regex1
-          mode = :mw_comment
-          @elements << create_element(:mw_comment, line)
         when @@in_inputbox_regex
           @elements << create_element(:mw_inputbox, line)
         when @@in_inputbox_regex1
