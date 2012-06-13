@@ -27,7 +27,7 @@ module Wp2txt
 
     # attr_accessor :pause_flag, :stop_flag, :outfiles, :convert_off
 
-    def initialize(parent, input_file, output_dir = ".", tfile_size = 10, convert_off = false)
+    def initialize(parent, input_file, output_dir = ".", tfile_size = 10, convert_off = false, strip_tmarker = false)
       @parent = parent
       @fp = nil
       
@@ -35,6 +35,7 @@ module Wp2txt
       @output_dir = output_dir
       @tfile_size = tfile_size
       @convert_off = convert_off
+      @strip_tmarker = strip_tmarker
     end
     
     def file_size(file) 
@@ -247,7 +248,7 @@ module Wp2txt
         
         @count ||= 0;@count += 1;        
 
-        article = Article.new(text, title)
+        article = Article.new(text, title, @strip_tmarker)
         output_text += block.call(article)
         @total_size = output_text.bytesize
 

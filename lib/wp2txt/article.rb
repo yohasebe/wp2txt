@@ -65,7 +65,6 @@ module Wp2txt
     @@in_table_regex1 = Regexp.new('^\W*\{\|')
     @@in_table_regex2 = Regexp.new('^\|\}.*?$')
     
-    @@in_blockquote_regex = Regexp.new('^\:')
     @@in_unordered_regex  = Regexp.new('^\*')
     @@in_ordered_regex    = Regexp.new('^\#')
     @@in_pre_regex = Regexp.new('^ ')
@@ -73,8 +72,9 @@ module Wp2txt
     
     @@blank_line_regex = Regexp.new('^\s*$')
 
-    def initialize(text, title = "")
+    def initialize(text, title = "", strip_tmarker = false)
       @title = title.strip
+      @strip_tmarker = strip_tmarker
       parse text
     end
     
@@ -173,20 +173,20 @@ module Wp2txt
           mode = :mw_table
           @elements << create_element(:mw_table, line)
         when @@in_unordered_regex
-          # line = format_wiki(line) unless $DEBUG_MODE
+          line = line.sub(/\A[\*\#\;\:\ ]+/, "") if @strip_tmarker          
           @elements << create_element(:mw_unordered, line)
         when @@in_ordered_regex
-          # line = format_wiki(line) unless $DEBUG_MODE
+          line = line.sub(/\A[\*\#\;\:\ ]+/, "") if @strip_tmarker          
           @elements << create_element(:mw_ordered, line)
         when @@in_pre_regex
+          line = line.sub(/\A\^\ /, "") if @strip_tmarker          
           @elements << create_element(:mw_pre, line)
         when @@in_definition_regex
-          # line = format_wiki(line) unless $DEBUG_MODE
+          line = line.sub(/\A[\;\:\ ]+/, "") if @strip_tmarker
           @elements << create_element(:mw_definition, line)
         when @@in_link_regex
           @elements << create_element(:mw_link, line)
-        else #when @@in_paragraph_regex
-          # line = format_wiki(line) unless $DEBUG_MODE
+        else 
           @elements << create_element(:mw_paragraph, line)
         end
       end
