@@ -11,27 +11,27 @@ module Wp2txt
     begin 
       text = original_text + "" 
       
-      text = special_chr(text)             #
-      text = chrref_to_utf(text)           #
+      text = special_chr(text)
+      text = chrref_to_utf(text)
 
       text = escape_nowiki(text)
 
-      text = process_redirects(text)       #
-      text = process_interwiki_links(text) #
-      text = process_external_links(text)  #
-      text = process_template(text)        #
-      text = remove_directive(text)        #
-      text = remove_emphasis(text)         #
+      text = process_redirects(text)
+      text = process_interwiki_links(text)
+      text = process_external_links(text)
+      text = process_template(text)
+      text = remove_directive(text)
+      text = remove_emphasis(text)
 
-      text = mndash(text)                  #
-      text = make_reference(text)          #
-      text = format_ref(text)              #
-      text = remove_table(text)            #
-      text = remove_clade(text)            #
-      text = remove_hr(text)               #
-      text = remove_tag(text)              #
+      text = mndash(text)
+      #text = make_reference(text)
+      #text = format_ref(text)
+      #text = remove_table(text)
+      #text = remove_clade(text)
+      text = remove_hr(text)
+      text = remove_tag(text)
 
-      unescape_nowiki(text)                #
+      unescape_nowiki(text)
     rescue # detect invalid byte sequence in UTF-8
       if has_retried
         puts "invalid byte sequence detected"
@@ -282,6 +282,12 @@ module Wp2txt
     str = str.gsub(/\{(mdash|ndash|–)\}/, "–")
   end
 
+  def remove_hr(page)
+    page = page.gsub(/^\s*\-+\s*$/, "")
+  end
+  
+  #################### methods currently unused ####################
+
   def make_reference(str)
     new_str = str.dup
     new_str.gsub!(/<br ?\/>/, "\n")
@@ -306,18 +312,12 @@ module Wp2txt
     new_str = remove_table(new_str) unless str == new_str
     return new_str
   end
-    
+  
   def remove_clade(page)
     new_page = page.gsub(/\{\{(?:C|c)lade[^\{\}]*\}\}/m, "")
     new_page = remove_clade(new_page) unless page == new_page
     new_page
   end
-
-  def remove_hr(page)
-    page = page.gsub(/^\s*\-+\s*$/, "")
-  end
-  
-  #################### methods currently unused ####################
 
   def remove_inline_template(str)
     str.gsub(/\{\{(.*?)\}\}/) do
