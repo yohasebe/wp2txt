@@ -250,7 +250,7 @@ module Wp2txt
         # each comment instead
         text.gsub!(/\<\!\-\-(.*?)\-\-\>/m) do |content|
           num_of_newlines = content.count("\n")
-          if num_of_newlines = 0
+          if num_of_newlines == 0
             ""
           else
             "\n" * num_of_newlines
