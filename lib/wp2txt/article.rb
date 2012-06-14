@@ -58,9 +58,9 @@ module Wp2txt
     @@in_html_table_regex1 = Regexp.new('<table\b')
     @@in_html_table_regex2 = Regexp.new('<\/\s*table>')
     
-    @@in_summary_regex = Regexp.new('^\s*\{\{.*?\}\}\s*$')
-    @@in_summary_regex1 = Regexp.new('^\s*\{\{[^\{]*$')
-    @@in_summary_regex2 = Regexp.new('\}\}\s*$')
+    # @@in_summary_regex = Regexp.new('^\s*\{\{.*?\}\}\s*$')
+    # @@in_summary_regex1 = Regexp.new('^\s*\{\{[^\{]*$')
+    # @@in_summary_regex2 = Regexp.new('\}\}\s*$')
     
     @@in_table_regex1 = Regexp.new('^\W*\{\|')
     @@in_table_regex2 = Regexp.new('^\|\}.*?$')
@@ -87,22 +87,21 @@ module Wp2txt
       mode = nil
       open_stack  = []
       close_stack = []
-      source.gsub!(/\<\!\-\-.*?\-\-\>/m){"\n"}
       source.each_line do |line|
 
         case mode
-        when :mw_summary
-          open_stack  += line.scan(/\{\{/)
-          close_stack += line.scan(/\}\}/)          
-          if @@in_summary_regex2 =~ line
-            if open_stack.size == close_stack.size
-              mode = nil
-              open_stack.clear
-              close_stack.clear
-            end
-          end
-          @elements.last.last << line
-          next
+        # when :mw_summary
+        #   open_stack  += line.scan(/\{\{/)
+        #   close_stack += line.scan(/\}\}/)          
+        #   if @@in_summary_regex2 =~ line
+        #     if open_stack.size == close_stack.size
+        #       mode = nil
+        #       open_stack.clear
+        #       close_stack.clear
+        #     end
+        #   end
+        #   @elements.last.last << line
+        #   next
         when :mw_table
           if @@in_table_regex2 =~ line
             mode = nil
@@ -162,13 +161,13 @@ module Wp2txt
         when @@in_html_table_regex1
           mode = :mw_htable
           @elements << create_element(:mw_htable, line)
-        when @@in_summary_regex
-          @elements << create_element(:mw_summary, line)
-        when @@in_summary_regex1
-          mode = :mw_summary
-          open_stack  += line.scan(/\{\{/)
-          close_stack += line.scan(/\}\}/)
-          @elements << create_element(:mw_summary, line)
+        # when @@in_summary_regex
+        #   @elements << create_element(:mw_summary, line)
+        # when @@in_summary_regex1
+        #   mode = :mw_summary
+        #   open_stack  += line.scan(/\{\{/)
+        #   close_stack += line.scan(/\}\}/)
+        #   @elements << create_element(:mw_summary, line)
         when @@in_table_regex1
           mode = :mw_table
           @elements << create_element(:mw_table, line)

@@ -24,8 +24,8 @@ module Wp2txt
       text = remove_emphasis(text)
 
       text = mndash(text)
-      #text = make_reference(text)
-      #text = format_ref(text)
+      text = make_reference(text)
+      text = format_ref(text)
       #text = remove_table(text)
       #text = remove_clade(text)
       text = remove_hr(text)
@@ -110,7 +110,7 @@ module Wp2txt
   end
   
   def process_redirects(str)
-    str.gsub(/#REDIRECT\s*\[\[([^\[\]]+)\]\]/) do
+    str.gsub(/#REDIRECT\s*\[\[([^\[\]]+)\]\]/i) do
       $1
     end    
   end
@@ -285,8 +285,6 @@ module Wp2txt
   def remove_hr(page)
     page = page.gsub(/^\s*\-+\s*$/, "")
   end
-  
-  #################### methods currently unused ####################
 
   def make_reference(str)
     new_str = str.dup
@@ -303,9 +301,11 @@ module Wp2txt
       ref.gsub(/(?:[\r\n]+|<br ?\/>)/, " ")
     end
   end
+  
+  #################### methods currently unused ####################
 
   def remove_table(str)
-    new_str = str.gsub(/\{\|[^\{\|\}]*?\|\}/m, "")    
+    new_str = str.gsub(/\{\|[^\{\|\}]*?\|\}/m, "")
     if str != new_str
       new_str = remove_table(new_str)
     end

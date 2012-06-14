@@ -81,9 +81,9 @@ wpconv.extract_text do |article|
       line = format_wiki(e.last)
       line += "+LIST+" if $DEBUG_MODE
     else
-      if $DEBUG_MODE
+      # if $DEBUG_MODE
         line = format_wiki(e.last) + "+DEBUG+"
-      end
+      # end
       next
     end
     contents += line unless /\A\s*\z/ =~ line
