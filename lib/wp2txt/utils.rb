@@ -11,25 +11,22 @@ module Wp2txt
     begin 
       text = original_text + "" 
       
-      text = special_chr(text)
       text = chrref_to_utf(text)
-
       text = escape_nowiki(text)
 
       text = process_redirects(text)
       text = process_interwiki_links(text)
       text = process_external_links(text)
-      #text = process_template(text)
+
       text = remove_directive(text)
       text = remove_emphasis(text)
 
       text = mndash(text)
       text = make_reference(text)
       text = format_ref(text)
-      #text = remove_table(text)
-      #text = remove_clade(text)
       text = remove_hr(text)
       text = remove_tag(text)
+      text = special_chr(text)
 
       unescape_nowiki(text)
     rescue # detect invalid byte sequence in UTF-8
@@ -207,11 +204,11 @@ module Wp2txt
       @sp_hash  = Hash[*spc_array.flatten]
       @sp_regex = Regexp.new("(" + @sp_hash.keys.join("|") + ")")
     end
-    newstr = str.gsub(/&amp;/, '&')
-    newstr.gsub!(@sp_regex) do
+    #str.gsub!("&amp;"){'&'}
+    str.gsub!(@sp_regex) do
       @sp_hash[$1]
     end
-    return newstr
+    return str
   end
 
   def remove_tag(str, tagset = ['<', '>'])
