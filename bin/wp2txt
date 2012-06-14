@@ -31,6 +31,7 @@ EOS
   opt :heading_off, "Exclude section titles from output", :default => false, :short => "-d"
   opt :title_off,   "Exclude page titles from output", :default => false
   opt :table_off,   "Exclude page titles from output", :default => true
+  opt :template_off, "Remove template notations from output", :default => false
   opt :strip_marker, "Remove symbols prefixed to list items, definitions, etc.", :default => false
   opt :file_size,   "Approximate size (in MB) of each output file", :default => 10  
 end
@@ -41,6 +42,7 @@ input_file = ARGV[0]
 output_dir = opts[:output_dir]
 tfile_size = opts[:file_size]
 convert_off = opts[:convert_off]
+template_off = opts[:template_off]
 strip_tmarker = opts[:strip_marker]
 opt_array = [:title_off, :list_off, :heading_off, :table_off]
 config = {}
@@ -82,11 +84,13 @@ wpconv.extract_text do |article|
       line += "+LIST+" if $DEBUG_MODE
     else
       # if $DEBUG_MODE
-        line = format_wiki(e.last) + "+DEBUG+"
+        line = format_wiki(e.last)
+        line += "+OTHER+" if $DEBUG_MODE
       # end
       next
     end
-    contents += line unless /\A\s*\z/ =~ line
+    contents += line # unless /\A\s*\z/ =~ line
+    contents = remove_templates(contents)
   end
 
   if /\A\W*\z/m =~ contents

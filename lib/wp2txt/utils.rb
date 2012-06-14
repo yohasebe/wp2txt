@@ -19,7 +19,7 @@ module Wp2txt
       text = process_redirects(text)
       text = process_interwiki_links(text)
       text = process_external_links(text)
-      text = process_template(text)
+      #text = process_template(text)
       text = remove_directive(text)
       text = remove_emphasis(text)
 
@@ -51,7 +51,7 @@ module Wp2txt
    
   def process_nested_structure(scanner, left, right, &block)
     buffer = ""
-    while str = scanner.scan_until(/(#{Regexp.escape(left)}|#{Regexp.escape(right)})/)
+    while str = scanner.scan_until(/(#{Regexp.escape(left)}|#{Regexp.escape(right)})/m)
       # begin
       case scanner[1]
       when left
@@ -67,14 +67,6 @@ module Wp2txt
           buffer << str
         end
       end
-      # rescue => e
-      #   p left
-      #   p right
-      #   p buffer
-      #   print scanner.string
-      #   p e
-      #   exit
-      # end
     end
     buffer << scanner.rest
 
@@ -85,6 +77,14 @@ module Wp2txt
       return process_nested_structure(scanner, left, right, &block) || ""
     end
   end  
+
+  def remove_templates(str)
+    scanner = StringScanner.new(str)
+    result = process_nested_structure(scanner, "{{", "}}") do |contents|
+      ""
+    end
+  end
+
   
   #################### methods used from format_wiki ####################
   
@@ -114,27 +114,7 @@ module Wp2txt
       $1
     end    
   end
-  
-  def process_template(str)
-    scanner = StringScanner.new(str)
-    result = process_nested_structure(scanner, "{{", "}}") do |contents|
-      parts = contents.split("|")
-      case parts.size
-      when 0
-        ""
-      when 1
-        parts.first || ""
-      else
-        if parts.last.split("=").size > 1
-          parts.first || ""
-        else
-          parts.last || ""
-        end
-      end
-    end
-    result
-  end
-    
+      
   def process_interwiki_links(str)
     scanner = StringScanner.new(str)
     result = process_nested_structure(scanner, "[[", "]]") do |contents|
@@ -303,6 +283,26 @@ module Wp2txt
   end
   
   #################### methods currently unused ####################
+
+  def process_template(str)
+    scanner = StringScanner.new(str)
+    result = process_nested_structure(scanner, "{{", "}}") do |contents|
+      parts = contents.split("|")
+      case parts.size
+      when 0
+        ""
+      when 1
+        parts.first || ""
+      else
+        if parts.last.split("=").size > 1
+          parts.first || ""
+        else
+          parts.last || ""
+        end
+      end
+    end
+    result
+  end
 
   def remove_table(str)
     new_str = str.gsub(/\{\|[^\{\|\}]*?\|\}/m, "")
