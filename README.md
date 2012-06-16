@@ -39,7 +39,7 @@ Command line options are as follows:
          --heading-off, -d:   Exclude section titles from output
            --title-off, -t:   Exclude page titles from output
            --table-off, -a:   Exclude page titles from output (default: true)
-        --template-off, -e:   Remove template notations from output
+        --template-off, -e:   Remove multi-line template notations from output
         --strip-marker, -s:   Remove symbols prefixed to list items, definitions, etc.
        --file-size, -f <i>:   Approximate size (in MB) of each output file (default: 10)
              --version, -v:   Print version and exit

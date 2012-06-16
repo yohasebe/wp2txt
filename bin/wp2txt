@@ -31,7 +31,7 @@ EOS
   opt :heading_off, "Exclude section titles from output", :default => false, :short => "-d"
   opt :title_off,   "Exclude page titles from output", :default => false
   opt :table_off,   "Exclude page titles from output", :default => true
-  opt :template_off, "Remove template notations from output", :default => false
+  opt :template_off, "Remove template notations from output", :default => true
   opt :strip_marker, "Remove symbols prefixed to list items, definitions, etc.", :default => false
   opt :file_size,   "Approximate size (in MB) of each output file", :default => 10  
 end
