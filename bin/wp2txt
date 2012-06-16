@@ -74,9 +74,13 @@ wpconv.extract_text do |article|
       next if config[:table_off]
       line = format_wiki(e.last)
       line += "+TABLE+" if $DEBUG_MODE
-    when :mw_quote, :mw_pre
-      next if config[:quote_off]
+    when :mw_pre
+      next if config[:pre_off]
       line = e.last
+      line += "+PRE+" if $DEBUG_MODE
+    when :mw_quote
+      next if config[:quote_off]
+      line = format_wiki(e.last)
       line += "+QUOTE+" if $DEBUG_MODE
     when :mw_unordered, :mw_ordered, :mw_definition
       next if config[:list_off]

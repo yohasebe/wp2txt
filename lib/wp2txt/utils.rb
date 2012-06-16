@@ -270,8 +270,8 @@ module Wp2txt
   def make_reference(str)
     new_str = str.dup
     new_str.gsub!(/<br ?\/>/, "\n")
-    new_str.gsub!(/<ref [^>]*\/>/, "")
-    new_str.gsub!(/<ref>/, "[ref]")
+    new_str.gsub!(/<ref[^>]*\/>/, "")
+    new_str.gsub!(/<ref[^>]*>/, "[ref]")
     new_str.gsub!(/<\/ref>/, "[/ref]")
     return new_str
   end
