@@ -79,9 +79,9 @@ module Wp2txt
     scanner = StringScanner.new(str)
     result = process_nested_structure(scanner, "{{", "}}") do |contents|
       if contents.index("\n")
-        "[tpl]#{contents}[/tpl]"
+        "\n\n"
       else
-        ""
+        "[tpl]#{contents}[/tpl]"        
       end
     end
   end
