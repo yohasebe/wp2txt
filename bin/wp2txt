@@ -24,7 +24,7 @@ Usage: wp2txt [options]
 where [options] are:
 EOS
 
-  opt :input_file,  "Wikipedia dump file with .bz2 or .txt format", :required => true
+  opt :input_file,  "Wikipedia dump file with .bz2 (compressed) or .txt (uncompressed) format", :required => true
   opt :output_dir,  "Output directory", :default => Dir::pwd, :type => String
   opt :convert_off, "Output XML (without converting to plain text)", :default => false
   opt :list_off,    "Exclude list items from output", :default => false

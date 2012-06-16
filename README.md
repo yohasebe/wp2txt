@@ -22,15 +22,25 @@ WP2TXT before version 0.4.0 came with Mac/Windows GUI. Now it's become a pure co
 
 ### Usage
 
+Obtain Wikipedia dump file (see the link below) with a file name such as:
+
+    xxwiki-yyyymmdd-pages-articles.xml.bz2
+
+where `xx` is language code such as "en (English)" or "ja (Japanese)", and  `yyyymmdd` is the date of creation (e.g. 20120601).
+
+Command line options are as follows:
+
     Usage: wp2txt [options]
     where [options] are:
-          --input-file, -i:   Wikipedia dump file with .bz2 or .txt format
-      --output-dir, -o <s>:   Output directory (default: /Users/yohasebe/Dropbox/code/wp2txt)
+          --input-file, -i:   Wikipedia dump file with .bz2 (compressed) or .txt (uncompressed) format
+      --output-dir, -o <s>:   Output directory (default: current directory)
          --convert-off, -c:   Output XML (without converting to plain text)
             --list-off, -l:   Exclude list items from output
          --heading-off, -d:   Exclude section titles from output
            --title-off, -t:   Exclude page titles from output
            --table-off, -a:   Exclude page titles from output (default: true)
+        --template-off, -e:   Remove template notations from output
+        --strip-marker, -s:   Remove symbols prefixed to list items, definitions, etc.
        --file-size, -f <i>:   Approximate size (in MB) of each output file (default: 10)
              --version, -v:   Print version and exit
                 --help, -h:   Show this message
