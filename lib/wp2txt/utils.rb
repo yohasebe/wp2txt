@@ -75,10 +75,14 @@ module Wp2txt
     end
   end  
 
-  def remove_templates(str)
+  def remove_templates(str, only_not_inline = true)
     scanner = StringScanner.new(str)
     result = process_nested_structure(scanner, "{{", "}}") do |contents|
-      ""
+      if contents.index("\n")
+        "[tpl]#{contents}[/tpl]"
+      else
+        ""
+      end
     end
   end
 
