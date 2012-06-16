@@ -12,7 +12,7 @@ WP2TXT extracts plain text data from Wikipedia dump file (encoded in XML/compres
 * Create output files of specified size.
 * Allow users to specify text elements to be extracted/converted (page titles, section titles, lists, and tables).
 
-WP2TXT before version 0.4.0 came with Mac/Windows GUI. Now it's become a pure command-line application--Sorry GUI folks, but there seems more demand for an easy-to-hack CUI package than an inflexible GUI app.
+WP2TXT before version 0.4.0 came with Mac/Windows GUI. Now it's become a pure command-line application--Sorry GUI folks, but there seems more demand for an easy-to-hack CUI package than a not-very-flexible GUI app.
 
 ### Installation
     
@@ -22,7 +22,7 @@ WP2TXT before version 0.4.0 came with Mac/Windows GUI. Now it's become a pure co
 
 ### Usage
 
-Obtain Wikipedia dump file (see the link below) with a file name such as:
+Obtain a Wikipedia dump file (see the link below) with a file name such as:
 
     xxwiki-yyyymmdd-pages-articles.xml.bz2
 
