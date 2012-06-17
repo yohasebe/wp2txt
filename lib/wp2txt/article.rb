@@ -25,6 +25,7 @@ module Wp2txt
   # :mw_link
   # :mw_summary
   # :mw_blank
+  # :mw_redirect
   
   # an article contains elements, each of which is [TYPE, string]
   class Article
@@ -58,11 +59,7 @@ module Wp2txt
     @@in_html_table_regex1 = Regexp.new('<table\b')
     @@in_html_table_regex2 = Regexp.new('<\/\s*table>')
     
-    # @@in_summary_regex = Regexp.new('^\s*\{\{.*?\}\}\s*$')
-    # @@in_summary_regex1 = Regexp.new('^\s*\{\{[^\{]*$')
-    # @@in_summary_regex2 = Regexp.new('\}\}\s*$')
-    
-    @@in_table_regex1 = Regexp.new('^\W*\{\|')
+    @@in_table_regex1 = Regexp.new('^\s*\{\|')
     @@in_table_regex2 = Regexp.new('^\|\}.*?$')
     
     @@in_unordered_regex  = Regexp.new('^\*')
@@ -71,6 +68,8 @@ module Wp2txt
     @@in_definition_regex  = Regexp.new('^[\;\:]')    
     
     @@blank_line_regex = Regexp.new('^\s*$')
+
+    @@redirect_regex = Regexp.new('#(?:REDIRECT|転送)\s+\[\[(.+)\]\]', Regexp::IGNORECASE)
 
     def initialize(text, title = "", strip_tmarker = false)
       @title = title.strip
@@ -90,18 +89,6 @@ module Wp2txt
       source.each_line do |line|
 
         case mode
-        # when :mw_summary
-        #   open_stack  += line.scan(/\{\{/)
-        #   close_stack += line.scan(/\}\}/)          
-        #   if @@in_summary_regex2 =~ line
-        #     if open_stack.size == close_stack.size
-        #       mode = nil
-        #       open_stack.clear
-        #       close_stack.clear
-        #     end
-        #   end
-        #   @elements.last.last << line
-        #   next
         when :mw_table
           if @@in_table_regex2 =~ line
             mode = nil
@@ -137,6 +124,8 @@ module Wp2txt
         case line
         when @@blank_line_regex
           @elements << create_element(:mw_blank, "\n")      
+        when @@redirect_regex
+          @elements << create_element(:mw_redirect, line)
         when @@in_template_regex
           @elements << create_element(:mw_template, line)
         when @@in_heading_regex
@@ -161,13 +150,6 @@ module Wp2txt
         when @@in_html_table_regex1
           mode = :mw_htable
           @elements << create_element(:mw_htable, line)
-        # when @@in_summary_regex
-        #   @elements << create_element(:mw_summary, line)
-        # when @@in_summary_regex1
-        #   mode = :mw_summary
-        #   open_stack  += line.scan(/\{\{/)
-        #   close_stack += line.scan(/\}\}/)
-        #   @elements << create_element(:mw_summary, line)
         when @@in_table_regex1
           mode = :mw_table
           @elements << create_element(:mw_table, line)

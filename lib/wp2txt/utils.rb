@@ -14,7 +14,7 @@ module Wp2txt
       text = chrref_to_utf(text)
       text = escape_nowiki(text)
 
-      text = process_redirects(text)
+      #text = process_redirects(text)
       text = process_interwiki_links(text)
       text = process_external_links(text)
 
@@ -110,11 +110,11 @@ module Wp2txt
     end
   end
   
-  def process_redirects(str)
-    str.gsub(/#REDIRECT\s*\[\[([^\[\]]+)\]\]/i) do
-      $1
-    end    
-  end
+  #def process_redirects(str)
+  #  str.gsub(/#REDIRECT\s*\[\[([^\[\]]+)\]\]/i) do
+  #    $1
+  #  end    
+  #end
       
   def process_interwiki_links(str)
     scanner = StringScanner.new(str)

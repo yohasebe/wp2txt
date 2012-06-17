@@ -145,12 +145,6 @@ describe "Wp2txt" do
     end
   end
   
-  describe "process_redirects" do
-    it "replaces redirect direction to a simple pagename" do
-      process_redirects("#REDIRECT [[OTHER PAGE]]").should == "OTHER PAGE"
-    end    
-  end
-
   describe "process_interwiki_links" do
     it "formats text link and remove brackets" do
       process_interwiki_links("[[a b]]").should   == "a b"
