@@ -99,7 +99,7 @@ wpconv.extract_text do |article|
         next
       end
     end
-    contents += line # unless /\A\s*\z/ =~ line
+    contents += line
     contents = remove_templates(contents) if config[:template_off]
   end
   if /\A\s*\z/m =~ contents
