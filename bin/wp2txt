@@ -57,7 +57,7 @@ wpconv = Wp2txt::Runner.new(parent, input_file, output_dir, tfile_size, convert_
 
 wpconv.extract_text do |article|
   title = format_wiki article.title
-  title = "\n[[#{title}]]\n"
+  title = "[[#{title}]]\n"
   contents = ""
 
   article.elements.each do |e|
@@ -90,7 +90,7 @@ wpconv.extract_text do |article|
       next if config[:redirect_off]
       line = format_wiki(e.last)
       line += "+REDIRECT+" if $DEBUG_MODE
-      line += "\n"
+      line += "\n\n"
     else
       if $DEBUG_MODE
         line = format_wiki(e.last)
@@ -108,5 +108,5 @@ wpconv.extract_text do |article|
     result = config[:title_off] ? contents : title + "\n" + contents
   end
   result = result.gsub(/\[ref\]\s*\[\/ref\]/m){""}
-  result = result.gsub(/\n\n\n+/m){"\n\n"}
+  result = result.gsub(/\n\n\n+/m){"\n\n"} + "\n"
 end
