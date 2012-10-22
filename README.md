@@ -16,7 +16,7 @@ WP2TXT before version 0.4.0 came with Mac/Windows GUI. Now it's become a pure co
 
 ### Installation
     
-`gem install` method will become available soon.  In the meantime, use the source code on Github.
+<!-- `gem install` method will become available soon.  In the meantime, use the source code on Github. -->
 
     $ gem install wp2txt
 
