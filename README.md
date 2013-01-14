@@ -31,7 +31,7 @@ Command line options are as follows:
     Usage: wp2txt [options]
     where [options] are:
                          --input-file, -i:   Wikipedia dump file with .bz2 (compressed) or .txt (uncompressed) format
-                     --output-dir, -o <s>:   Output directory (default: /Users/yohasebe/Dropbox/code/wp2txt)
+                     --output-dir, -o <s>:   Output directory (default: Present working directory)
                         --convert-off, -c:   Output XML (without converting to plain text)
                            --list-off, -l:   Exclude list items from output
                         --heading-off, -d:   Exclude section titles from output
