@@ -206,7 +206,7 @@ module Wp2txt
       if page.empty?
         return false
       else
-        return page.force_encoding("utf-8")
+        return page.force_encoding("utf-8") rescue page
       end
     end
 

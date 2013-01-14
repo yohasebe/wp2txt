@@ -34,6 +34,7 @@ EOS
   opt :template_off, "Remove template notations from output", :default => true
   opt :redirect_off, "Not show redirect destination", :default => false
   opt :strip_marker, "Remove symbols prefixed to list items, definitions, etc.", :default => false
+  opt :category_off, "Not output article category information", :default => false
   opt :file_size,   "Approximate size (in MB) of each output file", :default => 10  
 end
 Trollop::die :size, "must be larger than 0" unless opts[:file_size] >= 0
@@ -58,7 +59,14 @@ wpconv = Wp2txt::Runner.new(parent, input_file, output_dir, tfile_size, convert_
 wpconv.extract_text do |article|
   title = format_wiki article.title
   title = "[[#{title}]]\n"
-  contents = ""
+
+  if !opts[:category_off] && !article.categories.empty?
+    contents = "\nCATEGORIES: "
+    contents += article.categories.join(", ")
+    contents += "\n\n"
+  else
+    contents = ""
+  end
 
   article.elements.each do |e|
     case e.first
@@ -102,11 +110,13 @@ wpconv.extract_text do |article|
     contents += line
     contents = remove_templates(contents) if config[:template_off]
   end
+    
+  ##### cleanup #####
   if /\A\s*\z/m =~ contents
     result = ""
   else
     result = config[:title_off] ? contents : title + "\n" + contents
   end
   result = result.gsub(/\[ref\]\s*\[\/ref\]/m){""}
-  result = result.gsub(/\n\n\n+/m){"\n\n"} + "\n"
+  result = result.gsub(/\n\n\n+/m){"\n\n"} + "\n"  
 end

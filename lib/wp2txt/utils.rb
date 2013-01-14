@@ -37,7 +37,7 @@ module Wp2txt
         end
         exit
       else
-        fixed_text = original_text.encode("UTF-16", :invalid => :replace, :replace => '').encode("UTF-8")
+        fixed_text = original_text.encode("UTF-16").encode("UTF-8")
         return format_wiki(fixed_text, true)
       end
     end
@@ -240,7 +240,7 @@ module Wp2txt
         hi = ch>>8
         lo = ch&0xff
         u = "\377\376" << lo.chr << hi.chr
-        u.encode("UTF-8", "UTF-16")        
+        u.encode("UTF-8", "UTF-16")
       end
     rescue StandardError
       return num_str

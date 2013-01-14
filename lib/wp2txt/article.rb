@@ -31,7 +31,7 @@ module Wp2txt
   class Article
     
     include Wp2txt
-    attr_accessor :elements, :title
+    attr_accessor :elements, :title, :categories
     
     # class varialbes to save resource for generating regexps
     # those with a trailing number 1 represent opening tag/markup
@@ -70,6 +70,8 @@ module Wp2txt
     @@blank_line_regex = Regexp.new('^\s*$')
 
     @@redirect_regex = Regexp.new('#(?:REDIRECT|転送)\s+\[\[(.+)\]\]', Regexp::IGNORECASE)
+    
+    @@category_regex = Regexp.new('[\{\[\|\b](?:C|c)ategory\:(.*?)[\}\]\|\b]')
 
     def initialize(text, title = "", strip_tmarker = false)
       @title = title.strip
@@ -83,10 +85,16 @@ module Wp2txt
   
     def parse(source)
       @elements = []
+      @categories  = []
       mode = nil
       open_stack  = []
       close_stack = []
       source.each_line do |line|
+        matched = line.scan(@@category_regex)
+        if matched && !matched.empty?
+          @categories += matched
+          @categories = @categories.uniq
+        end
 
         case mode
         when :mw_table
@@ -129,6 +137,7 @@ module Wp2txt
         when @@in_template_regex
           @elements << create_element(:mw_template, line)
         when @@in_heading_regex
+          line = line.sub(/^(\=+)\s+/){$1}.sub(/\s+(\=+)$/){$1}          
           @elements << create_element(:mw_heading, "\n" + line + "\n")
         when @@in_inputbox_regex
           @elements << create_element(:mw_inputbox, line)
