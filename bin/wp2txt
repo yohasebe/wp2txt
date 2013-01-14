@@ -34,7 +34,7 @@ EOS
   opt :template_off, "Remove template notations from output", :default => true
   opt :redirect_off, "Not show redirect destination", :default => false
   opt :strip_marker, "Remove symbols prefixed to list items, definitions, etc.", :default => false
-  opt :category_off, "Not output article category information", :default => false
+  opt :category_off, "Not show article category information", :default => false
   opt :file_size,   "Approximate size (in MB) of each output file", :default => 10  
 end
 Trollop::die :size, "must be larger than 0" unless opts[:file_size] >= 0

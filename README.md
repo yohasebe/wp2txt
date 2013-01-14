@@ -30,18 +30,25 @@ Command line options are as follows:
 
     Usage: wp2txt [options]
     where [options] are:
-          --input-file, -i:   Wikipedia dump file with .bz2 (compressed) or .txt (uncompressed) format
-      --output-dir, -o <s>:   Output directory (default: current directory)
-         --convert-off, -c:   Output XML (without converting to plain text)
-            --list-off, -l:   Exclude list items from output
-         --heading-off, -d:   Exclude section titles from output
-           --title-off, -t:   Exclude page titles from output
-           --table-off, -a:   Exclude page titles from output (default: true)
-        --template-off, -e:   Remove multi-line template notations from output
-        --strip-marker, -s:   Remove symbols prefixed to list items, definitions, etc.
-       --file-size, -f <i>:   Approximate size (in MB) of each output file (default: 10)
-             --version, -v:   Print version and exit
-                --help, -h:   Show this message
+                       --input-file, -i:   Wikipedia dump file with .bz2 (compressed) or .txt
+                                           (uncompressed) format
+                   --output-dir, -o <s>:   Output directory (default:
+                                           /Users/yohasebe/Dropbox/code/wp2txt)
+                      --convert-off, -c:   Output XML (without converting to plain text)
+                         --list-off, -l:   Exclude list items from output
+                      --heading-off, -d:   Exclude section titles from output
+                        --title-off, -t:   Exclude page titles from output
+        --table-off, --no-table-off, -a:   Exclude page titles from output (default: true)
+  --template-off, --no-template-off, -e:   Remove template notations from output (default:
+                                           true)
+                     --redirect-off, -r:   Not show redirect destination
+                     --strip-marker, -s:   Remove symbols prefixed to list items, definitions,
+                                           etc.
+                     --category-off, -g:   Not show article category information
+                    --file-size, -f <i>:   Approximate size (in MB) of each output file
+                                           (default: 10)
+                          --version, -v:   Print version and exit
+                             --help, -h:   Show this message
 
 ### Limitations ###
 
