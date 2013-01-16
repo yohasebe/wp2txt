@@ -70,8 +70,9 @@ module Wp2txt
     @@blank_line_regex = Regexp.new('^\s*$')
 
     @@redirect_regex = Regexp.new('#(?:REDIRECT|転送)\s+\[\[(.+)\]\]', Regexp::IGNORECASE)
-    
-    @@category_regex = Regexp.new('[\{\[\|\b](?:C|c)ategory\:(.*?)[\}\]\|\b]')
+
+    category_patterns = ["Category", "Categoria"].join("|")
+    @@category_regex = Regexp.new('[\{\[\|\b](?:' + category_patterns + ')\:(.*?)[\}\]\|\b]', Regexp::IGNORECASE)
 
     def initialize(text, title = "", strip_tmarker = false)
       @title = title.strip
