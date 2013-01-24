@@ -47,8 +47,8 @@ module Wp2txt
    
   def process_nested_structure(scanner, left, right, &block)
     buffer = ""
+    begin
     while str = scanner.scan_until(/(#{Regexp.escape(left)}|#{Regexp.escape(right)})/m)
-      # begin
       case scanner[1]
       when left
         buffer << str
@@ -71,6 +71,9 @@ module Wp2txt
     else
       scanner.string = buffer
       return process_nested_structure(scanner, left, right, &block) || ""
+    end
+    rescue => e
+      return scanner.string
     end
   end  
 
