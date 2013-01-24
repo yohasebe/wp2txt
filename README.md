@@ -18,7 +18,6 @@ WP2TXT before version 0.4.0 came with Mac/Windows GUI. Now it's become a pure co
 
 ### Installation
     
-    $ gem install bundler
     $ gem install wp2txt
 
 ### Usage
