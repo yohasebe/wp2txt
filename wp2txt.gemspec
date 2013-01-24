@@ -23,5 +23,5 @@ Gem::Specification.new do |s|
   s.add_runtime_dependency "bzip2-ruby"
   s.add_runtime_dependency "trollop"
   s.add_runtime_dependency "nokogiri"
-  s.add_runtime_dependency "json"  
+  s.add_runtime_dependency "json"
 end

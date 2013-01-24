@@ -2,6 +2,8 @@
 
 Wikipedia dump file to text converter
 
+     CAUTION: This software is on an experimental stage. Use with care!
+
 ### About ###
 
 WP2TXT extracts plain text data from Wikipedia dump file (encoded in XML/compressed with Bzip2) stripping all the MediaWiki markups and other metadata. It is originally intended to be useful for researchers who look for an easy way to obtain open-source multi-lingual corpora, but may be handy for other purposes.
@@ -16,6 +18,7 @@ WP2TXT before version 0.4.0 came with Mac/Windows GUI. Now it's become a pure co
 
 ### Installation
     
+    $ gem install bundler
     $ gem install wp2txt
 
 ### Usage
