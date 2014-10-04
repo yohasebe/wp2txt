@@ -24,7 +24,7 @@ When the above gem is not found, wp2txt will try to use bzip2 program in your co
 
 ### Usage
 
-Obtain a Wikipedia dump file (see the link below) with a file name such as:
+Obtain a Wikipedia dump file (from [here](http://dumps.wikimedia.org/backup-index.html)) with a file name such as:
 
     xxwiki-yyyymmdd-pages-articles.xml.bz2
 
