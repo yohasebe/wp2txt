@@ -2,8 +2,6 @@
 
 Wikipedia dump file to text converter
 
-     CAUTION: This software is on an experimental stage. Use with care!
-
 ### About ###
 
 WP2TXT extracts plain text data from Wikipedia dump file (encoded in XML/compressed with Bzip2) stripping all the MediaWiki markups and other metadata. It is originally intended to be useful for researchers who look for an easy way to obtain open-source multi-lingual corpora, but may be handy for other purposes.
@@ -14,11 +12,15 @@ WP2TXT extracts plain text data from Wikipedia dump file (encoded in XML/compres
 * Create output files of specified size.
 * Allow users to specify text elements to be extracted/converted (page titles, section titles, lists, and tables).
 
-WP2TXT before version 0.4.0 came with Mac/Windows GUI. Now it's become a pure command-line application--Sorry GUI folks, but there seems more demand for an easy-to-hack CUI package than a not-very-flexible GUI app.
-
 ### Installation
     
     $ gem install wp2txt
+
+It is highly recommended you also install bz2-ruby gem. See the following for the details about bz2-ruby gem:
+
+[https://github.com/brianmario/bzip2-ruby](https://github.com/brianmario/bzip2-ruby)
+
+When the above gem is not found, wp2txt will try to use bzip2 program in your command line environment.  Supposedly he former option is more reliable as well as fast.
 
 ### Usage
 
@@ -30,24 +32,31 @@ where `xx` is language code such as "en (English)" or "ja (Japanese)", and  `yyy
 
 Command line options are as follows:
 
-    Usage: wp2txt [options]
-    where [options] are:
-                         --input-file, -i:   Wikipedia dump file with .bz2 (compressed) or .txt (uncompressed) format
-                     --output-dir, -o <s>:   Output directory (default: Present working directory)
-                        --convert-off, -c:   Output XML (without converting to plain text)
-                           --list-off, -l:   Exclude list items from output
-                        --heading-off, -d:   Exclude section titles from output
-                          --title-off, -t:   Exclude page titles from output
-          --table-off, --no-table-off, -a:   Exclude page titles from output (default: true)
-    --template-off, --no-template-off, -e:   Remove template notations from output (default: true)
-                       --redirect-off, -r:   Not show redirect destination
-                       --strip-marker, -s:   Remove symbols prefixed to list items, definitions, etc.
-                       --category-off, -g:   Not show article category information
-                      --file-size, -f <i>:   Approximate size (in MB) of each output file (default: 10)
-                            --version, -v:   Print version and exit
-                               --help, -h:   Show this message
+*CAUTION:* command line options in the current version have been drastically changed from those in versions 0.5!
 
-### Limitations ###
+      Usage: wp2txt [options]
+      where [options] are:
+               --input-file, -i:   Wikipedia dump file with .bz2 (compressed) or
+                                   .txt (uncompressed) format
+           --output-dir, -o <s>:   Output directory (default:
+                                   /Users/yohasebe/Dropbox/code/wp2txt)
+    --convert, --no-convert, -c:   Output in plain text (converting from XML)
+                                   (default: true)
+          --list, --no-list, -l:   Show list items in output (default: true)
+    --heading, --no-heading, -d:   Show section titles in output (default: true)
+        --title, --no-title, -t:   Show page titles in output (default: true)
+                    --table, -a:   Show table source code in output
+                 --template, -e:   Show template specifications in output
+                 --redirect, -r:   Show redirect destination
+      --marker, --no-marker, -m:   Show symbols prefixed to list items,
+                                   definitions, etc. (Default: true)
+                 --category, -g:   Show article category information
+            --file-size, -f <i>:   Approximate size (in MB) of each output file
+                                   (default: 10)
+                  --version, -v:   Print version and exit
+                     --help, -h:   Show this message
+
+### Caveats ###
 
 * Certain types of data such as mathematical equations and computer source code are not be properly converted.  Please remember this software is originally intended for correcting “sentences” for linguistic studies.
 * Extraction of normal text data could sometimes fail for various reasons (e.g. illegal matching of begin/end tags, language-specific conventions of formatting, etc). 

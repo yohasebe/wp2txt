@@ -26,15 +26,15 @@ EOS
 
   opt :input_file,  "Wikipedia dump file with .bz2 (compressed) or .txt (uncompressed) format", :required => true
   opt :output_dir,  "Output directory", :default => Dir::pwd, :type => String
-  opt :convert_off, "Output XML (without converting to plain text)", :default => false
-  opt :list_off,    "Exclude list items from output", :default => false
-  opt :heading_off, "Exclude section titles from output", :default => false, :short => "-d"
-  opt :title_off,   "Exclude page titles from output", :default => false
-  opt :table_off,   "Exclude page titles from output", :default => true
-  opt :template_off, "Remove template notations from output", :default => true
-  opt :redirect_off, "Not show redirect destination", :default => false
-  opt :strip_marker, "Remove symbols prefixed to list items, definitions, etc.", :default => false
-  opt :category_off, "Not show article category information", :default => false
+  opt :convert,     "Output in plain text (converting from XML)", :default => true
+  opt :list,    "Show list items in output", :default => true
+  opt :heading, "Show section titles in output", :default => true, :short => "-d"
+  opt :title,   "Show page titles in output", :default => true
+  opt :table,   "Show table source code in output", :default => false
+  opt :template, "Show template specifications in output", :default => false
+  opt :redirect, "Show redirect destination", :default => false
+  opt :marker, "Show symbols prefixed to list items, definitions, etc.", :default => true
+  opt :category, "Show article category information", :default => false
   opt :file_size,   "Approximate size (in MB) of each output file", :default => 10  
 end
 Trollop::die :size, "must be larger than 0" unless opts[:file_size] >= 0
@@ -43,9 +43,9 @@ Trollop::die :output_dir, "must exist" unless File.exist?(opts[:output_dir])
 input_file = ARGV[0]
 output_dir = opts[:output_dir]
 tfile_size = opts[:file_size]
-convert_off = opts[:convert_off]
-strip_tmarker = opts[:strip_marker]
-opt_array = [:title_off, :list_off, :heading_off, :table_off, :template_off, :redirect_off]
+convert = opts[:convert]
+strip_tmarker = opts[:marker] ? false : true
+opt_array = [:title_off, :list, :heading, :table, :template, :redirect]
 config = {}
 opt_array.each do |opt|
   config[opt] = opts[opt]
@@ -54,13 +54,13 @@ end
 # a "parent" is either commandline progress bar or 
 # a gui window (not available for now)
 parent = Wp2txt::CmdProgbar.new
-wpconv = Wp2txt::Runner.new(parent, input_file, output_dir, tfile_size, convert_off, strip_tmarker)
+wpconv = Wp2txt::Runner.new(parent, input_file, output_dir, tfile_size, convert, strip_tmarker)
 
 wpconv.extract_text do |article|
   title = format_wiki article.title
   title = "[[#{title}]]\n"
 
-  if !opts[:category_off] && !article.categories.empty?
+  if opts[:category] && !article.categories.empty?
     contents = "\nCATEGORIES: "
     contents += article.categories.join(", ")
     contents += "\n\n"
@@ -71,31 +71,31 @@ wpconv.extract_text do |article|
   article.elements.each do |e|
     case e.first
     when :mw_heading
-      next if config[:heading_off]
+      next if !config[:heading]
       line = format_wiki(e.last)
       line += "+HEADING+" if $DEBUG_MODE
     when :mw_paragraph
-      next if config[:paragraph_off]
+      # next if !config[:paragraph]
       line = format_wiki(e.last)
       line += "+PARAGRAPH+" if $DEBUG_MODE
     when :mw_table, :mw_htable
-      next if config[:table_off]
+      next if !config[:table]
       line = format_wiki(e.last)
       line += "+TABLE+" if $DEBUG_MODE
     when :mw_pre
-      next if config[:pre_off]
+      next if !config[:pre]
       line = e.last
       line += "+PRE+" if $DEBUG_MODE
     when :mw_quote
-      next if config[:quote_off]
+      # next if !config[:quote]
       line = format_wiki(e.last)
       line += "+QUOTE+" if $DEBUG_MODE
     when :mw_unordered, :mw_ordered, :mw_definition
-      next if config[:list_off]
+      next if !config[:list]
       line = format_wiki(e.last)
       line += "+LIST+" if $DEBUG_MODE
     when :mw_redirect
-      next if config[:redirect_off]
+      next if !config[:redirect]
       line = format_wiki(e.last)
       line += "+REDIRECT+" if $DEBUG_MODE
       line += "\n\n"
@@ -108,14 +108,14 @@ wpconv.extract_text do |article|
       end
     end
     contents += line
-    contents = remove_templates(contents) if config[:template_off]
+    contents = remove_templates(contents) unless config[:template]
   end
     
   ##### cleanup #####
   if /\A\s*\z/m =~ contents
     result = ""
   else
-    result = config[:title_off] ? contents : title + "\n" + contents
+    result = config[:title] ? title + "\n" + contents : contents
   end
   result = result.gsub(/\[ref\]\s*\[\/ref\]/m){""}
   result = result.gsub(/\n\n\n+/m){"\n\n"} + "\n"  

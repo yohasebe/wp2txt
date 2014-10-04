@@ -25,16 +25,16 @@ module Wp2txt
 
     include Wp2txt
 
-    # attr_accessor :pause_flag, :stop_flag, :outfiles, :convert_off
+    # attr_accessor :pause_flag, :stop_flag, :outfiles, :convert
 
-    def initialize(parent, input_file, output_dir = ".", tfile_size = 10, convert_off = false, strip_tmarker = false)
+    def initialize(parent, input_file, output_dir = ".", tfile_size = 10, convert = true, strip_tmarker = false)
       @parent = parent
       @fp = nil
       
       @input_file = input_file
       @output_dir = output_dir
       @tfile_size = tfile_size
-      @convert_off = convert_off
+      @convert = convert
       @strip_tmarker = strip_tmarker
     end
     
@@ -213,16 +213,15 @@ module Wp2txt
     # call this method to do the job
     def extract_text(&block)
       prepare            
-      # output the original xml only split to files of the specified size
-      if @convert_off
-        extract
-        # convert xml to plain text
-      else
+      if @convert
         if block
           extract_and_convert(&block)
         else
           extract_and_convert
         end
+      else
+        # output the original xml only split to files of the specified size
+        extract
       end
     end
     

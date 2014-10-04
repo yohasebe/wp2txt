@@ -24,10 +24,10 @@ Gem::Specification.new do |s|
 
   s.add_dependency "nokogiri"
   s.add_dependency "sanitize"
-  if RUBY_VERSION >= '2.0'
-    s.add_dependency "bzip2-ruby-rb20"
-  else
-    s.add_dependency "bzip2-ruby"
-  end
+  # if RUBY_VERSION >= '2.0'
+  #   s.add_dependency "bzip2-ruby-rb20"
+  # else
+  #   s.add_dependency "bzip2-ruby"
+  # end
   s.add_dependency "trollop"
 end
