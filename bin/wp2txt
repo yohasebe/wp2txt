@@ -45,7 +45,7 @@ output_dir = opts[:output_dir]
 tfile_size = opts[:file_size]
 convert = opts[:convert]
 strip_tmarker = opts[:marker] ? false : true
-opt_array = [:title_off, :list, :heading, :table, :template, :redirect]
+opt_array = [:title, :list, :heading, :table, :template, :redirect]
 config = {}
 opt_array.each do |opt|
   config[opt] = opts[opt]
