@@ -18,13 +18,11 @@ tfile_size = 10
 convert = true
 strip_tmarker = true
 
-
-
 Benchmark.bm do |x|
   x.report do
     wpconv = Wp2txt::Runner.new(parent, input_file, output_dir, tfile_size, convert, strip_tmarker)
     wpconv.extract_text do |article|
-      title = format_wiki article.title
+      title = format_wiki! article.title
       title = "[[#{title}]]\n"
 
         contents = "\nCATEGORIES: "
@@ -34,25 +32,31 @@ Benchmark.bm do |x|
       article.elements.each do |e|
         case e.first
         when :mw_heading
-          line = format_wiki(e.last)
+          format_wiki!(e.last)
+          line = e.last
         when :mw_paragraph
-          line = format_wiki(e.last)
+          format_wiki!(e.last)
+          line = e.last
         when :mw_table, :mw_htable
-          line = format_wiki(e.last)
+          format_wiki!(e.last)
+          line = e.last
         when :mw_pre
           line = e.last
         when :mw_quote
-          line = format_wiki(e.last)
+          format_wiki!(e.last)
+          line = e.last
         when :mw_unordered, :mw_ordered, :mw_definition
-          line = format_wiki(e.last)
+          format_wiki!(e.last)
+          line = e.last
         when :mw_redirect
-          line = format_wiki(e.last)
+          format_wiki!(e.last)
+          line = e.last
           line += "\n\n"
         else
           next
         end
         contents += line
-        contents = remove_templates(contents)
+        remove_templates!(contents)
       end
     
       ##### cleanup #####

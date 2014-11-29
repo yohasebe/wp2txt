@@ -6,6 +6,8 @@ require 'wp2txt'
 require 'wp2txt/article'
 require 'wp2txt/utils'
 
+$limit_recur = 3
+
 describe "Wp2txt" do
   it "contains mediawiki-format related functions:" do
   end
@@ -20,7 +22,7 @@ describe "Wp2txt" do
       str_before = "[[ab[[cde[[alfa]]]]fg]]"
       str_after  = "<<ab<<cde<<alfa>>>>fg>>"
       scanner = StringScanner.new(str_before)
-      str_processed = process_nested_structure(scanner, "[[", "]]") do |content|
+      str_processed = process_nested_structure(scanner, "[[", "]]", $limit_recur) do |content|
         "<<" + content + ">>"
       end
       expect(str_processed).to eq str_after
@@ -30,7 +32,7 @@ describe "Wp2txt" do
       str_after = "#* <<quote-book|1503|year_published=1836|chapter=19 Henry VII. c. 5: Coin||A Collection of Statutes Connected with the General Administration of the Law|page=158|url=http://books.google.com/books?id=QtYuAAAAIAAJ
       |passage=<<...>> every of them, being gold, whole and weight, shall '''go''' and be current in payment throughout this his realm for the sum that they were coined for.>>"
       scanner = StringScanner.new(str_before)
-      str_processed = process_nested_structure(scanner, "{{", "}}") do |content|
+      str_processed = process_nested_structure(scanner, "{{", "}}", $limit_recur) do |content|
         "<<" + content + ">>"
       end
       #str_processed.should == str_after
@@ -39,43 +41,39 @@ describe "Wp2txt" do
     end
   end
   
-  describe "special_chr" do
+  describe "special_chr!" do
     it "replaces character references with real characters" do
       str_before = "&nbsp; &lt; &gt; &amp; &quot;"
       str_after  = "  < > & \""
-      expect(special_chr(str_before)).to eq str_after
+      special_chr!(str_before)
+      expect(str_before).to eq str_after
     end    
   end
   
-  describe "chrref_to_utf" do
+  describe "chrref_to_utf!" do
     it "replaces character references with real characters" do
       str_before = "&#x266A;"
       str_after  = "♪"
-      expect(chrref_to_utf(str_before)).to eq str_after
+      chrref_to_utf!(str_before)
+      expect(str_before).to eq str_after
     end
   end
   
-  describe "mndash" do
+  describe "mndash!" do
     it "replaces {mdash}, {ndash}, or {–} with '–'" do
       str_before = "{mdash} {ndash} {–}"
       str_after  = "– – –"
-      expect(mndash(str_before)).to eq str_after
+      mndash!(str_before)
+      expect(str_before).to eq str_after
     end
-  end
-
-  describe "format_ref" do
-    it "replaces \\r\\n and <br /> inside [ref] ... [/ref] to ' '" do
-      str_before = "[ref]...\r\n...<br />...[/ref]"
-      str_after  = "... ... ..."
-      expect(format_ref(str_before)).to eq str_after
-    end    
   end
   
   describe "make_reference" do
     it "replaces <ref> tag with [ref]" do
-      str_before = "<ref> ... <br /> ... </ref> \n <ref />"
-      str_after  = "[ref] ... \n ... [/ref] \n "
-      expect(make_reference(str_before)).to eq str_after
+      str_before = "<ref> ... </ref>"
+      str_after  = "[ref] ... [/ref]"
+      make_reference!(str_before)
+      expect(str_before).to eq str_after
     end    
   end
   
@@ -95,72 +93,93 @@ describe "Wp2txt" do
     end    
   end
   
-  describe "remove_hr" do
+  describe "remove_hr!" do
     it "removes horizontal lines" do
       str_before = "\n----\n--\n--\n"
       str_after  = "\n\n"
-      expect(remove_hr(str_before)).to eq str_after
+      remove_hr!(str_before)
+      expect(str_before).to eq str_after
     end    
   end
 
-  describe "remove_tag" do
+  describe "remove_tag!" do
     it "removes tags" do
       str_before = "<tag>abc</tag>"
       str_after  = "abc"
-      expect(remove_tag(str_before)).to eq str_after
+      remove_tag!(str_before)
+      expect(str_before).to eq str_after
       str_before = "[tag]def[/tag]"
       str_after  = "def"
-      expect(remove_tag(str_before, ['[', ']'])).to eq str_after
+      remove_tag!(str_before, ['[', ']'])
+      expect(str_before).to eq str_after
     end    
   end
   
-  describe "remove_directive" do
+  describe "remove_directive!" do
     it "removes directive" do
       str_before = "__abc__\n __def__"
       str_after  = "\n "
-      expect(remove_directive(str_before)).to eq str_after
+      remove_directive!(str_before)
+      expect(str_before).to eq str_after
     end    
   end
 
-  describe "remove_emphasis" do
+  describe "remove_emphasis!" do
     it "removes directive" do
       str_before = "''abc''\n'''def'''"
       str_after  = "abc\ndef"
-      expect(remove_emphasis(str_before)).to eq str_after
+      remove_emphasis!(str_before)
+      expect(str_before).to eq str_after
     end    
   end
   
-  describe "escape_nowiki" do
+  describe "escape_nowiki!" do
     it "replaces <nowiki>...</nowiki> with <nowiki-object_id>" do
       str_before = "<nowiki>[[abc]]</nowiki>def<nowiki>[[ghi]]</nowiki>"
       str_after  = Regexp.new("<nowiki-\\d+>def<nowiki-\\d+>")
-      expect(escape_nowiki(str_before)).to match str_after
+      escape_nowiki!(str_before)
+      expect(str_before).to match str_after
     end
   end
 
-  describe "unescape_nowiki" do
+  describe "unescape_nowiki!" do
     it "replaces <nowiki-object_id> with string stored elsewhere" do
       @nowikis = {123 => "[[abc]]", 124 => "[[ghi]]"}
       str_before = "<nowiki-123>def<nowiki-124>"
       str_after  = "[[abc]]def[[ghi]]"
-      expect(unescape_nowiki(str_before)).to eq str_after
+      unescape_nowiki!(str_before)
+      expect(str_before).to eq str_after
     end
   end
   
-  describe "process_interwiki_links" do
+  describe "process_interwiki_links!" do
     it "formats text link and remove brackets" do
-      expect(process_interwiki_links("[[a b]]")).to eq "a b"
-      expect(process_interwiki_links("[[a b|c]]")).to eq "c"
-      expect(process_interwiki_links("[[a|b|c]]")).to eq "b|c"
-      expect(process_interwiki_links("[[硬口蓋鼻音|[ɲ], /J/]]")).to eq "[ɲ], /J/"
+      a = "[[a b]]"
+      b = "[[a b|c]]"
+      c = "[[a|b|c]]"
+      d = "[[硬口蓋鼻音|[ɲ], /J/]]"
+      process_interwiki_links!(a)
+      process_interwiki_links!(b)
+      process_interwiki_links!(c)
+      process_interwiki_links!(d)
+      expect(a).to eq "a b"
+      expect(b).to eq "c"
+      expect(c).to eq "b|c"
+      expect(d).to eq "[ɲ], /J/"
     end
   end
 
-  describe "process_external_links" do
+  describe "process_external_links!" do
     it "formats text link and remove brackets" do
-      expect(process_external_links("[http://yohasebe.com yohasebe.com]")).to eq "yohasebe.com"      
-      expect(process_external_links("[http://yohasebe.com]")).to eq "http://yohasebe.com"
-      expect(process_external_links("* Turkish: {{t+|tr|köken bilimi}}]], {{t+|tr|etimoloji}}")).to eq "* Turkish: {{t+|tr|köken bilimi}}]], {{t+|tr|etimoloji}}"
+      a = "[http://yohasebe.com yohasebe.com]"
+      b = "[http://yohasebe.com]"
+      c = "* Turkish: {{t+|tr|köken bilimi}}]], {{t+|tr|etimoloji}}"
+      process_external_links!(a)
+      process_external_links!(b)
+      process_external_links!(c)
+      expect(a).to eq "yohasebe.com"      
+      expect(b).to eq "http://yohasebe.com"
+      expect(c).to eq "* Turkish: {{t+|tr|köken bilimi}}]], {{t+|tr|etimoloji}}"
     end
   end
   

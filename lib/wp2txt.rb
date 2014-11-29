@@ -3,14 +3,18 @@
 
 $: << File.join(File.dirname(__FILE__))
 
-require "rubygems"
-require "bundler/setup"
-require "nokogiri"
+# require "rubygems"
+# require "bundler/setup"
 
+require "Nokogiri"
+# require "oga"
+# require "ox"
+
+require 'pp'
 require "wp2txt/article"
 require "wp2txt/utils"
-require "wp2txt/mw_api"
 require "wp2txt/progressbar"
+# require "wp2txt/mw_api"
 
 begin
   require "bzip2-ruby"
@@ -25,9 +29,7 @@ module Wp2txt
 
     include Wp2txt
 
-    # attr_accessor :pause_flag, :stop_flag, :outfiles, :convert
-
-    def initialize(parent, input_file, output_dir = ".", tfile_size = 10, convert = true, strip_tmarker = false)
+    def initialize(parent, input_file, output_dir = ".", tfile_size = 10, convert = true, strip_tmarker = false, limit_recur = 10)
       @parent = parent
       @fp = nil
       
@@ -36,6 +38,9 @@ module Wp2txt
       @tfile_size = tfile_size
       @convert = convert
       @strip_tmarker = strip_tmarker
+      
+      #max number of recursive calls (global variable)
+      $limit_recur = limit_recur
     end
     
     def file_size(file) 
@@ -111,7 +116,9 @@ module Wp2txt
           else
             file = IO.popen("bzip2 -c -d #{@input_file}") 
           end
+          @parent.msg("Preparing ... This may take several minutes or more ", 0)         
           @infile_size = file_size(file)
+          @parent.msg("... Done.", 1)
           file.close  # try to reopen since rewind method is unavailable
           if RUBY_PLATFORM.index("win32")
             file = IO.popen("bunzip2.exe -c #{@input_file}")
@@ -237,13 +244,41 @@ module Wp2txt
       while page = get_page
         xmlns = '<mediawiki xmlns="http://www.mediawiki.org/xml/export-0.5/" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.mediawiki.org/xml/export-0.5/ http://www.mediawiki.org/xml/export-0.5.xsd" version="0.5" xml:lang="en">' + "\n"
         xml = xmlns + page + "</mediawiki>"
+
         input = Nokogiri::XML(xml, nil, 'UTF-8')
-        page = input.xpath("//xmlns:text").first                
+        page = input.xpath("//xmlns:text").first
         pp_title = page.parent.parent.at_css "title"
         title = pp_title.content
-
-        next if /\:/ =~ title        
+        next if /\:/ =~ title
         text = page.content
+
+        # input = Oga.parse_xml(xml)
+        # page = input.xpath("//xmlns:text").first
+        # title = page.parent.parent.xpath("//xmlns:title").first.text
+        # next if /\:/ =~ title
+        # text = page.text
+
+        # input = Ox.load(xml, :encoding => "UTF-8")
+        # title = ""
+        # text  = ""
+        # input.nodes.first.nodes.each do |n|
+        #   if n.name == "title"
+        #     title = n.nodes.first
+        #     if /\:/ =~ title
+        #       title = ""
+        #       break
+        #     end
+        #   elsif n.name == "revision"
+        #     n.nodes.each do |o|
+        #       if o.name == "text"
+        #         text = o.nodes.first
+        #         break
+        #       end
+        #     end
+        #   end
+        # end
+        # next if title == "" || text == ""
+
         # remove all comment texts
         # and insert as many number of new line chars included in 
         # each comment instead
@@ -256,7 +291,7 @@ module Wp2txt
           end
         end
         
-        @count ||= 0;@count += 1;        
+        @count ||= 0;@count += 1;
 
         article = Article.new(text, title, @strip_tmarker)
         output_text += block.call(article)

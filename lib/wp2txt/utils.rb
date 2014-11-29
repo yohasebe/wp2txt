@@ -3,52 +3,127 @@
 
 require 'strscan'
 require 'find'
-require 'sanitize'
+
+###################################################
+# global variables to save resource for generating regexps
+# those with a trailing number 1 represent opening tag/markup
+# those with a trailing number 2 represent closing tag/markup
+# those without a trailing number contain both opening/closing tags/markups
+
+$in_template_regex = Regexp.new('^\s*\{\{[^\}]+\}\}\s*$')
+$in_link_regex = Regexp.new('^\s*\[.*\]\s*$')
+    
+$in_inputbox_regex  = Regexp.new('<inputbox>.*?<\/inputbox>')
+$in_inputbox_regex1  = Regexp.new('<inputbox>')
+$in_inputbox_regex2  = Regexp.new('<\/inputbox>')
+
+$in_source_regex  = Regexp.new('<source.*?>.*?<\/source>')
+$in_source_regex1  = Regexp.new('<source.*?>')
+$in_source_regex2  = Regexp.new('<\/source>')
+
+$in_math_regex  = Regexp.new('<math.*?>.*?<\/math>')
+$in_math_regex1  = Regexp.new('<math.*?>')
+$in_math_regex2  = Regexp.new('<\/math>')
+
+$in_heading_regex  = Regexp.new('^=+.*?=+$')
+
+$in_html_table_regex = Regexp.new('<table.*?><\/table>')
+$in_html_table_regex1 = Regexp.new('<table\b')
+$in_html_table_regex2 = Regexp.new('<\/\s*table>')
+
+$in_table_regex1 = Regexp.new('^\s*\{\|')
+$in_table_regex2 = Regexp.new('^\|\}.*?$')
+
+$in_unordered_regex  = Regexp.new('^\*')
+$in_ordered_regex    = Regexp.new('^\#')
+$in_pre_regex = Regexp.new('^ ')
+$in_definition_regex  = Regexp.new('^[\;\:]')    
+
+$blank_line_regex = Regexp.new('^\s*$')
+
+$redirect_regex = Regexp.new('#(?:REDIRECT|転送)\s+\[\[(.+)\]\]', Regexp::IGNORECASE)
+
+$remove_emphasis_regex = Regexp.new('(' + Regexp.escape("''") + '+)(.+?)\1')
+$chrref_to_utf_regex = Regexp.new('&#(x?)([0-9a-fA-F]+);')
+$mndash_regex = Regexp.new('\{(mdash|ndash|–)\}')
+$remove_hr_regex = Regexp.new('^\s*\-+\s*$')
+$make_reference_regex_a = Regexp.new('<br ?\/>')
+$make_reference_regex_b = Regexp.new('<ref[^>]*\/>')
+$make_reference_regex_c = Regexp.new('<ref[^>]*>')
+$make_reference_regex_d = Regexp.new('<\/ref>')
+$format_ref_regex = Regexp.new('\[ref\](.*?)\[\/ref\]', Regexp::MULTILINE)
+$heading_onset_regex = Regexp.new('^(\=+)\s+')
+$heading_coda_regex = Regexp.new('\s+(\=+)$')
+$list_marks_regex = Regexp.new('\A[\*\#\;\:\ ]+')
+$pre_marks_regex = Regexp.new('\A\^\ ')
+$def_marks_regex = Regexp.new('\A[\;\:\ ]+')
+$onset_bar_regex = Regexp.new('\A[^\|]+\z')
+$remove_table_regex = Regexp.new('\{\|[^\{\|\}]*?\|\}', Regexp::MULTILINE)
+$remove_clade_regex = Regexp.new('\{\{(?:C|c)lade[^\{\}]*\}\}', Regexp::MULTILINE)
+
+$category_patterns = ["Category", "Categoria"].join("|")
+$category_regex = Regexp.new('[\{\[\|\b](?:' + $category_patterns + ')\:(.*?)[\}\]\|\b]', Regexp::IGNORECASE)
+
+$escape_nowiki_regex = Regexp.new('<nowiki>(.*?)<\/nowiki>', Regexp::MULTILINE)
+$unescape_nowiki_regex = Regexp.new('<nowiki\-(\d+?)>')
+
+$remove_inline_regex = Regexp.new('\{\{(.*?)\}\}')
+$type_code_regex = Regexp.new('\A(?:lang*|\AIPA|IEP|SEP|indent|audio|small|dmoz|pron|unicode|note label|nowrap|ArabDIN|trans|Nihongo|Polytonic)', Regexp::IGNORECASE)
+
+$single_square_bracket_regex = Regexp.new("(#{Regexp.escape('[')}|#{Regexp.escape(']')})", Regexp::MULTILINE)
+$double_square_bracket_regex = Regexp.new("(#{Regexp.escape('[[')}|#{Regexp.escape(']]')})", Regexp::MULTILINE)
+$single_curly_bracket_regex = Regexp.new("(#{Regexp.escape('{')}|#{Regexp.escape('}')})", Regexp::MULTILINE)
+$double_curly_bracket_regex = Regexp.new("(#{Regexp.escape('{{')}|#{Regexp.escape('}}')})", Regexp::MULTILINE)
+
+###################################################
 
 module Wp2txt
 
-  def format_wiki(original_text, has_retried = false)
+  def format_wiki!(text, has_retried = false)
     begin 
-      text = original_text + "" 
+      text << "" 
       
-      text = chrref_to_utf(text)
-      text = escape_nowiki(text)
+      chrref_to_utf!(text)
+      escape_nowiki!(text)
 
-      text = process_interwiki_links(text)
-      text = process_external_links(text)
+      process_interwiki_links!(text)
+      process_external_links!(text)
 
-      text = remove_directive(text)
-      text = remove_emphasis(text)
-
-      text = mndash(text)
-      text = make_reference(text)
-      text = format_ref(text)
-      text = remove_hr(text)
-      text = remove_tag(text)
-      text = special_chr(text)
-
-      unescape_nowiki(text)
+      unescape_nowiki!(text)
+      
     rescue # detect invalid byte sequence in UTF-8
       if has_retried
         puts "invalid byte sequence detected"
         puts "******************************"
         File.open("error_log.txt", "w") do |f|
-          f.write original_text
+          f.write text
         end
         exit
       else
-        fixed_text = original_text.encode("UTF-16").encode("UTF-8")
-        return format_wiki(fixed_text, true)
+        text.encode!("UTF-16")
+        text.encode!("UTF-8")
+        format_wiki!(text, true)
       end
     end
   end
 
   #################### parser for nested structure ####################
    
-  def process_nested_structure(scanner, left, right, &block)
+  def process_nested_structure(scanner, left, right, recur_count, &block)
     buffer = ""
     begin
-    while str = scanner.scan_until(/(#{Regexp.escape(left)}|#{Regexp.escape(right)})/m)
+    if left == "[" && right == "]"
+      regex = $single_square_bracket_regex
+    elsif left == "[[" && right == "]]"
+      regex = $double_square_bracket_regex
+    elsif left == "{" && right == "}"
+      regex = $single_curly_bracket_regex
+    elsif left == "{{" && right == "}}"
+      regex = $double_curly_bracket_regex
+    else
+      regex = Regexp.new('(#{Regexp.escape(left)}|#{Regexp.escape(right)})', Regexp::MULTILINE)
+    end
+    while str = scanner.scan_until(regex)
       case scanner[1]
       when left
         buffer << str
@@ -66,38 +141,35 @@ module Wp2txt
     end
     buffer << scanner.rest
 
-    if buffer == scanner.string
-      return scanner.string
+    recur_count = recur_count - 1
+    if recur_count < 0 || buffer == scanner.string
+      return buffer
     else
       scanner.string = buffer
-      return process_nested_structure(scanner, left, right, &block) || ""
+      return process_nested_structure(scanner, left, right, recur_count, &block) || ""
     end
     rescue => e
       return scanner.string
     end
   end  
 
-  def remove_templates(str, only_not_inline = true)
-    scanner = StringScanner.new(str)
-    result = process_nested_structure(scanner, "{{", "}}") do |contents|
-      if contents.index("\n")
-        "\n"
-      else
-        "[tpl]#{contents}[/tpl]"        
-      end
-    end
-  end
-
-  
   #################### methods used from format_wiki ####################
+
+  def remove_templates!(str)
+    scanner = StringScanner.new(str)
+    result = process_nested_structure(scanner, "{{", "}}", $limit_recur) do |contents|
+      ""
+    end
+    str.replace(result)
+  end
   
-  def escape_nowiki(str)
+  def escape_nowiki!(str)
     if @nowikis
       @nowikis.clear
     else
       @nowikis = {}
     end
-    str.gsub(/<nowiki>(.*?)<\/nowiki>/m) do
+    str.gsub!($escape_nowiki_regex) do
       nowiki = $1
       nowiki_id = nowiki.object_id
       @nowikis[nowiki_id] = nowiki
@@ -105,17 +177,16 @@ module Wp2txt
     end
   end
 
-  def unescape_nowiki(str)
-    str.gsub(/<nowiki\-(\d+?)>/) do
+  def unescape_nowiki!(str)
+    str.gsub!($unescape_nowiki_regex) do
       obj_id = $1.to_i
       @nowikis[obj_id]
     end
   end
       
-  def process_interwiki_links(str)
+  def process_interwiki_links!(str)
     scanner = StringScanner.new(str)
-    result = process_nested_structure(scanner, "[[", "]]") do |contents|
-      str_new = ""
+    result = process_nested_structure(scanner, "[[", "]]", $limit_recur) do |contents|
       parts = contents.split("|")      
       case parts.size
       when 1
@@ -125,12 +196,12 @@ module Wp2txt
         parts.join("|")
       end
     end
-    result
+    str.replace(result)
   end
 
-  def process_external_links(str)
+  def process_external_links!(str)
     scanner = StringScanner.new(str)
-    result = process_nested_structure(scanner, "[", "]") do |contents|
+    result = process_nested_structure(scanner, "[", "]", $limit_recur) do |contents|
       parts = contents.split(" ", 2)
       case parts.size
       when 1
@@ -139,11 +210,11 @@ module Wp2txt
         parts.last || ""
       end
     end
-    result
+    str.replace(result)
   end
 
-  def special_chr(str)
-    unless @sp_hash 
+  def special_chr!(str)
+    unless $sp_hash 
       html = ['&nbsp;', '&lt;', '&gt;', '&amp;', '&quot;']\
       .zip([' ', '<', '>', '&', '"'])
       
@@ -201,40 +272,30 @@ module Wp2txt
   
       spc_array = html + umraut_accent + punctuation + commercial + greek_chr + 
                   math_chr1 + math_chr2 + others
-      @sp_hash  = Hash[*spc_array.flatten]
-      @sp_regex = Regexp.new("(" + @sp_hash.keys.join("|") + ")")
+      $sp_hash  = Hash[*spc_array.flatten]
+      $sp_regex = Regexp.new("(" + $sp_hash.keys.join("|") + ")")
     end
     #str.gsub!("&amp;"){'&'}
-    str.gsub!(@sp_regex) do
-      @sp_hash[$1]
+    str.gsub!($sp_regex) do
+      $sp_hash[$1]
     end
-    return str
   end
 
-  def remove_tag(str, tagset = ['<', '>'])
-    if tagset == ['<', '>']
-      return remove_html_tag(str)
-    end
+  def remove_tag!(str, tagset = ['<', '>'])
     tagsets = Regexp.quote(tagset.uniq.join(""))
     regex = /#{Regexp.escape(tagset[0])}[^#{tagsets}]*#{Regexp.escape(tagset[1])}/
-    newstr = str.gsub(regex, "")
-    # newstr = newstr.gsub(/<\!\-\-.*?\-\->/, "")
-    return newstr
+    str.gsub!(regex, "")
   end
 
-  def remove_html_tag(str)
-    str = ::Sanitize.clean(str)
-  end
-
-  def remove_emphasis(str)
-    str.gsub(/(''+)(.+?)\1/) do
+  def remove_emphasis!(str)
+    str.gsub!($remove_emphasis_regex) do
       $2
     end
   end
 
-  def chrref_to_utf(num_str)
+  def chrref_to_utf!(num_str)
     begin
-      utf_str = num_str.gsub(/&#(x?)([0-9a-fA-F]+);/) do
+      num_str.gsub!($chrref_to_utf_regex) do
         if $1 == 'x'
           ch = $2.to_i(16)
         else
@@ -246,36 +307,58 @@ module Wp2txt
         u.encode("UTF-8", "UTF-16")
       end
     rescue StandardError
-      return num_str
+      return nil
     end
-    return utf_str
+    return true
   end
 
-  def remove_directive(str)
-    remove_tag(str, ['__', '__'])
+  def remove_directive!(str)
+    remove_tag!(str, ['__', '__'])
   end
   
-  def mndash(str)
-    str = str.gsub(/\{(mdash|ndash|–)\}/, "–")
+  def mndash!(str)
+    str.gsub!($mndash_regex, "–")
   end
 
-  def remove_hr(page)
-    page = page.gsub(/^\s*\-+\s*$/, "")
+  def remove_hr!(page)
+    page.gsub!($remove_hr_regex, "")
   end
 
-  def make_reference(str)
-    new_str = str.dup
-    new_str.gsub!(/<br ?\/>/, "\n")
-    new_str.gsub!(/<ref[^>]*\/>/, "")
-    new_str.gsub!(/<ref[^>]*>/, "[ref]")
-    new_str.gsub!(/<\/ref>/, "[/ref]")
-    return new_str
+  def make_reference!(str)
+    str.gsub!($make_reference_regex_a, "\n")
+    str.gsub!($make_reference_regex_b, "")
+    str.gsub!($make_reference_regex_c, "[ref]")
+    str.gsub!($make_reference_regex_d, "[/ref]")
   end
 
-  def format_ref(page)
-    page = page.gsub(/\[ref\](.*?)\[\/ref\]/m) do
-      ref = $1.dup
-      ref.gsub(/(?:[\r\n]+|<br ?\/>)/, " ")
+  def format_ref!(page)
+    ###### do nothing for now
+    # page.gsub!($format_ref_regex) do
+    # end
+  end
+
+  def correct_inline_template!(str)
+    str.gsub!($remove_inline_regex) do
+      key = $1
+      if $onset_bar_regex =~ key
+        result = key
+      elsif
+        info = key.split("|")
+        type_code = info.first
+        case type_code
+        when $type_code_regex
+          out = info[-1]
+        else
+          if $leave_template
+            out = "{" + info.collect{|i|i.chomp}.join("|") + "}"
+          else
+            out = ""
+          end
+        end
+        out
+      else
+        ""
+      end
     end
   end
   
@@ -283,7 +366,7 @@ module Wp2txt
 
   def process_template(str)
     scanner = StringScanner.new(str)
-    result = process_nested_structure(scanner, "{{", "}}") do |contents|
+    result = process_nested_structure(scanner, "{{", "}}", $limit_recur) do |contents|
       parts = contents.split("|")
       case parts.size
       when 0
@@ -302,7 +385,7 @@ module Wp2txt
   end
 
   def remove_table(str)
-    new_str = str.gsub(/\{\|[^\{\|\}]*?\|\}/m, "")
+    new_str = str.gsub($remove_table_regex, "")
     if str != new_str
       new_str = remove_table(new_str)
     end
@@ -311,30 +394,9 @@ module Wp2txt
   end
   
   def remove_clade(page)
-    new_page = page.gsub(/\{\{(?:C|c)lade[^\{\}]*\}\}/m, "")
+    new_page = page.gsub($remove_clade_regex, "")
     new_page = remove_clade(new_page) unless page == new_page
     new_page
-  end
-
-  def remove_inline_template(str)
-    str.gsub(/\{\{(.*?)\}\}/) do
-       key = $1
-       if /\A[^\|]+\z/ =~ key
-         result = key
-       else
-         info = key.split("|")
-         type_code = info.first
-         case type_code
-         when /\Alang*/i, /\AIPA/i, /\AIEP/i, /\ASEP/i, /\Aindent/i, /\Aaudio/i, /\Asmall/i, 
-              /\Admoz/i, /\Apron/i, /\Aunicode/i, /\Anote label/i, /\Anowrap/i, 
-              /\AArabDIN/i, /\Atrans/i, /\ANihongo/i, /\APolytonic/i
-           out = info[-1]
-         else
-           out = "{" + info.collect{|i|i.chomp}.join("|") + "}"
-         end
-         result = out
-       end
-     end
   end
 
   #################### file related utilities ####################

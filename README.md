@@ -8,19 +8,13 @@ WP2TXT extracts plain text data from Wikipedia dump file (encoded in XML/compres
 
 ### Features ###
 
-* Convert dump files of Wikipedia of multiple languages (I hope).
+* Convert dump files of Wikipedia of various languages (I hope).
 * Create output files of specified size.
 * Allow users to specify text elements to be extracted/converted (page titles, section titles, lists, and tables).
 
 ### Installation
     
     $ gem install wp2txt
-
-It is highly recommended you also install bz2-ruby gem. See the following for the details about bz2-ruby gem:
-
-[https://github.com/brianmario/bzip2-ruby](https://github.com/brianmario/bzip2-ruby)
-
-When the above gem is not found, wp2txt will try to use bzip2 program in your command line environment.  Supposedly he former option is more reliable as well as fast.
 
 ### Usage
 
@@ -32,10 +26,10 @@ where `xx` is language code such as "en (English)" or "ja (Japanese)", and  `yyy
 
 Command line options are as follows:
 
-*CAUTION:* command line options in the current version have been drastically changed from those in versions 0.5!
+*CAUTION:* Command line options in the current version have been drastically changed from previous versions.
 
-      Usage: wp2txt [options]
-      where [options] are:
+    Usage: wp2txt [options]
+    where [options] are:
                --input-file, -i:   Wikipedia dump file with .bz2 (compressed) or
                                    .txt (uncompressed) format
            --output-dir, -o <s>:   Output directory (default:
@@ -46,12 +40,14 @@ Command line options are as follows:
     --heading, --no-heading, -d:   Show section titles in output (default: true)
         --title, --no-title, -t:   Show page titles in output (default: true)
                     --table, -a:   Show table source code in output
-                 --template, -e:   Show template specifications in output
+                 --template, -e:   leave inline template notations unmodified
                  --redirect, -r:   Show redirect destination
       --marker, --no-marker, -m:   Show symbols prefixed to list items,
                                    definitions, etc. (Default: true)
                  --category, -g:   Show article category information
             --file-size, -f <i>:   Approximate size (in MB) of each output file
+                                   (default: 10)
+          --limit-recur, -u <i>:   Max number of recursive call (0 to 10)
                                    (default: 10)
                   --version, -v:   Print version and exit
                      --help, -h:   Show this message
@@ -70,6 +66,11 @@ Command line options are as follows:
 ### Author ###
 
 * Yoichiro Hasebe (<yohasebe@gmail.com>)
+
+### References ###
+
+* Yoichiro HASEBE. 2006. [Method for using Wikipedia as Japanese corpus.](http://ci.nii.ac.jp/naid/110006226727) _Doshisha Studies in Language and Culture_ 9(2), 373-403.
+* 長谷部陽一郎. 2006. [Wikipedia日本語版をコーパスとして用いた言語研究の手法](http://ci.nii.ac.jp/naid/110006226727). 『言語文化』9(2), 373-403.
 
 ### License ###
 
