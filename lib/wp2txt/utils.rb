@@ -68,8 +68,6 @@ $list_marks_regex = Regexp.new('\A[\*\#\;\:\ ]+')
 $pre_marks_regex = Regexp.new('\A\^\ ')
 $def_marks_regex = Regexp.new('\A[\;\:\ ]+')
 $onset_bar_regex = Regexp.new('\A[^\|]+\z')
-# $remove_table_regex = Regexp.new('\{\|[^\{\|\}]*?\|\}', Regexp::MULTILINE)
-# $remove_clade_regex = Regexp.new('\{\{(?:C|c)lade[^\{\}]*\}\}', Regexp::MULTILINE)
 
 $category_patterns = ["Category", "Categoria"].join("|")
 $category_regex = Regexp.new('[\{\[\|\b](?:' + $category_patterns + ')\:(.*?)[\}\]\|\b]', Regexp::IGNORECASE)
@@ -340,44 +338,7 @@ module Wp2txt
     end
   end
   
-  #################### methods currently unused ####################
-
-  # def process_template(str)
-  #   scanner = StringScanner.new(str)
-  #   result = process_nested_structure(scanner, "{{", "}}", $limit_recur) do |contents|
-  #     parts = contents.split("|")
-  #     case parts.size
-  #     when 0
-  #       ""
-  #     when 1
-  #       parts.first || ""
-  #     else
-  #       if parts.last.split("=").size > 1
-  #         parts.first || ""
-  #       else
-  #         parts.last || ""
-  #       end
-  #     end
-  #   end
-  #   result
-  # end
-
-  # def remove_table(str)
-  #   new_str = str.gsub($remove_table_regex, "")
-  #   if str != new_str
-  #     new_str = remove_table(new_str)
-  #   end
-  #   new_str = remove_table(new_str) unless str == new_str
-  #   return new_str
-  # end
-  
-  # def remove_clade(page)
-  #   new_page = page.gsub($remove_clade_regex, "")
-  #   new_page = remove_clade(new_page) unless page == new_page
-  #   new_page
-  # end
-
-  #################### file related utilities ####################
+#################### file related utilities ####################
 
   # collect filenames recursively
   def collect_files(str, regex = nil)

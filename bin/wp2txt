@@ -127,8 +127,9 @@ wpconv.extract_text do |article|
   if /\A\s*\z/m =~ contents
     result = ""
   else
-    result = config[:title] ? title + "\n" + contents : contents
+    result = config[:title] ? title + "\n" << contents : contents
   end
-  result = result.gsub(/\[ref\]\s*\[\/ref\]/m){""}
-  result = result.gsub(/\n\n\n+/m){"\n\n"} + "\n"  
+  result.gsub!(/\[ref\]\s*\[\/ref\]/m){""}
+  result.gsub!(/\n\n\n+/m){"\n\n"}
+  result << "\n"  
 end
