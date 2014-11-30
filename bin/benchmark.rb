@@ -22,12 +22,13 @@ Benchmark.bm do |x|
   x.report do
     wpconv = Wp2txt::Runner.new(parent, input_file, output_dir, tfile_size, convert, strip_tmarker)
     wpconv.extract_text do |article|
-      title = format_wiki! article.title
-      title = "[[#{title}]]\n"
+      format_wiki!(article.title)
+      title = "[[#{article.title}]]\n"
+      convert_characters!(title)
 
-        contents = "\nCATEGORIES: "
-        contents += article.categories.join(", ")
-        contents += "\n\n"
+      contents = "\nCATEGORIES: "
+      contents += article.categories.join(", ")
+      contents += "\n\n"
 
       article.elements.each do |e|
         case e.first
@@ -55,10 +56,11 @@ Benchmark.bm do |x|
         else
           next
         end
-        contents += line
-        remove_templates!(contents)
+        contents << line
       end
-    
+      format_article!(contents)
+      convert_characters!(contents)
+
       ##### cleanup #####
       if /\A\s*\z/m =~ contents
         result = ""

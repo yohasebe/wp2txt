@@ -23,5 +23,6 @@ Gem::Specification.new do |s|
   # s.add_development_dependency "rake"
 
   s.add_dependency "nokogiri"
+  s.add_dependency "htmlentities"
   s.add_dependency "trollop"
 end

@@ -3,12 +3,19 @@
 
 require 'strscan'
 require 'find'
+require 'htmlentities'
 
 ###################################################
 # global variables to save resource for generating regexps
 # those with a trailing number 1 represent opening tag/markup
 # those with a trailing number 2 represent closing tag/markup
 # those without a trailing number contain both opening/closing tags/markups
+
+$html_decoder = HTMLEntities.new
+
+$entities = ['&nbsp;', '&lt;', '&gt;', '&amp;', '&quot;'].zip([' ', '<', '>', '&', '"'])
+$html_hash  = Hash[*$entities.flatten]
+$html_regex = Regexp.new("(" + $html_hash.keys.join("|") + ")")
 
 $in_template_regex = Regexp.new('^\s*\{\{[^\}]+\}\}\s*$')
 $in_link_regex = Regexp.new('^\s*\[.*\]\s*$')
@@ -43,6 +50,9 @@ $blank_line_regex = Regexp.new('^\s*$')
 
 $redirect_regex = Regexp.new('#(?:REDIRECT|転送)\s+\[\[(.+)\]\]', Regexp::IGNORECASE)
 
+$remove_tag_regex = Regexp.new("\<[^\<\>]*\>")
+$remove_directives_regex = Regexp.new("\_\_[^\_]*\_\_")
+
 $remove_emphasis_regex = Regexp.new('(' + Regexp.escape("''") + '+)(.+?)\1')
 $chrref_to_utf_regex = Regexp.new('&#(x?)([0-9a-fA-F]+);')
 $mndash_regex = Regexp.new('\{(mdash|ndash|–)\}')
@@ -58,8 +68,8 @@ $list_marks_regex = Regexp.new('\A[\*\#\;\:\ ]+')
 $pre_marks_regex = Regexp.new('\A\^\ ')
 $def_marks_regex = Regexp.new('\A[\;\:\ ]+')
 $onset_bar_regex = Regexp.new('\A[^\|]+\z')
-$remove_table_regex = Regexp.new('\{\|[^\{\|\}]*?\|\}', Regexp::MULTILINE)
-$remove_clade_regex = Regexp.new('\{\{(?:C|c)lade[^\{\}]*\}\}', Regexp::MULTILINE)
+# $remove_table_regex = Regexp.new('\{\|[^\{\|\}]*?\|\}', Regexp::MULTILINE)
+# $remove_clade_regex = Regexp.new('\{\{(?:C|c)lade[^\{\}]*\}\}', Regexp::MULTILINE)
 
 $category_patterns = ["Category", "Categoria"].join("|")
 $category_regex = Regexp.new('[\{\[\|\b](?:' + $category_patterns + ')\:(.*?)[\}\]\|\b]', Regexp::IGNORECASE)
@@ -74,22 +84,16 @@ $single_square_bracket_regex = Regexp.new("(#{Regexp.escape('[')}|#{Regexp.escap
 $double_square_bracket_regex = Regexp.new("(#{Regexp.escape('[[')}|#{Regexp.escape(']]')})", Regexp::MULTILINE)
 $single_curly_bracket_regex = Regexp.new("(#{Regexp.escape('{')}|#{Regexp.escape('}')})", Regexp::MULTILINE)
 $double_curly_bracket_regex = Regexp.new("(#{Regexp.escape('{{')}|#{Regexp.escape('}}')})", Regexp::MULTILINE)
-
+$curly_square_bracket_regex = Regexp.new("(#{Regexp.escape('{|')}|#{Regexp.escape('|}')})", Regexp::MULTILINE)
 ###################################################
 
 module Wp2txt
 
-  def format_wiki!(text, has_retried = false)
+  def convert_characters!(text, has_retried = false)
     begin 
       text << "" 
-      
       chrref_to_utf!(text)
-      escape_nowiki!(text)
-
-      process_interwiki_links!(text)
-      process_external_links!(text)
-
-      unescape_nowiki!(text)
+      special_chr!(text)
       
     rescue # detect invalid byte sequence in UTF-8
       if has_retried
@@ -102,11 +106,34 @@ module Wp2txt
       else
         text.encode!("UTF-16")
         text.encode!("UTF-8")
-        format_wiki!(text, true)
+        convert_characters!(text, true)
       end
     end
   end
+  
+  def format_wiki!(text, has_retried = false)
+    escape_nowiki!(text)
 
+    process_interwiki_links!(text)
+    process_external_links!(text)
+
+    unescape_nowiki!(text)      
+  end
+  
+  def format_article!(text)
+    remove_directive!(text)
+    remove_emphasis!(text)
+    mndash!(text)
+    make_reference!(text)
+    format_ref!(text)
+    remove_hr!(text)
+    remove_tag!(text)
+    convert_characters!(text)    
+    correct_inline_template!(text) unless $leave_template
+    remove_templates!(text) unless $leave_template
+    remove_table!(text) unless $leave_table
+  end
+  
   #################### parser for nested structure ####################
    
   def process_nested_structure(scanner, left, right, recur_count, &block)
@@ -120,6 +147,8 @@ module Wp2txt
       regex = $single_curly_bracket_regex
     elsif left == "{{" && right == "}}"
       regex = $double_curly_bracket_regex
+    elsif left == "{|" && right == "|}"
+      regex = $curly_square_bracket_regex
     else
       regex = Regexp.new('(#{Regexp.escape(left)}|#{Regexp.escape(right)})', Regexp::MULTILINE)
     end
@@ -154,15 +183,6 @@ module Wp2txt
   end  
 
   #################### methods used from format_wiki ####################
-
-  def remove_templates!(str)
-    scanner = StringScanner.new(str)
-    result = process_nested_structure(scanner, "{{", "}}", $limit_recur) do |contents|
-      ""
-    end
-    str.replace(result)
-  end
-  
   def escape_nowiki!(str)
     if @nowikis
       @nowikis.clear
@@ -213,78 +233,40 @@ module Wp2txt
     str.replace(result)
   end
 
+  #################### methods used from format_article ####################
+
+  def remove_templates!(str)
+    scanner = StringScanner.new(str)
+    result = process_nested_structure(scanner, "{{", "}}", $limit_recur) do |contents|
+      ""
+    end
+    str.replace(result)
+  end
+  
+  def remove_table!(str)
+    scanner = StringScanner.new(str)
+    result = process_nested_structure(scanner, "{|", "|}", $limit_recur) do |contents|
+      ""
+    end
+    str.replace(result)
+  end
+  
   def special_chr!(str)
-    unless $sp_hash 
-      html = ['&nbsp;', '&lt;', '&gt;', '&amp;', '&quot;']\
-      .zip([' ', '<', '>', '&', '"'])
-      
-      umraut_accent = ['&Agrave;', '&Aacute;', '&Acirc;', '&Atilde;', '&Auml;',
-      '&Aring;', '&AElig;', '&Ccedil;', '&Egrave;', '&Eacute;', '&Ecirc;', 
-      '&Euml;', '&Igrave;', '&Iacute;', '&Icirc;', '&Iuml;', '&Ntilde;', 
-      '&Ograve;', '&Oacute;', '&Ocirc;', '&Otilde;', '&Ouml;', '&Oslash;', 
-      '&Ugrave;', '&Uacute;', '&Ucirc;', '&Uuml;', '&szlig;', '&agrave;', 
-      '&aacute;', '&acirc;', '&atilde;', '&auml;', '&aring;', '&aelig;', 
-      '&ccedil;', '&egrave;', '&eacute;', '&ecirc;', '&euml;', '&igrave;', 
-      '&iacute;', '&icirc;', '&iuml;', '&ntilde;', '&ograve;', '&oacute;',
-      '&ocirc;', '&oelig;', '&otilde;', '&ouml;', '&oslash;', '&ugrave;', 
-      '&uacute;', '&ucirc;', '&uuml;', '&yuml;']\
-      .zip(['À', 'Á', 'Â', 'Ã', 'Ä', 'Å', 'Æ', 'Ç', 'È', 'É', 'Ê', 'Ë', 'Ì', 'Í', 
-      'Î', 'Ï', 'Ñ', 'Ò', 'Ó', 'Ô', 'Õ', 'Ö', 'Ø', 'Ù', 'Ú', 'Û', 'Ü', 'ß', 'à', 
-      'á', 'â', 'ã', 'ä', 'å', 'æ', 'ç', 'è', 'é', 'ê', 'ë', 'ì', 'í', 'î', 'ï', 
-      'ñ', 'ò', 'ó', 'ô','œ', 'õ', 'ö', 'ø', 'ù', 'ú', 'û', 'ü', 'ÿ'])
-  
-      punctuation = ['&iquest;', '&iexcl;', '&laquo;', '&raquo;', '&sect;', 
-      '&para;', '&dagger;', '&Dagger;', '&bull;', '&ndash;', '&mdash;']\
-      .zip(['¿', '¡', '«', '»', '§', '¶', '†', '‡', '•', '–', '—'])
-  
-      commercial = ['&trade;', '&copy;', '&reg;', '&cent;', '&euro;', '&yen;',
-      '&pound;', '&curren;'].zip(['™', '©', '®', '¢', '€', '¥', '£', '¤'])
-  
-      greek_chr = ['&alpha;', '&beta;', '&gamma;', '&delta;', '&epsilon;', 
-      '&zeta;', '&eta;', '&theta;', '&iota;', '&kappa;', '&lambda;', '&mu;', 
-      '&nu;', '&xi;', '&omicron;', '&pi;', '&rho;', '&sigma;', '&sigmaf;', 
-      '&tau;', '&upsilon;', '&phi;', '&chi;', '&psi;', '&omega;', '&Gamma;', 
-      '&Delta;', '&Theta;', '&Lambda;', '&Xi;', '&Pi;', '&Sigma;', '&Phi;', 
-      '&Psi;', '&Omega;']\
-      .zip(['α', 'β', 'γ', 'δ', 'ε', 'ζ', 'η', 'θ', 'ι', 'κ', 'λ', 
-      'μ', 'ν', 'ξ', 'ο', 'π', 'ρ', 'σ', 'ς', 'τ', 'υ', 'φ', 'χ', 
-      'ψ', 'ω', 'Γ', 'Δ', 'Θ', 'Λ', 'Ξ', 'Π', 'Σ', 'Φ', 'Ψ', 'Ω'])
-  
-      math_chr1 = ['&int;', '&sum;', '&prod;', '&radic;', '&minus;', '&plusmn;',
-      '&infin;', '&asymp;', '&prop;', '&equiv;', '&ne;', '&le;', '&ge;', 
-      '&times;', '&middot;', '&divide;', '&part;', '&prime;', '&Prime;', 
-      '&nabla;', '&permil;', '&deg;', '&there4;', '&oslash;', '&isin;', '&cap;', 
-      '&cup;', '&sub;', '&sup;', '&sube;', '&supe;', '&not;', '&and;', '&or;', 
-      '&exist;', '&forall;', '&rArr;', '&hArr;', '&rarr;', '&harr;', '&uarr;']\
-      .zip(['∫', '∑', '∏', '√', '−', '±', '∞', '≈', '∝', '≡', '≠', '≤', 
-      '≥', '×', '·', '÷', '∂', '′', '″', '∇', '‰', '°', '∴', 'ø', '∈', 
-      '∩', '∪', '⊂', '⊃', '⊆', '⊇', '¬', '∧', '∨', '∃', '∀', '⇒', 
-      '⇔', '→', '↔', '↑'])
-  
-      math_chr2 = ['&alefsym;', '&notin;'].zip(['ℵ', '∉'])
-  
-      others = ['&uml;', '&ordf;', 
-      '&macr;', '&acute;', '&micro;', '&cedil;', '&ordm;', '&lsquo;', '&rsquo;', 
-      '&ldquo;', '&sbquo;', '&rdquo;', '&bdquo;', '&spades;', '&clubs;', '&loz;', 
-      '&hearts;', '&larr;', '&diams;', '&lsaquo;', '&rsaquo;', '&darr;']\
-      .zip(['¨', 'ª', '¯', '´', 'µ', '¸', 'º', '‘', '’', '“', '‚', '”', 
-      '„', '♠', '♣', '◊', '♥', '←', '♦', '‹', '›', '↓'] )
-  
-      spc_array = html + umraut_accent + punctuation + commercial + greek_chr + 
-                  math_chr1 + math_chr2 + others
-      $sp_hash  = Hash[*spc_array.flatten]
-      $sp_regex = Regexp.new("(" + $sp_hash.keys.join("|") + ")")
-    end
-    #str.gsub!("&amp;"){'&'}
-    str.gsub!($sp_regex) do
-      $sp_hash[$1]
-    end
+    str.replace $html_decoder.decode(str)
   end
 
-  def remove_tag!(str, tagset = ['<', '>'])
+  def remove_inbetween!(str, tagset = ['<', '>'])
     tagsets = Regexp.quote(tagset.uniq.join(""))
     regex = /#{Regexp.escape(tagset[0])}[^#{tagsets}]*#{Regexp.escape(tagset[1])}/
     str.gsub!(regex, "")
+  end
+
+  def remove_tag!(str)
+    str.gsub!($remove_tag_regex, "")
+  end
+
+  def remove_directive!(str)
+    str.gsub!($remove_directives_regex, "")
   end
 
   def remove_emphasis!(str)
@@ -310,10 +292,6 @@ module Wp2txt
       return nil
     end
     return true
-  end
-
-  def remove_directive!(str)
-    remove_tag!(str, ['__', '__'])
   end
   
   def mndash!(str)
@@ -364,40 +342,40 @@ module Wp2txt
   
   #################### methods currently unused ####################
 
-  def process_template(str)
-    scanner = StringScanner.new(str)
-    result = process_nested_structure(scanner, "{{", "}}", $limit_recur) do |contents|
-      parts = contents.split("|")
-      case parts.size
-      when 0
-        ""
-      when 1
-        parts.first || ""
-      else
-        if parts.last.split("=").size > 1
-          parts.first || ""
-        else
-          parts.last || ""
-        end
-      end
-    end
-    result
-  end
+  # def process_template(str)
+  #   scanner = StringScanner.new(str)
+  #   result = process_nested_structure(scanner, "{{", "}}", $limit_recur) do |contents|
+  #     parts = contents.split("|")
+  #     case parts.size
+  #     when 0
+  #       ""
+  #     when 1
+  #       parts.first || ""
+  #     else
+  #       if parts.last.split("=").size > 1
+  #         parts.first || ""
+  #       else
+  #         parts.last || ""
+  #       end
+  #     end
+  #   end
+  #   result
+  # end
 
-  def remove_table(str)
-    new_str = str.gsub($remove_table_regex, "")
-    if str != new_str
-      new_str = remove_table(new_str)
-    end
-    new_str = remove_table(new_str) unless str == new_str
-    return new_str
-  end
+  # def remove_table(str)
+  #   new_str = str.gsub($remove_table_regex, "")
+  #   if str != new_str
+  #     new_str = remove_table(new_str)
+  #   end
+  #   new_str = remove_table(new_str) unless str == new_str
+  #   return new_str
+  # end
   
-  def remove_clade(page)
-    new_page = page.gsub($remove_clade_regex, "")
-    new_page = remove_clade(new_page) unless page == new_page
-    new_page
-  end
+  # def remove_clade(page)
+  #   new_page = page.gsub($remove_clade_regex, "")
+  #   new_page = remove_clade(new_page) unless page == new_page
+  #   new_page
+  # end
 
   #################### file related utilities ####################
 

@@ -44,7 +44,7 @@ describe "Wp2txt" do
   describe "special_chr!" do
     it "replaces character references with real characters" do
       str_before = "&nbsp; &lt; &gt; &amp; &quot;"
-      str_after  = "  < > & \""
+      str_after  = "  < > & \""
       special_chr!(str_before)
       expect(str_before).to eq str_after
     end    
@@ -77,21 +77,22 @@ describe "Wp2txt" do
     end    
   end
   
-  describe "remove_table" do
+  describe "remove_table!" do
     it "removes table formated parts" do
       str_before = "{| ... \n{| ... \n ...|}\n ...|}"
       str_after  = ""
-      expect(remove_table(str_before)).to eq str_after
+      remove_table!(str_before)
+      expect(str_before).to eq str_after
     end    
   end
 
-  describe "remove_clade" do
-    it "removes clade formated parts" do
-      str_before = "\{\{clade ... \n ... \n ... \n\}\}"
-      str_after  = ""
-      expect(remove_clade(str_before)).to eq str_after
-    end    
-  end
+  # describe "remove_clade" do
+  #   it "removes clade formated parts" do
+  #     str_before = "\{\{clade ... \n ... \n ... \n\}\}"
+  #     str_after  = ""
+  #     expect(remove_clade(str_before)).to eq str_after
+  #   end
+  # end
   
   describe "remove_hr!" do
     it "removes horizontal lines" do
@@ -102,15 +103,15 @@ describe "Wp2txt" do
     end    
   end
 
-  describe "remove_tag!" do
-    it "removes tags" do
+  describe "remove_inbetween!" do
+    it "removes tags and its contents" do
       str_before = "<tag>abc</tag>"
       str_after  = "abc"
       remove_tag!(str_before)
       expect(str_before).to eq str_after
       str_before = "[tag]def[/tag]"
       str_after  = "def"
-      remove_tag!(str_before, ['[', ']'])
+      remove_inbetween!(str_before, ['[', ']'])
       expect(str_before).to eq str_after
     end    
   end
@@ -183,34 +184,34 @@ describe "Wp2txt" do
     end
   end
   
-  describe "process_template" do
-    it "removes brackets and leaving some text" do
-      str_before = "{{}}"
-      str_after = ""
-      expect(process_template(str_before)).to eq str_after
-      str_before = "{{lang|en|Japan}}"
-      str_after  = "Japan"
-      expect(process_template(str_before)).to eq str_after
-      str_before = "{{a|b=c|d=f}}"
-      str_after  = "a"
-      expect(process_template(str_before)).to eq str_after
-      str_before = "{{a|b|{{c|d|e}}}}"
-      str_after  = "e"
-      expect(process_template(str_before)).to eq str_after
-    end
-  end
+  # describe "process_template" do
+  #   it "removes brackets and leaving some text" do
+  #     str_before = "{{}}"
+  #     str_after = ""
+  #     expect(process_template(str_before)).to eq str_after
+  #     str_before = "{{lang|en|Japan}}"
+  #     str_after  = "Japan"
+  #     expect(process_template(str_before)).to eq str_after
+  #     str_before = "{{a|b=c|d=f}}"
+  #     str_after  = "a"
+  #     expect(process_template(str_before)).to eq str_after
+  #     str_before = "{{a|b|{{c|d|e}}}}"
+  #     str_after  = "e"
+  #     expect(process_template(str_before)).to eq str_after
+  #   end
+  # end
   
-#   describe "expand_template" do
-#     it "gets data corresponding to a given template using mediawiki api" do
-#       uri = "http://en.wiktionary.org/w/api.php"
-#       template = "{{en-verb}}"
-#       word = "kick"
-#       expanded = expand_template(uri, template, word)
-#       html =<<EOD
-# <span class=\"infl-inline\"><b class=\"Latn \" lang=\"en\">kick</b> (''third-person singular simple present'' <span class=\"form-of third-person-singular-form-of\">'''<span class=\"Latn \" lang=\"en\">[[kicks#English|kicks]]</span>'''</span>, ''present participle'' <span class=\"form-of present-participle-form-of\">'''<span class=\"Latn \" lang=\"en\">[[kicking#English|kicking]]</span>'''</span>, ''simple past and past participle'' <span class=\"form-of simple-past-and-participle-form-of\"> '''<span class=\"Latn \" lang=\"en\">[[kicked#English|kicked]]</span>'''</span>)</span>[[Category:English verbs|kick]]
-# EOD
-#       html.strip!
-#       expanded.should == html
-#     end
-#   end
+  #   describe "expand_template" do
+  #     it "gets data corresponding to a given template using mediawiki api" do
+  #       uri = "http://en.wiktionary.org/w/api.php"
+  #       template = "{{en-verb}}"
+  #       word = "kick"
+  #       expanded = expand_template(uri, template, word)
+  #       html =<<EOD
+  # <span class=\"infl-inline\"><b class=\"Latn \" lang=\"en\">kick</b> (''third-person singular simple present'' <span class=\"form-of third-person-singular-form-of\">'''<span class=\"Latn \" lang=\"en\">[[kicks#English|kicks]]</span>'''</span>, ''present participle'' <span class=\"form-of present-participle-form-of\">'''<span class=\"Latn \" lang=\"en\">[[kicking#English|kicking]]</span>'''</span>, ''simple past and past participle'' <span class=\"form-of simple-past-and-participle-form-of\"> '''<span class=\"Latn \" lang=\"en\">[[kicked#English|kicked]]</span>'''</span>)</span>[[Category:English verbs|kick]]
+  # EOD
+  #       html.strip!
+  #       expanded.should == html
+  #     end
+  #   end
 end

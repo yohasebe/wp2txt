@@ -50,6 +50,7 @@ convert = opts[:convert]
 strip_tmarker = opts[:marker] ? false : true
 opt_array = [:title, :list, :heading, :table, :redirect]
 $leave_template = true if opts[:template]
+$leave_table = true if opts[:table]
 config = {}
 opt_array.each do |opt|
   config[opt] = opts[opt]
@@ -61,6 +62,7 @@ wpconv = Wp2txt::Runner.new(parent, input_file, output_dir, tfile_size, convert,
 wpconv.extract_text do |article|
   format_wiki!(article.title)
   title = "[[#{article.title}]]\n"
+  convert_characters!(title)
 
   if opts[:category] && !article.categories.empty?
     contents = "\nCATEGORIES: "
@@ -118,18 +120,8 @@ wpconv.extract_text do |article|
     end
     contents << line    
   end
-
-  remove_directive!(contents)
-  remove_emphasis!(contents)
-  mndash!(contents)
-  make_reference!(contents)
-  format_ref!(contents)
-  remove_hr!(contents)
-  remove_tag!(contents)
-  special_chr!(contents)
-
-  correct_inline_template!(contents) unless $leave_template
-  remove_templates!(contents) unless $leave_template
+  format_article!(contents)
+  convert_characters!(contents)
     
   ##### cleanup #####
   if /\A\s*\z/m =~ contents
