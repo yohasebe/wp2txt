@@ -103,7 +103,7 @@ module Wp2txt
         when $in_inputbox_regex
           @elements << create_element(:mw_inputbox, line)
         when $in_inputbox_regex1
-          mode = :mw_inputbox 
+          mode = :mw_inputbox
           @elements << create_element(:mw_inputbox, line)
         when $in_source_regex
         @elements << create_element(:mw_source, line)

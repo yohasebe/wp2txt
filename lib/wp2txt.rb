@@ -3,12 +3,7 @@
 
 $: << File.join(File.dirname(__FILE__))
 
-# require "rubygems"
-# require "bundler/setup"
-
 require "nokogiri"
-# require "oga"
-# require "ox"
 
 require 'pp'
 require "wp2txt/article"
@@ -249,36 +244,6 @@ module Wp2txt
         next if /\:/ =~ title
         text = page.content
 
-        # input = Oga.parse_xml(xml)
-        # page = input.xpath("//xmlns:text").first
-        # title = page.parent.parent.xpath("//xmlns:title").first.text
-        # next if /\:/ =~ title
-        # text = page.text
-
-        # input = Ox.load(xml, :encoding => "UTF-8")
-        # title = ""
-        # text  = ""
-        # input.nodes.first.nodes.each do |n|
-        #   if n.name == "title"
-        #     title = n.nodes.first
-        #     if /\:/ =~ title
-        #       title = ""
-        #       break
-        #     end
-        #   elsif n.name == "revision"
-        #     n.nodes.each do |o|
-        #       if o.name == "text"
-        #         text = o.nodes.first
-        #         break
-        #       end
-        #     end
-        #   end
-        # end
-        # next if title == "" || text == ""
-
-        # remove all comment texts
-        # and insert as many number of new line chars included in 
-        # each comment instead
         text.gsub!(/\<\!\-\-(.*?)\-\-\>/m) do |content|
           num_of_newlines = content.count("\n")
           if num_of_newlines == 0
@@ -299,6 +264,7 @@ module Wp2txt
 
         #close the present file, then open a new one
         if end_flag
+          output_text.strip!
           @fp.puts(output_text)
           output_text = ""
           @total_size = 0
@@ -311,7 +277,10 @@ module Wp2txt
           next
         end
       end
-      @fp.puts(output_text) if output_text != ""
+      if output_text != ""
+        output_text.strip!
+        @fp.puts(output_text) 
+      end
       notify_parent(true)
       @parent.after
       @fp.close    

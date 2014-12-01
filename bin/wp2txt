@@ -4,7 +4,7 @@
 $: << File.join(File.dirname(__FILE__))
 $: << File.join(File.dirname(__FILE__), '..', 'lib')
 
-$DEBUG_MODE = false
+DEBUG_MODE = true
 SHAREDIR = File.join(File.dirname(__FILE__), '..', 'share')
 DOCDIR = File.join(File.dirname(__FILE__), '..', 'doc')
 
@@ -76,16 +76,18 @@ wpconv.extract_text do |article|
     when :mw_heading
       next if !config[:heading]
       format_wiki!(e.last)
+      format_article!(e.last)
       line = e.last
       line << "+HEADING+" if $DEBUG_MODE
     when :mw_paragraph
       # next if !config[:paragraph]
       format_wiki!(e.last)
-      line = e.last
+      format_article!(e.last)
+      line = e.last + "\n"
       line << "+PARAGRAPH+" if $DEBUG_MODE
     when :mw_table, :mw_htable
       next if !config[:table]
-      format_wiki!(e.last)
+      # format_wiki!(e.last)
       line = e.last
       line << "+TABLE+" if $DEBUG_MODE
     when :mw_pre
@@ -94,23 +96,23 @@ wpconv.extract_text do |article|
       line << "+PRE+" if $DEBUG_MODE
     when :mw_quote
       # next if !config[:quote]
-      format_wiki!(e.last)
+      # format_wiki!(e.last)
       line = e.last
       line << "+QUOTE+" if $DEBUG_MODE
     when :mw_unordered, :mw_ordered, :mw_definition
       next if !config[:list]
-      format_wiki!(e.last)
+      # format_wiki!(e.last)
       line = e.last
       line << "+LIST+" if $DEBUG_MODE
     when :mw_redirect
       next if !config[:redirect]
-      format_wiki!(e.last)
+      # format_wiki!(e.last)
       line = e.last
       line << "+REDIRECT+" if $DEBUG_MODE
       line << "\n\n"
     else
       if $DEBUG_MODE
-        format_wiki!(e.last)
+        # format_wiki!(e.last)
         line = e.last
         line << "+OTHER+"
       else
@@ -119,8 +121,9 @@ wpconv.extract_text do |article|
     end
     contents << line    
   end
-  format_article!(contents)
   convert_characters!(contents)
+  remove_table!(contents) unless $leave_table
+  remove_ref!(contents) unless $leave_ref
     
   ##### cleanup #####
   if /\A\s*\z/m =~ contents
@@ -129,7 +132,6 @@ wpconv.extract_text do |article|
     result = config[:title] ? title + "\n" << contents : contents
   end
   result.gsub!(/\[ref\]\s*\[\/ref\]/m){""}
-  result.gsub!(/^[\s\W]+$/)
   result.gsub!(/\n\n\n+/m){"\n\n"}
   result << "\n"  
 end

@@ -129,7 +129,6 @@ module Wp2txt
     convert_characters!(text)    
     correct_inline_template!(text) unless $leave_template
     remove_templates!(text) unless $leave_template
-    remove_table!(text) unless $leave_table
   end
   
   #################### parser for nested structure ####################
@@ -295,16 +294,19 @@ module Wp2txt
     str.gsub!($mndash_regex, "–")
   end
 
-  def remove_hr!(page)
-    page.gsub!($remove_hr_regex, "")
+  def remove_hr!(str)
+    str.gsub!($remove_hr_regex, "")
   end
 
+  def remove_ref!(str)
+    str.gsub!($format_ref_regex){""}
+  end
+  
   def make_reference!(str)
     str.gsub!($make_reference_regex_a){"\n"}
     str.gsub!($make_reference_regex_b){""}
     str.gsub!($make_reference_regex_c){"[ref]"}
     str.gsub!($make_reference_regex_d){"[/ref]"}
-    str.gsub!($format_ref_regex){""} unless $leave_ref
   end
 
   def format_ref!(page)
