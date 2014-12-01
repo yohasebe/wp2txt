@@ -130,6 +130,7 @@ wpconv.extract_text do |article|
     result = config[:title] ? title + "\n" << contents : contents
   end
   result.gsub!(/\[ref\]\s*\[\/ref\]/m){""}
+  result.gsub!(/^[\s\W]+$/)
   result.gsub!(/\n\n\n+/m){"\n\n"}
   result << "\n"  
 end

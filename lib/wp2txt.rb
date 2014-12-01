@@ -6,7 +6,7 @@ $: << File.join(File.dirname(__FILE__))
 # require "rubygems"
 # require "bundler/setup"
 
-require "Nokogiri"
+require "nokogiri"
 # require "oga"
 # require "ox"
 
