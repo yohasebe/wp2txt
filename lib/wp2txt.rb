@@ -264,7 +264,7 @@ module Wp2txt
 
         #close the present file, then open a new one
         if end_flag
-          output_text.strip!
+          cleanup!(output_text)
           @fp.puts(output_text)
           output_text = ""
           @total_size = 0
@@ -278,7 +278,7 @@ module Wp2txt
         end
       end
       if output_text != ""
-        output_text.strip!
+        cleanup!(output_text)
         @fp.puts(output_text) 
       end
       notify_parent(true)

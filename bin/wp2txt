@@ -4,7 +4,7 @@
 $: << File.join(File.dirname(__FILE__))
 $: << File.join(File.dirname(__FILE__), '..', 'lib')
 
-DEBUG_MODE = true
+$DEBUG_MODE = false
 SHAREDIR = File.join(File.dirname(__FILE__), '..', 'share')
 DOCDIR = File.join(File.dirname(__FILE__), '..', 'doc')
 
@@ -31,7 +31,8 @@ EOS
   opt :heading, "Show section titles in output", :default => true, :short => "-d"
   opt :title,   "Show page titles in output", :default => true
   opt :table,   "Show table source code in output", :default => false
-  opt :template, "leave inline template notations unmodified", :default => false
+  opt :inline, "leave inline template notations as they are", :default => false
+  opt :multiline, "leave multiline template notations as they are", :default => true
   opt :ref, "leave reference notations in the format [ref]...[/ref]", :default => false
   opt :redirect, "Show redirect destination", :default => false
   opt :marker, "Show symbols prefixed to list items, definitions, etc.", :default => true
@@ -46,7 +47,7 @@ output_dir = opts[:output_dir]
 tfile_size = opts[:file_size]
 convert = opts[:convert]
 strip_tmarker = opts[:marker] ? false : true
-opt_array = [:title, :list, :heading, :table, :redirect]
+opt_array = [:title, :list, :heading, :table, :redirect, :multiline]
 $leave_template = true if opts[:template]
 $leave_table = true if opts[:table]
 $leave_ref = true if opts[:ref]
@@ -61,7 +62,6 @@ wpconv = Wp2txt::Runner.new(parent, input_file, output_dir, tfile_size, convert,
 wpconv.extract_text do |article|
   format_wiki!(article.title)
   title = "[[#{article.title}]]\n"
-  convert_characters!(title)
 
   if opts[:category] && !article.categories.empty?
     contents = "\nCATEGORIES: "
@@ -76,18 +76,14 @@ wpconv.extract_text do |article|
     when :mw_heading
       next if !config[:heading]
       format_wiki!(e.last)
-      format_article!(e.last)
       line = e.last
       line << "+HEADING+" if $DEBUG_MODE
     when :mw_paragraph
-      # next if !config[:paragraph]
       format_wiki!(e.last)
-      format_article!(e.last)
       line = e.last + "\n"
       line << "+PARAGRAPH+" if $DEBUG_MODE
     when :mw_table, :mw_htable
       next if !config[:table]
-      # format_wiki!(e.last)
       line = e.last
       line << "+TABLE+" if $DEBUG_MODE
     when :mw_pre
@@ -95,18 +91,18 @@ wpconv.extract_text do |article|
       line = e.last
       line << "+PRE+" if $DEBUG_MODE
     when :mw_quote
-      # next if !config[:quote]
-      # format_wiki!(e.last)
       line = e.last
       line << "+QUOTE+" if $DEBUG_MODE
     when :mw_unordered, :mw_ordered, :mw_definition
       next if !config[:list]
-      # format_wiki!(e.last)
       line = e.last
       line << "+LIST+" if $DEBUG_MODE
+    when :mw_ml_template
+      next if !config[:multiline]
+      line = e.last
+      line << "+MLTEMPLATE+" if $DEBUG_MODE
     when :mw_redirect
       next if !config[:redirect]
-      # format_wiki!(e.last)
       line = e.last
       line << "+REDIRECT+" if $DEBUG_MODE
       line << "\n\n"
@@ -121,17 +117,11 @@ wpconv.extract_text do |article|
     end
     contents << line    
   end
-  convert_characters!(contents)
   remove_table!(contents) unless $leave_table
-  remove_ref!(contents) unless $leave_ref
     
-  ##### cleanup #####
   if /\A\s*\z/m =~ contents
     result = ""
   else
-    result = config[:title] ? title + "\n" << contents : contents
+    result = config[:title] ? "\n#{title}\n" << contents : contents
   end
-  result.gsub!(/\[ref\]\s*\[\/ref\]/m){""}
-  result.gsub!(/\n\n\n+/m){"\n\n"}
-  result << "\n"  
 end

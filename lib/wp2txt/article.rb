@@ -37,6 +37,10 @@ module Wp2txt
     def initialize(text, title = "", strip_tmarker = false)
       @title = title.strip
       @strip_tmarker = strip_tmarker
+      convert_characters!(text)    
+      make_reference!(text)
+      remove_ref!(text)
+      
       parse text
     end
     
@@ -58,6 +62,12 @@ module Wp2txt
         end
 
         case mode
+        when :mw_ml_template
+          if $ml_template_end_regex =~ line
+            mode = nil
+          end
+          @elements.last.last << line
+          next
         when :mw_table
           if $in_table_regex2 =~ line
             mode = nil
@@ -102,6 +112,9 @@ module Wp2txt
           @elements << create_element(:mw_heading, "\n" + line + "\n")
         when $in_inputbox_regex
           @elements << create_element(:mw_inputbox, line)
+        when $ml_template_onset_regex 
+          @elements << create_element(:mw_ml_template, line)
+          mode = :mw_ml_template
         when $in_inputbox_regex1
           mode = :mw_inputbox
           @elements << create_element(:mw_inputbox, line)

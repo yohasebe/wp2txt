@@ -41,11 +41,12 @@ Command line options are as follows:
     --heading, --no-heading, -d:   Show section titles in output (default: true)
         --title, --no-title, -t:   Show page titles in output (default: true)
                     --table, -a:   Show table source code in output
-                 --template, -e:   leave inline template notations unmodified
+                   --inline, -n:   leave inline template notations unmodified
+                --multiline, -m:   leave multiline template notations unmodified
                       --ref, -r:   leave reference notations in the format
                                    [ref]...[/ref]
-                     --redirect:   Show redirect destination
-      --marker, --no-marker, -m:   Show symbols prefixed to list items,
+                 --redirect, -e:   Show redirect destination
+      --marker, --no-marker, -k:   Show symbols prefixed to list items,
                                    definitions, etc. (Default: true)
                  --category, -g:   Show article category information
             --file-size, -f <i>:   Approximate size (in MB) of each output file

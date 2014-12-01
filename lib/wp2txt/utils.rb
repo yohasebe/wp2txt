@@ -16,43 +16,33 @@ $html_decoder = HTMLEntities.new
 $entities = ['&nbsp;', '&lt;', '&gt;', '&amp;', '&quot;'].zip([' ', '<', '>', '&', '"'])
 $html_hash  = Hash[*$entities.flatten]
 $html_regex = Regexp.new("(" + $html_hash.keys.join("|") + ")")
-
+$ml_template_onset_regex = Regexp.new('^\{\{[^\}]*$') 
+$ml_template_end_regex   = Regexp.new('^\}\}\s*$')
 $in_template_regex = Regexp.new('^\s*\{\{[^\}]+\}\}\s*$')
 $in_link_regex = Regexp.new('^\s*\[.*\]\s*$')
-    
 $in_inputbox_regex  = Regexp.new('<inputbox>.*?<\/inputbox>')
 $in_inputbox_regex1  = Regexp.new('<inputbox>')
 $in_inputbox_regex2  = Regexp.new('<\/inputbox>')
-
 $in_source_regex  = Regexp.new('<source.*?>.*?<\/source>')
 $in_source_regex1  = Regexp.new('<source.*?>')
 $in_source_regex2  = Regexp.new('<\/source>')
-
 $in_math_regex  = Regexp.new('<math.*?>.*?<\/math>')
 $in_math_regex1  = Regexp.new('<math.*?>')
 $in_math_regex2  = Regexp.new('<\/math>')
-
 $in_heading_regex  = Regexp.new('^=+.*?=+$')
-
 $in_html_table_regex = Regexp.new('<table.*?><\/table>')
 $in_html_table_regex1 = Regexp.new('<table\b')
 $in_html_table_regex2 = Regexp.new('<\/\s*table>')
-
 $in_table_regex1 = Regexp.new('^\s*\{\|')
 $in_table_regex2 = Regexp.new('^\|\}.*?$')
-
 $in_unordered_regex  = Regexp.new('^\*')
 $in_ordered_regex    = Regexp.new('^\#')
 $in_pre_regex = Regexp.new('^ ')
 $in_definition_regex  = Regexp.new('^[\;\:]')    
-
 $blank_line_regex = Regexp.new('^\s*$')
-
 $redirect_regex = Regexp.new('#(?:REDIRECT|転送)\s+\[\[(.+)\]\]', Regexp::IGNORECASE)
-
 $remove_tag_regex = Regexp.new("\<[^\<\>]*\>")
 $remove_directives_regex = Regexp.new("\_\_[^\_]*\_\_")
-
 $remove_emphasis_regex = Regexp.new('(' + Regexp.escape("''") + '+)(.+?)\1')
 $chrref_to_utf_regex = Regexp.new('&#(x?)([0-9a-fA-F]+);')
 $mndash_regex = Regexp.new('\{(mdash|ndash|–)\}')
@@ -111,26 +101,25 @@ module Wp2txt
   
   def format_wiki!(text, has_retried = false)
     escape_nowiki!(text)
-
     process_interwiki_links!(text)
     process_external_links!(text)
-
     unescape_nowiki!(text)      
-  end
-  
-  def format_article!(text)
+    #####
     remove_directive!(text)
     remove_emphasis!(text)
     mndash!(text)
-    make_reference!(text)
-    format_ref!(text)
     remove_hr!(text)
     remove_tag!(text)
-    convert_characters!(text)    
     correct_inline_template!(text) unless $leave_template
     remove_templates!(text) unless $leave_template
   end
   
+  def cleanup!(text)
+    text.gsub!(/\[ref\]\s*\[\/ref\]/m){""}
+    text.gsub!(/\n\n\n+/m){"\n\n"}
+    text.strip!
+    text << "\n\n"
+  end
   #################### parser for nested structure ####################
    
   def process_nested_structure(scanner, left, right, &block)
@@ -309,34 +298,25 @@ module Wp2txt
     str.gsub!($make_reference_regex_d){"[/ref]"}
   end
 
-  def format_ref!(page)
-    ###### do nothing for now
-    # page.gsub!($format_ref_regex) do
-    # end
-  end
-
   def correct_inline_template!(str)
+    if $leave_template
+      return false 
+    end
     str.gsub!($remove_inline_regex) do
       key = $1
       if $onset_bar_regex =~ key
-        result = key
-      elsif
+        out = key
+      else
         info = key.split("|")
         type_code = info.first
         case type_code
         when $type_code_regex
           out = info[-1]
         else
-          if $leave_template
-            out = "{" + info.collect{|i|i.chomp}.join("|") + "}"
-          else
-            out = ""
-          end
+          out = "{" + info.collect{|i|i.chomp}.join("|") + "}"
         end
-        out
-      else
-        ""
       end
+      out
     end
   end
   
