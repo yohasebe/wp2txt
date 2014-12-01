@@ -2,7 +2,7 @@
 
 Wikipedia dump file to text converter
 
-**Important** This is a project *work in progress* and it could be slow, unstable, and even destructive! Please use it with caution 
+**Important: This is a project *work in progress* and it could be slow, unstable, and even destructive! Please use it with caution!**
 
 ### About ###
 
