@@ -6,8 +6,6 @@ require 'wp2txt'
 require 'wp2txt/article'
 require 'wp2txt/utils'
 
-$limit_recur = 3
-
 describe "Wp2txt" do
   it "contains mediawiki-format related functions:" do
   end
@@ -22,7 +20,7 @@ describe "Wp2txt" do
       str_before = "[[ab[[cde[[alfa]]]]fg]]"
       str_after  = "<<ab<<cde<<alfa>>>>fg>>"
       scanner = StringScanner.new(str_before)
-      str_processed = process_nested_structure(scanner, "[[", "]]", $limit_recur) do |content|
+      str_processed = process_nested_structure(scanner, "[[", "]]") do |content|
         "<<" + content + ">>"
       end
       expect(str_processed).to eq str_after
@@ -32,7 +30,7 @@ describe "Wp2txt" do
       str_after = "#* <<quote-book|1503|year_published=1836|chapter=19 Henry VII. c. 5: Coin||A Collection of Statutes Connected with the General Administration of the Law|page=158|url=http://books.google.com/books?id=QtYuAAAAIAAJ
       |passage=<<...>> every of them, being gold, whole and weight, shall '''go''' and be current in payment throughout this his realm for the sum that they were coined for.>>"
       scanner = StringScanner.new(str_before)
-      str_processed = process_nested_structure(scanner, "{{", "}}", $limit_recur) do |content|
+      str_processed = process_nested_structure(scanner, "{{", "}}") do |content|
         "<<" + content + ">>"
       end
       #str_processed.should == str_after

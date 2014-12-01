@@ -32,32 +32,31 @@ EOS
   opt :title,   "Show page titles in output", :default => true
   opt :table,   "Show table source code in output", :default => false
   opt :template, "leave inline template notations unmodified", :default => false
+  opt :ref, "leave reference notations in the format [ref]...[/ref]", :default => false
   opt :redirect, "Show redirect destination", :default => false
   opt :marker, "Show symbols prefixed to list items, definitions, etc.", :default => true
   opt :category, "Show article category information", :default => false
   opt :file_size,   "Approximate size (in MB) of each output file", :default => 10
-  opt :limit_recur, "Max number of recursive call (0 to 10)", :default => 10
 end
 Trollop::die :size, "must be larger than 0" unless opts[:file_size] >= 0
 Trollop::die :output_dir, "must exist" unless File.exist?(opts[:output_dir])
-Trollop::die :limit_recur, "must be 10 or smaller" if opts[:limit_recur] > 10
 
 input_file = ARGV[0]
 output_dir = opts[:output_dir]
 tfile_size = opts[:file_size]
-limit_recur = opts[:limit_recur]
 convert = opts[:convert]
 strip_tmarker = opts[:marker] ? false : true
 opt_array = [:title, :list, :heading, :table, :redirect]
 $leave_template = true if opts[:template]
 $leave_table = true if opts[:table]
+$leave_ref = true if opts[:ref]
 config = {}
 opt_array.each do |opt|
   config[opt] = opts[opt]
 end
 
 parent = Wp2txt::CmdProgbar.new
-wpconv = Wp2txt::Runner.new(parent, input_file, output_dir, tfile_size, convert, strip_tmarker, limit_recur)
+wpconv = Wp2txt::Runner.new(parent, input_file, output_dir, tfile_size, convert, strip_tmarker)
 
 wpconv.extract_text do |article|
   format_wiki!(article.title)

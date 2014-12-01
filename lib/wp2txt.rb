@@ -29,7 +29,7 @@ module Wp2txt
 
     include Wp2txt
 
-    def initialize(parent, input_file, output_dir = ".", tfile_size = 10, convert = true, strip_tmarker = false, limit_recur = 10)
+    def initialize(parent, input_file, output_dir = ".", tfile_size = 10, convert = true, strip_tmarker = false)
       @parent = parent
       @fp = nil
       
@@ -38,9 +38,6 @@ module Wp2txt
       @tfile_size = tfile_size
       @convert = convert
       @strip_tmarker = strip_tmarker
-      
-      #max number of recursive calls (global variable)
-      $limit_recur = limit_recur
     end
     
     def file_size(file) 

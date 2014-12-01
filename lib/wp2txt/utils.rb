@@ -134,7 +134,7 @@ module Wp2txt
   
   #################### parser for nested structure ####################
    
-  def process_nested_structure(scanner, left, right, recur_count, &block)
+  def process_nested_structure(scanner, left, right, &block)
     buffer = ""
     begin
     if left == "[" && right == "]"
@@ -168,12 +168,11 @@ module Wp2txt
     end
     buffer << scanner.rest
 
-    recur_count = recur_count - 1
-    if recur_count < 0 || buffer == scanner.string
+    if buffer == scanner.string
       return buffer
     else
       scanner.string = buffer
-      return process_nested_structure(scanner, left, right, recur_count, &block) || ""
+      return process_nested_structure(scanner, left, right, &block) || ""
     end
     rescue => e
       return scanner.string
@@ -204,7 +203,7 @@ module Wp2txt
       
   def process_interwiki_links!(str)
     scanner = StringScanner.new(str)
-    result = process_nested_structure(scanner, "[[", "]]", $limit_recur) do |contents|
+    result = process_nested_structure(scanner, "[[", "]]") do |contents|
       parts = contents.split("|")      
       case parts.size
       when 1
@@ -219,7 +218,7 @@ module Wp2txt
 
   def process_external_links!(str)
     scanner = StringScanner.new(str)
-    result = process_nested_structure(scanner, "[", "]", $limit_recur) do |contents|
+    result = process_nested_structure(scanner, "[", "]") do |contents|
       parts = contents.split(" ", 2)
       case parts.size
       when 1
@@ -235,7 +234,7 @@ module Wp2txt
 
   def remove_templates!(str)
     scanner = StringScanner.new(str)
-    result = process_nested_structure(scanner, "{{", "}}", $limit_recur) do |contents|
+    result = process_nested_structure(scanner, "{{", "}}") do |contents|
       ""
     end
     str.replace(result)
@@ -243,7 +242,7 @@ module Wp2txt
   
   def remove_table!(str)
     scanner = StringScanner.new(str)
-    result = process_nested_structure(scanner, "{|", "|}", $limit_recur) do |contents|
+    result = process_nested_structure(scanner, "{|", "|}") do |contents|
       ""
     end
     str.replace(result)
@@ -301,10 +300,11 @@ module Wp2txt
   end
 
   def make_reference!(str)
-    str.gsub!($make_reference_regex_a, "\n")
-    str.gsub!($make_reference_regex_b, "")
-    str.gsub!($make_reference_regex_c, "[ref]")
-    str.gsub!($make_reference_regex_d, "[/ref]")
+    str.gsub!($make_reference_regex_a){"\n"}
+    str.gsub!($make_reference_regex_b){""}
+    str.gsub!($make_reference_regex_c){"[ref]"}
+    str.gsub!($make_reference_regex_d){"[/ref]"}
+    str.gsub!($format_ref_regex){""} unless $leave_ref
   end
 
   def format_ref!(page)

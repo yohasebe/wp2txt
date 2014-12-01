@@ -2,6 +2,8 @@
 
 Wikipedia dump file to text converter
 
+**Important** This is a project *work in progress* and it could be slow, unstable, and even destructive! Please use it with caution 
+
 ### About ###
 
 WP2TXT extracts plain text data from Wikipedia dump file (encoded in XML/compressed with Bzip2) stripping all the MediaWiki markups and other metadata. It is originally intended to be useful for researchers who look for an easy way to obtain open-source multi-lingual corpora, but may be handy for other purposes.
@@ -26,14 +28,13 @@ where `xx` is language code such as "en (English)" or "ja (Japanese)", and  `yyy
 
 Command line options are as follows:
 
-*CAUTION:* Command line options in the current version have been drastically changed from previous versions.
+**Important** Command line options in the current version have been drastically changed from previous versions.
 
     Usage: wp2txt [options]
     where [options] are:
                --input-file, -i:   Wikipedia dump file with .bz2 (compressed) or
                                    .txt (uncompressed) format
-           --output-dir, -o <s>:   Output directory (default:
-                                   /Users/yohasebe/Dropbox/code/wp2txt)
+           --output-dir, -o <s>:   Output directory (default: current directory)
     --convert, --no-convert, -c:   Output in plain text (converting from XML)
                                    (default: true)
           --list, --no-list, -l:   Show list items in output (default: true)
@@ -41,13 +42,13 @@ Command line options are as follows:
         --title, --no-title, -t:   Show page titles in output (default: true)
                     --table, -a:   Show table source code in output
                  --template, -e:   leave inline template notations unmodified
-                 --redirect, -r:   Show redirect destination
+                      --ref, -r:   leave reference notations in the format
+                                   [ref]...[/ref]
+                     --redirect:   Show redirect destination
       --marker, --no-marker, -m:   Show symbols prefixed to list items,
                                    definitions, etc. (Default: true)
                  --category, -g:   Show article category information
             --file-size, -f <i>:   Approximate size (in MB) of each output file
-                                   (default: 10)
-          --limit-recur, -u <i>:   Max number of recursive call (0 to 10)
                                    (default: 10)
                   --version, -v:   Print version and exit
                      --help, -h:   Show this message
