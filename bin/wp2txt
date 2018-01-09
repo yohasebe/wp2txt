@@ -32,12 +32,13 @@ EOS
   opt :title,   "Show page titles in output", :default => true
   opt :table,   "Show table source code in output", :default => false
   opt :inline, "leave inline template notations as they are", :default => false
-  opt :multiline, "leave multiline template notations as they are", :default => true
+  opt :multiline, "leave multiline template notations as they are", :default => false
   opt :ref, "leave reference notations in the format [ref]...[/ref]", :default => false
   opt :redirect, "Show redirect destination", :default => false
   opt :marker, "Show symbols prefixed to list items, definitions, etc.", :default => true
   opt :category, "Show article category information", :default => false
   opt :file_size,   "Approximate size (in MB) of each output file", :default => 10
+  opt :num_threads,   "Number of threads to be spawned (capped to the number of CPU cores; set 99 to spawn max num of threads)", :default => 4
 end
 Trollop::die :size, "must be larger than 0" unless opts[:file_size] >= 0
 Trollop::die :output_dir, "must exist" unless File.exist?(opts[:output_dir])
@@ -45,19 +46,20 @@ Trollop::die :output_dir, "must exist" unless File.exist?(opts[:output_dir])
 input_file = ARGV[0]
 output_dir = opts[:output_dir]
 tfile_size = opts[:file_size]
+num_threads = opts[:num_threads]
 convert = opts[:convert]
 strip_tmarker = opts[:marker] ? false : true
 opt_array = [:title, :list, :heading, :table, :redirect, :multiline]
-$leave_template = true if opts[:template]
-$leave_table = true if opts[:table]
+$leave_inline_template = true if opts[:inline]
 $leave_ref = true if opts[:ref]
+# $leave_table = true if opts[:table]
 config = {}
 opt_array.each do |opt|
   config[opt] = opts[opt]
 end
 
 parent = Wp2txt::CmdProgbar.new
-wpconv = Wp2txt::Runner.new(parent, input_file, output_dir, tfile_size, convert, strip_tmarker)
+wpconv = Wp2txt::Runner.new(parent, input_file, output_dir, tfile_size, num_threads, convert, strip_tmarker)
 
 wpconv.extract_text do |article|
   format_wiki!(article.title)
@@ -106,6 +108,12 @@ wpconv.extract_text do |article|
       line = e.last
       line << "+REDIRECT+" if $DEBUG_MODE
       line << "\n\n"
+    when :mw_isolated_template
+      next if !config[:multiline]
+      line = e.last
+      line << "+ISOLATED_TEMPLATE+" if $DEBUG_MODE
+    when :mw_isolated_tag
+      next
     else
       if $DEBUG_MODE
         # format_wiki!(e.last)
@@ -115,11 +123,10 @@ wpconv.extract_text do |article|
         next
       end
     end
-    contents << line    
+    contents << line << "\n"
   end
-  remove_table!(contents) unless $leave_table
     
-  if /\A\s*\z/m =~ contents
+  if /\A[\s　]*\z/m =~ contents
     result = ""
   else
     result = config[:title] ? "\n#{title}\n" << contents : contents

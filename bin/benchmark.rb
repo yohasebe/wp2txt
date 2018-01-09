@@ -15,12 +15,13 @@ parent = Wp2txt::CmdProgbar.new
 input_file = File.join(data_dir, "testdata.bz2")
 output_dir = data_dir
 tfile_size = 10
+num_threads = 1
 convert = true
 strip_tmarker = true
 
 Benchmark.bm do |x|
   x.report do
-    wpconv = Wp2txt::Runner.new(parent, input_file, output_dir, tfile_size, convert, strip_tmarker)
+    wpconv = Wp2txt::Runner.new(parent, input_file, output_dir, tfile_size, num_threads, convert, strip_tmarker)
     wpconv.extract_text do |article|
       format_wiki!(article.title)
       title = "[[#{article.title}]]\n"
@@ -58,11 +59,11 @@ Benchmark.bm do |x|
         end
         contents << line
       end
-      format_article!(contents)
+      format_wiki!(contents)
       convert_characters!(contents)
 
       ##### cleanup #####
-      if /\A\s*\z/m =~ contents
+      if /\A[\s　]*\z/m =~ contents
         result = ""
       else
         result = title + "\n" + contents

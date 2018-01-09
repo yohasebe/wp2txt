@@ -182,22 +182,34 @@ describe "Wp2txt" do
     end
   end
   
-  # describe "process_template" do
-  #   it "removes brackets and leaving some text" do
-  #     str_before = "{{}}"
-  #     str_after = ""
-  #     expect(process_template(str_before)).to eq str_after
-  #     str_before = "{{lang|en|Japan}}"
-  #     str_after  = "Japan"
-  #     expect(process_template(str_before)).to eq str_after
-  #     str_before = "{{a|b=c|d=f}}"
-  #     str_after  = "a"
-  #     expect(process_template(str_before)).to eq str_after
-  #     str_before = "{{a|b|{{c|d|e}}}}"
-  #     str_after  = "e"
-  #     expect(process_template(str_before)).to eq str_after
-  #   end
-  # end
+  describe "correct_inline_template!" do
+    it "removes brackets and leaving some text" do
+      # str_before = "{{}}"
+      # str_after = ""
+      # correct_inline_template!(str_before)
+      # expect(str_before).to eq str_after
+      str_before = "{{MedalCountry | {{JPN}} }}"
+      str_after  = "JPN"
+      correct_inline_template!(str_before)
+      expect(str_before).to eq str_after
+      str_before = "{{lang|en|Japan}}"
+      str_after  = "Japan"
+      correct_inline_template!(str_before)
+      expect(str_before).to eq str_after
+      str_before = "{{a|b=c|d=f}}"
+      str_after  = "a"
+      correct_inline_template!(str_before)
+      expect(str_before).to eq str_after
+      str_before = "{{a|b|{{c|d|e}}}}"
+      str_after  = "e"
+      correct_inline_template!(str_before)
+      expect(str_before).to eq str_after
+      str_before = "{{要出典範囲|日本人に多く見受けられる|date=2013年8月|title=日本人特有なのか、本当に多いのかを示す必要がある}}"
+      str_after = "日本人に多く見受けられる"
+      correct_inline_template!(str_before)
+      expect(str_before).to eq str_after
+    end
+  end
   
   #   describe "expand_template" do
   #     it "gets data corresponding to a given template using mediawiki api" do

@@ -16,9 +16,12 @@ $html_decoder = HTMLEntities.new
 $entities = ['&nbsp;', '&lt;', '&gt;', '&amp;', '&quot;'].zip([' ', '<', '>', '&', '"'])
 $html_hash  = Hash[*$entities.flatten]
 $html_regex = Regexp.new("(" + $html_hash.keys.join("|") + ")")
-$ml_template_onset_regex = Regexp.new('^\{\{[^\}]*$') 
-$ml_template_end_regex   = Regexp.new('^\}\}\s*$')
-$in_template_regex = Regexp.new('^\s*\{\{[^\}]+\}\}\s*$')
+$ml_template_onset_regex = Regexp.new('^\{\{[^\}]*$')
+$ml_template_end_regex   = Regexp.new('\}\}\s*$')
+$ml_link_onset_regex = Regexp.new('^\[\[[^\]]*$')
+$ml_linkend_regex   = Regexp.new('\]\]\s*$')
+$isolated_template_regex = Regexp.new('^\s*\{\{.+\}\}\s*$')
+$isolated_tag_regex = Regexp.new('^\s*\<[^\<\>]+\>.+\<[^\<\>]+\>\s*$')
 $in_link_regex = Regexp.new('^\s*\[.*\]\s*$')
 $in_inputbox_regex  = Regexp.new('<inputbox>.*?<\/inputbox>')
 $in_inputbox_regex1  = Regexp.new('<inputbox>')
@@ -65,6 +68,7 @@ $category_regex = Regexp.new('[\{\[\|\b](?:' + $category_patterns + ')\:(.*?)[\}
 $escape_nowiki_regex = Regexp.new('<nowiki>(.*?)<\/nowiki>', Regexp::MULTILINE)
 $unescape_nowiki_regex = Regexp.new('<nowiki\-(\d+?)>')
 
+$remove_isolated_regex = Regexp.new('^\s*\{\{(.*?)\}\}\s*$')
 $remove_inline_regex = Regexp.new('\{\{(.*?)\}\}')
 $type_code_regex = Regexp.new('\A(?:lang*|\AIPA|IEP|SEP|indent|audio|small|dmoz|pron|unicode|note label|nowrap|ArabDIN|trans|Nihongo|Polytonic)', Regexp::IGNORECASE)
 
@@ -110,8 +114,9 @@ module Wp2txt
     mndash!(text)
     remove_hr!(text)
     remove_tag!(text)
-    correct_inline_template!(text) unless $leave_template
-    remove_templates!(text) unless $leave_template
+    correct_inline_template!(text) unless $leave_inline_template
+    remove_templates!(text) unless $leave_inline_template
+    # remove_table!(text) unless $leave_table
   end
   
   def cleanup!(text)
@@ -225,6 +230,10 @@ module Wp2txt
     result = process_nested_structure(scanner, "{{", "}}") do |contents|
       ""
     end
+    scanner = StringScanner.new(result)
+    result = process_nested_structure(scanner, "{", "}") do |contents|
+      ""
+    end
     str.replace(result)
   end
   
@@ -299,26 +308,32 @@ module Wp2txt
   end
 
   def correct_inline_template!(str)
-    if $leave_template
-      return false 
+    scanner = StringScanner.new(str)
+    result = process_nested_structure(scanner, "{{", "}}") do |contents|
+      parts = contents.split("|")
+      # type_code = parts.first
+      # case type_code
+      # when $type_code_regex
+      #   out = parts[-1]
+      # else
+      #   case parts.size
+      #   when 0
+      #     out = ""
+      #   when 1
+      #     out = parts.first || ""
+      #   else
+          # while parts.size > 2 && parts.last.split("=").size > 1
+          while parts.size > 1 && parts.last.split("=").size > 1
+            parts.pop
+          end
+          out = parts.last || ""
+      #   end
+      # end
+      out.strip
     end
-    str.gsub!($remove_inline_regex) do
-      key = $1
-      if $onset_bar_regex =~ key
-        out = key
-      else
-        info = key.split("|")
-        type_code = info.first
-        case type_code
-        when $type_code_regex
-          out = info[-1]
-        else
-          out = "{" + info.collect{|i|i.chomp}.join("|") + "}"
-        end
-      end
-      out
-    end
+    str.replace result
   end
+
   
 #################### file related utilities ####################
 

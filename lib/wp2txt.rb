@@ -4,6 +4,7 @@
 $: << File.join(File.dirname(__FILE__))
 
 require "nokogiri"
+require "parallel"
 
 require 'pp'
 require "wp2txt/article"
@@ -24,7 +25,7 @@ module Wp2txt
 
     include Wp2txt
 
-    def initialize(parent, input_file, output_dir = ".", tfile_size = 10, convert = true, strip_tmarker = false)
+    def initialize(parent, input_file, output_dir = ".", tfile_size = 10, num_threads = 1, convert = true, strip_tmarker = false)
       @parent = parent
       @fp = nil
       
@@ -33,6 +34,8 @@ module Wp2txt
       @tfile_size = tfile_size
       @convert = convert
       @strip_tmarker = strip_tmarker
+      num_cores_available = Etc.nprocessors
+      @num_threads = num_threads <= num_cores_available ? num_threads : num_cores_available
     end
     
     def file_size(file) 
@@ -97,6 +100,7 @@ module Wp2txt
       if /.bz2$/ =~ @input_file
         unless NO_BZ2
           file = Bzip2::Reader.new File.open(@input_file, "r:UTF-8")
+          @parent.msg("WP2TXT is spawming #{@num_threads} threads to process data \n", 0)         
           @parent.msg("Preparing ... This may take several minutes or more ", 0)         
           @infile_size = file_size(file)
           @parent.msg("... Done.", 1)
@@ -108,6 +112,7 @@ module Wp2txt
           else
             file = IO.popen("bzip2 -c -d #{@input_file}") 
           end
+          @parent.msg("WP2TXT is spawming #{@num_threads} threads to process data \n", 0)         
           @parent.msg("Preparing ... This may take several minutes or more ", 0)         
           @infile_size = file_size(file)
           @parent.msg("... Done.", 1)
@@ -232,51 +237,69 @@ module Wp2txt
       end_flag = false
       terminal_round = false
       output_text = ""
+      pages = []
+      data_empty = false
 
-      while page = get_page
-        xmlns = '<mediawiki xmlns="http://www.mediawiki.org/xml/export-0.5/" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.mediawiki.org/xml/export-0.5/ http://www.mediawiki.org/xml/export-0.5.xsd" version="0.5" xml:lang="en">' + "\n"
-        xml = xmlns + page + "</mediawiki>"
+      begin
+        page = get_page
+        if page
+          pages << page
+        else
+          data_empty = true
+        end
+        if data_empty || pages.size == @num_threads
+          # pages_text = Parallel.map_with_index(pages, in_threads: @num_threads) do |page, n|
+          pages_text = Parallel.map_with_index(pages, in_threads: @num_threads) do |page, n|
+            page_text = {:order => n, :data => nil}
+            xmlns = '<mediawiki xmlns="http://www.mediawiki.org/xml/export-0.5/" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.mediawiki.org/xml/export-0.5/ http://www.mediawiki.org/xml/export-0.5.xsd" version="0.5" xml:lang="en">' + "\n"
+            xml = xmlns + page + "</mediawiki>"
 
-        input = Nokogiri::XML(xml, nil, 'UTF-8')
-        page = input.xpath("//xmlns:text").first
-        pp_title = page.parent.parent.at_css "title"
-        title = pp_title.content
-        next if /\:/ =~ title
-        text = page.content
+            input = Nokogiri::XML(xml, nil, 'UTF-8')
+            page = input.xpath("//xmlns:text").first
+            pp_title = page.parent.parent.at_css "title"
+            title = pp_title.content
+            unless  /\:/ =~ title
+              text = page.content
+              text.gsub!(/\<\!\-\-(.*?)\-\-\>/m) do |content|
+                num_of_newlines = content.count("\n")
+                if num_of_newlines == 0
+                  ""
+                else
+                  "\n" * num_of_newlines
+                end
+              end
+              article = Article.new(text, title, @strip_tmarker)
+              page_text[:data] = block.call(article)
+            end
+            page_text
+          end
+          pages.clear
+          pages_text = pages_text.sort_by{|v| v[:order]}.map{|v| v[:data]}.compact
+          pages_text.each do |page_text|
+            output_text << page_text
+            @count ||= 0; @count += 1;
+            @total_size = output_text.bytesize
+            # flagged when data exceeds the size of output file
+            end_flag = true if @total_size > (@tfile_size * 1024 * 1024)
+          end
 
-        text.gsub!(/\<\!\-\-(.*?)\-\-\>/m) do |content|
-          num_of_newlines = content.count("\n")
-          if num_of_newlines == 0
-            ""
-          else
-            "\n" * num_of_newlines
+          #close the present file, then open a new one
+          if end_flag
+            cleanup!(output_text)
+            @fp.puts(output_text)
+            output_text = ""
+            @total_size = 0
+            end_flag = false
+            @fp.close
+            @file_index += 1
+            outfilename = File.join(@output_dir, @outfile_base + @file_index.to_s)
+            @outfiles << outfilename
+            @fp = File.open(outfilename, "w")
+            next
           end
         end
-        
-        @count ||= 0;@count += 1;
+      end while !data_empty 
 
-        article = Article.new(text, title, @strip_tmarker)
-        output_text += block.call(article)
-        @total_size = output_text.bytesize
-
-        # flagged when data exceeds the size of output file
-        end_flag = true if @total_size > (@tfile_size * 1024 * 1024)
-
-        #close the present file, then open a new one
-        if end_flag
-          cleanup!(output_text)
-          @fp.puts(output_text)
-          output_text = ""
-          @total_size = 0
-          end_flag = false
-          @fp.close
-          @file_index += 1
-          outfilename = File.join(@output_dir, @outfile_base + @file_index.to_s)
-          @outfiles << outfilename
-          @fp = File.open(outfilename, "w")
-          next
-        end
-      end
       if output_text != ""
         cleanup!(output_text)
         @fp.puts(output_text) 
@@ -321,3 +344,4 @@ module Wp2txt
     end 
   end
 end
+

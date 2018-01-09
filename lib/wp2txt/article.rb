@@ -63,7 +63,17 @@ module Wp2txt
 
         case mode
         when :mw_ml_template
-          if $ml_template_end_regex =~ line
+          scanner = StringScanner.new(line)
+          str= process_nested_structure(scanner, "{{", "}}") {""}
+          if $ml_template_end_regex =~ str
+            mode = nil
+          end
+          @elements.last.last << line
+          next
+        when :mw_ml_link
+          scanner = StringScanner.new(line)
+          str= process_nested_structure(scanner, "[[", "]]") {""}
+          if $ml_link_end_regex =~ str
             mode = nil
           end
           @elements.last.last << line
@@ -101,12 +111,16 @@ module Wp2txt
         end
 
         case line
+        when $isolated_template_regex
+          @elements << create_element(:mw_isolated_template, line)
+        when $isolated_tag_regex
+          @elements << create_element(:mw_isolated_tag, line)
         when $blank_line_regex
           @elements << create_element(:mw_blank, "\n")      
         when $redirect_regex
           @elements << create_element(:mw_redirect, line)
-        when $in_template_regex
-          @elements << create_element(:mw_template, line)
+        # when $in_template_regex
+        #   @elements << create_element(:mw_template, line)
         when $in_heading_regex
           line = line.sub($heading_onset_regex){$1}.sub($heading_coda_regex){$1}          
           @elements << create_element(:mw_heading, "\n" + line + "\n")
@@ -115,6 +129,9 @@ module Wp2txt
         when $ml_template_onset_regex 
           @elements << create_element(:mw_ml_template, line)
           mode = :mw_ml_template
+        when $ml_link_onset_regex 
+          @elements << create_element(:mw_ml_link, line)
+          mode = :mw_ml_link
         when $in_inputbox_regex1
           mode = :mw_inputbox
           @elements << create_element(:mw_inputbox, line)
@@ -151,7 +168,7 @@ module Wp2txt
         when $in_link_regex
           @elements << create_element(:mw_link, line)
         else 
-          @elements << create_element(:mw_paragraph, line)
+          @elements << create_element(:mw_paragraph, "\n" + line)
         end
       end
       @elements

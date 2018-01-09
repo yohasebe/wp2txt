@@ -28,7 +28,7 @@ where `xx` is language code such as "en (English)" or "ja (Japanese)", and  `yyy
 
 Command line options are as follows:
 
-**Important** Command line options in the current version have been drastically changed from previous versions.
+**Important** Ver. 0.9.1. has added a new option `num-threads`. Note also that the output format is slightly different from previous versions. Check out the new format using test data in `data/output_samples` folder before going on to convert a huge wikipedia dump. 
 
     Usage: wp2txt [options]
     where [options] are:
@@ -51,6 +51,8 @@ Command line options are as follows:
                  --category, -g:   Show article category information
             --file-size, -f <i>:   Approximate size (in MB) of each output file
                                    (default: 10)
+          -u, --num-threads=<i>:   Number of threads to be spawned (capped to the number of CPU cores; 
+                                   set 99 to spawn max num of threads) (default: 4)
                   --version, -v:   Print version and exit
                      --help, -h:   Show this message
 
