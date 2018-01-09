@@ -36,7 +36,7 @@ EOS
   opt :ref, "leave reference notations in the format [ref]...[/ref]", :default => false
   opt :redirect, "Show redirect destination", :default => false
   opt :marker, "Show symbols prefixed to list items, definitions, etc.", :default => true
-  opt :category, "Show article category information", :default => false
+  opt :category, "Show article category information", :default => true 
   opt :file_size,   "Approximate size (in MB) of each output file", :default => 10
   opt :num_threads,   "Number of threads to be spawned (capped to the number of CPU cores; set 99 to spawn max num of threads)", :default => 4
 end

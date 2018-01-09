@@ -2,7 +2,9 @@
 
 Wikipedia dump file to text converter
 
-**Important: This is a project *work in progress* and it could be slow, unstable, and even destructive! Please use it with caution!**
+**Important:** This is a project still work in progress and it could be slow, unstable, and even destructive! It should be used with caution.
+
+**Update:** Ver. 0.9.1. has added a new option `num-threads`, which improves the performance significantly . Note also that `--category` option is enabled by default, resulting with output format somewhat different from previous versions. Check out the new format using test data in `data/output_samples` folder before going on to convert a huge wikipedia dump.**
 
 ### About ###
 
@@ -27,8 +29,6 @@ Obtain a Wikipedia dump file (from [here](http://dumps.wikimedia.org/backup-inde
 where `xx` is language code such as "en (English)" or "ja (Japanese)", and  `yyyymmdd` is the date of creation (e.g. 20120601).
 
 Command line options are as follows:
-
-**Important** Ver. 0.9.1. has added a new option `num-threads`. Note also that the output format is slightly different from previous versions. Check out the new format using test data in `data/output_samples` folder before going on to convert a huge wikipedia dump. 
 
     Usage: wp2txt [options]
     where [options] are:
@@ -72,6 +72,8 @@ Command line options are as follows:
 * Yoichiro Hasebe (<yohasebe@gmail.com>)
 
 ### References ###
+
+The author will appreciate your mentioning one of these in your research.
 
 * Yoichiro HASEBE. 2006. [Method for using Wikipedia as Japanese corpus.](http://ci.nii.ac.jp/naid/110006226727) _Doshisha Studies in Language and Culture_ 9(2), 373-403.
 * 長谷部陽一郎. 2006. [Wikipedia日本語版をコーパスとして用いた言語研究の手法](http://ci.nii.ac.jp/naid/110006226727). 『言語文化』9(2), 373-403.
