@@ -12,7 +12,7 @@ require 'benchmark'
 data_dir = File.join(File.dirname(__FILE__), '..', "data")
 
 parent = Wp2txt::CmdProgbar.new
-input_file = File.join(data_dir, "testdata.bz2")
+input_file = File.join(data_dir, "testdata_ja.bz2")
 output_dir = data_dir
 tfile_size = 10
 num_threads = 1
