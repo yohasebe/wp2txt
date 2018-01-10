@@ -2,13 +2,13 @@
 
 Wikipedia dump file to text converter
 
-**Important:** This is a project still work in progress and it could be slow, unstable, and even destructive! It should be used with caution.
-
-**Update:** Ver. 0.9.1. has added a new option `num-threads`, which improves the performance significantly . Note also that `--category` option is enabled by default, resulting with output format somewhat different from previous versions. Check out the new format using test data in `data/output_samples` folder before going on to convert a huge wikipedia dump.**
+**IMPORTANT:** This is a project still work in progress and it could be slow, unstable, and even destructive! It should be used with caution.
 
 ### About ###
 
 WP2TXT extracts plain text data from Wikipedia dump file (encoded in XML/compressed with Bzip2) stripping all the MediaWiki markups and other metadata. It is originally intended to be useful for researchers who look for an easy way to obtain open-source multi-lingual corpora, but may be handy for other purposes.
+
+**UPDATE:** Version 0.9.1 has added a new option `num-threads`, which improves the performance significantly . Note also that `--category` option is enabled by default, resulting with output format somewhat different from previous versions. Check out the new format using test data in `data/output_samples` folder before going on to convert a huge wikipedia dump.
 
 ### Features ###
 
