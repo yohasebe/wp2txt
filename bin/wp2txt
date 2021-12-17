@@ -11,11 +11,11 @@ DOCDIR = File.join(File.dirname(__FILE__), '..', 'doc')
 require 'wp2txt'
 require 'wp2txt/utils'
 require 'wp2txt/version'
-require 'trollop'
+require 'optimist'
 
 include Wp2txt
 
-opts = Trollop::options do
+opts = Optimist::options do
 	version Wp2txt::VERSION
 	banner <<-EOS
 WP2TXT extracts plain text data from Wikipedia dump file (encoded in XML/compressed with Bzip2) stripping all the MediaWiki markups and other metadata.
@@ -40,8 +40,8 @@ EOS
   opt :file_size,   "Approximate size (in MB) of each output file", :default => 10
   opt :num_threads,   "Number of threads to be spawned (capped to the number of CPU cores; set 99 to spawn max num of threads)", :default => 4
 end
-Trollop::die :size, "must be larger than 0" unless opts[:file_size] >= 0
-Trollop::die :output_dir, "must exist" unless File.exist?(opts[:output_dir])
+Optimist::die :size, "must be larger than 0" unless opts[:file_size] >= 0
+Optimist::die :output_dir, "must exist" unless File.exist?(opts[:output_dir])
 
 input_file = ARGV[0]
 output_dir = opts[:output_dir]
