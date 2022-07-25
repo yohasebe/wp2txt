@@ -6,6 +6,7 @@ $: << File.join(File.dirname(__FILE__))
 require "nokogiri"
 require "parallel"
 
+require 'etc'
 require 'pp'
 require "wp2txt/article"
 require "wp2txt/utils"
