@@ -42,7 +42,7 @@ The following extracts text data, including list items and excluding tables.
 
 The following will extract only article titles and the categories to which each article belongs:
 
-    $ wp2txt -y -i xxwiki-yyyymmdd-pages-articles.xml.bz2 -o /output_dir
+    $ wp2txt --category-only -i xxwiki-yyyymmdd-pages-articles.xml.bz2 -o /output_dir
 
 - [Output example (English)](https://raw.githubusercontent.com/yohasebe/wp2txt/master/data/output_samples/testdata_en_categories.txt)
 - [Output example (Japanese)](https://raw.githubusercontent.com/yohasebe/wp2txt/master/data/output_samples/testdata_ja_categories.txt)
