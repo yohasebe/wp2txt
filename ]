@@ -28,22 +28,6 @@ Obtain a Wikipedia dump file (from [here](http://dumps.wikimedia.org/backup-inde
 
 where `xx` is language code such as "en (English)" or "ja (Japanese)", and  `yyyymmdd` is the date of creation (e.g. 20120601).
 
-### Example 1
-
-The following extracts text data, including list items and excluding tables.
-
-    $ wp2txt -i xxwiki-yyyymmdd-pages-articles.xml.bz2 -o /output_dir
-
-[Example Output]()
-
-### Example 2
-
-The following will extract only article titles and the categories to which each article belongs:
-
-    $ wp2txt -i xxwiki-yyyymmdd-pages-articles.xml.bz2 -o /output_dir
-
-[Example Output]()
-
 ## Options
 
 Command line options are as follows:
@@ -58,16 +42,15 @@ Command line options are as follows:
           --list, --no-list, -l:   Show list items in output (default: true)
     --heading, --no-heading, -d:   Show section titles in output (default: true)
         --title, --no-title, -t:   Show page titles in output (default: true)
-                    --table, -a:   Show table source code in output (default: false)
-                   --inline, -n:   leave inline template notations unmodified (default: false)
-                --multiline, -m:   leave multiline template notations unmodified (default: false)
-                      --ref, -r:   leave reference notations in the format (default: false)
+                    --table, -a:   Show table source code in output
+                   --inline, -n:   leave inline template notations unmodified
+                --multiline, -m:   leave multiline template notations unmodified
+                      --ref, -r:   leave reference notations in the format
                                    [ref]...[/ref]
-                 --redirect, -e:   Show redirect destination (default: false)
+                 --redirect, -e:   Show redirect destination
       --marker, --no-marker, -k:   Show symbols prefixed to list items,
                                    definitions, etc. (Default: true)
-                 --category, -g:   Show article category information (default: true)
-            --category-only, -y:   Extract only article title and categories (default: false)
+                 --category, -g:   Show article category information
             --file-size, -f <i>:   Approximate size (in MB) of each output file
                                    (default: 10)
           -u, --num-threads=<i>:   Number of threads to be spawned (capped to the number of CPU cores; 
