@@ -38,7 +38,7 @@ The following extracts text data, including list items and excluding tables.
 - [Output example (English)](https://raw.githubusercontent.com/yohasebe/wp2txt/master/data/output_samples/testdata_en.txt)
 - [Output example (Japanese)](https://raw.githubusercontent.com/yohasebe/wp2txt/master/data/output_samples/testdata_ja.txt)
 
-### Example 2 (title and categories only)
+### Example 2 (title and category information only)
 
 The following will extract only article titles and the categories to which each article belongs:
 
