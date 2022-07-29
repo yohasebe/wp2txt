@@ -101,7 +101,7 @@ module Wp2txt
       if /.bz2$/ =~ @input_file
         unless NO_BZ2
           file = Bzip2::Reader.new File.open(@input_file, "r:UTF-8")
-          @parent.msg("WP2TXT is spawming #{@num_threads} threads to process data \n", 0)         
+          @parent.msg("WP2TXT is spawning #{@num_threads} threads to process data \n", 0)         
           @parent.msg("Preparing ... This may take several minutes or more ", 0)         
           @infile_size = file_size(file)
           @parent.msg("... Done.", 1)
@@ -113,7 +113,7 @@ module Wp2txt
           else
             file = IO.popen("bzip2 -c -d #{@input_file}") 
           end
-          @parent.msg("WP2TXT is spawming #{@num_threads} threads to process data \n", 0)         
+          @parent.msg("WP2TXT is spawning #{@num_threads} threads to process data \n", 0)         
           @parent.msg("Preparing ... This may take several minutes or more ", 0)         
           @infile_size = file_size(file)
           @parent.msg("... Done.", 1)
