@@ -26,7 +26,7 @@ Obtain a Wikipedia dump file (from [here](http://dumps.wikimedia.org/backup-inde
 
     xxwiki-yyyymmdd-pages-articles.xml.bz2
 
-where `xx` is language code such as "en (English)" or "ja (Japanese)", and  `yyyymmdd` is the date of creation (e.g. 20120601).
+where `xx` is language code such as "en (English)" or "", and  `yyyymmdd` is the date of creation (e.g. 20120601).
 
 ### Example 1
 
@@ -34,7 +34,8 @@ The following extracts text data, including list items and excluding tables.
 
     $ wp2txt -i xxwiki-yyyymmdd-pages-articles.xml.bz2 -o /output_dir
 
-[Example Output]()
+- [Example Output (English)](https://raw.githubusercontent.com/yohasebe/wp2txt/master/data/output_samples/testdata_en.txt)
+- [Example Output (Japanese)](https://raw.githubusercontent.com/yohasebe/wp2txt/master/data/output_samples/testdata_ja.txt)
 
 ### Example 2
 
@@ -42,7 +43,8 @@ The following will extract only article titles and the categories to which each 
 
     $ wp2txt -i xxwiki-yyyymmdd-pages-articles.xml.bz2 -o /output_dir
 
-[Example Output]()
+[Example Output (English)](https://raw.githubusercontent.com/yohasebe/wp2txt/master/data/output_samples/testdata_en_categories.txt)
+[Example Output (Japanese)](https://raw.githubusercontent.com/yohasebe/wp2txt/master/data/output_samples/testdata_ja_categories.txt)
 
 ## Options
 
