@@ -43,8 +43,8 @@ The following will extract only article titles and the categories to which each 
 
     $ wp2txt -i xxwiki-yyyymmdd-pages-articles.xml.bz2 -o /output_dir
 
-[Example Output (English)](https://raw.githubusercontent.com/yohasebe/wp2txt/master/data/output_samples/testdata_en_categories.txt)
-[Example Output (Japanese)](https://raw.githubusercontent.com/yohasebe/wp2txt/master/data/output_samples/testdata_ja_categories.txt)
+- [Example Output (English)](https://raw.githubusercontent.com/yohasebe/wp2txt/master/data/output_samples/testdata_en_categories.txt)
+- [Example Output (Japanese)](https://raw.githubusercontent.com/yohasebe/wp2txt/master/data/output_samples/testdata_ja_categories.txt)
 
 ## Options
 
