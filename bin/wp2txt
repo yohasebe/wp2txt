@@ -37,6 +37,7 @@ EOS
   opt :redirect, "Show redirect destination", :default => false
   opt :marker, "Show symbols prefixed to list items, definitions, etc.", :default => true
   opt :category, "Show article category information", :default => true 
+  opt :category_only, "Extract only article title and categories", :default => false
   opt :file_size,   "Approximate size (in MB) of each output file", :default => 10
   opt :num_threads,   "Number of threads to be spawned (capped to the number of CPU cores; set 99 to spawn max num of threads)", :default => 4
 end
@@ -73,57 +74,59 @@ wpconv.extract_text do |article|
     contents = ""
   end
 
-  article.elements.each do |e|
-    case e.first
-    when :mw_heading
-      next if !config[:heading]
-      format_wiki!(e.last)
-      line = e.last
-      line << "+HEADING+" if $DEBUG_MODE
-    when :mw_paragraph
-      format_wiki!(e.last)
-      line = e.last + "\n"
-      line << "+PARAGRAPH+" if $DEBUG_MODE
-    when :mw_table, :mw_htable
-      next if !config[:table]
-      line = e.last
-      line << "+TABLE+" if $DEBUG_MODE
-    when :mw_pre
-      next if !config[:pre]
-      line = e.last
-      line << "+PRE+" if $DEBUG_MODE
-    when :mw_quote
-      line = e.last
-      line << "+QUOTE+" if $DEBUG_MODE
-    when :mw_unordered, :mw_ordered, :mw_definition
-      next if !config[:list]
-      line = e.last
-      line << "+LIST+" if $DEBUG_MODE
-    when :mw_ml_template
-      next if !config[:multiline]
-      line = e.last
-      line << "+MLTEMPLATE+" if $DEBUG_MODE
-    when :mw_redirect
-      next if !config[:redirect]
-      line = e.last
-      line << "+REDIRECT+" if $DEBUG_MODE
-      line << "\n\n"
-    when :mw_isolated_template
-      next if !config[:multiline]
-      line = e.last
-      line << "+ISOLATED_TEMPLATE+" if $DEBUG_MODE
-    when :mw_isolated_tag
-      next
-    else
-      if $DEBUG_MODE
-        # format_wiki!(e.last)
+  unless opts[:category_only]
+    article.elements.each do |e|
+      case e.first
+      when :mw_heading
+        next if !config[:heading]
+        format_wiki!(e.last)
         line = e.last
-        line << "+OTHER+"
-      else
+        line << "+HEADING+" if $DEBUG_MODE
+      when :mw_paragraph
+        format_wiki!(e.last)
+        line = e.last + "\n"
+        line << "+PARAGRAPH+" if $DEBUG_MODE
+      when :mw_table, :mw_htable
+        next if !config[:table]
+        line = e.last
+        line << "+TABLE+" if $DEBUG_MODE
+      when :mw_pre
+        next if !config[:pre]
+        line = e.last
+        line << "+PRE+" if $DEBUG_MODE
+      when :mw_quote
+        line = e.last
+        line << "+QUOTE+" if $DEBUG_MODE
+      when :mw_unordered, :mw_ordered, :mw_definition
+        next if !config[:list]
+        line = e.last
+        line << "+LIST+" if $DEBUG_MODE
+      when :mw_ml_template
+        next if !config[:multiline]
+        line = e.last
+        line << "+MLTEMPLATE+" if $DEBUG_MODE
+      when :mw_redirect
+        next if !config[:redirect]
+        line = e.last
+        line << "+REDIRECT+" if $DEBUG_MODE
+        line << "\n\n"
+      when :mw_isolated_template
+        next if !config[:multiline]
+        line = e.last
+        line << "+ISOLATED_TEMPLATE+" if $DEBUG_MODE
+      when :mw_isolated_tag
         next
+      else
+        if $DEBUG_MODE
+          # format_wiki!(e.last)
+          line = e.last
+          line << "+OTHER+"
+        else
+          next
+        end
       end
+      contents << line << "\n"
     end
-    contents << line << "\n"
   end
     
   if /\A[\s　]*\z/m =~ contents
