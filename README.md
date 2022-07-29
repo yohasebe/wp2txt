@@ -1,8 +1,6 @@
 # WP2TXT
 
-Wikipedia dump file to text converter
-
-**IMPORTANT:** This is a project still work in progress and it could be slow, unstable, and even destructive! It should be used with caution.
+Wikipedia dump file to text converter that extracts both content and category data
 
 ## About
 
