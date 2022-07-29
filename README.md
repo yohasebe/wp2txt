@@ -23,7 +23,7 @@ WP2TXT extracts plain text data from Wikipedia dump file (encoded in XML/compres
 
 Obtain a Wikipedia dump file (from [here](http://dumps.wikimedia.org/backup-index.html)) with a file name such as:
 
-    xxwiki-yyyymmdd-pages-articles.xml.bz2
+> `xxwiki-yyyymmdd-pages-articles.xml.bz2`
 
 where `xx` is language code such as "en (English)" or "ja (Japanese)", and  `yyyymmdd` is the date of creation (e.g. 20220720).
 
@@ -41,6 +41,10 @@ The following extracts text data, including list items and excluding tables.
 The following will extract only article titles and the categories to which each article belongs:
 
     $ wp2txt --category-only -i xxwiki-yyyymmdd-pages-articles.xml.bz2 -o /output_dir
+
+Each line of the output data contains the title and the categories of an article:
+
+> title `TAB` category1`,` category2`,` category3`,` ... 
 
 - [Output example (English)](https://raw.githubusercontent.com/yohasebe/wp2txt/master/data/output_samples/testdata_en_categories.txt)
 - [Output example (Japanese)](https://raw.githubusercontent.com/yohasebe/wp2txt/master/data/output_samples/testdata_ja_categories.txt)
