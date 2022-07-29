@@ -8,7 +8,7 @@ Wikipedia dump file to text converter
 
 WP2TXT extracts plain text data from Wikipedia dump file (encoded in XML/compressed with Bzip2) stripping all the MediaWiki markups and other metadata. It is originally intended to be useful for researchers who look for an easy way to obtain open-source multi-lingual corpora, but may be handy for other purposes.
 
-**UPDATE:** Version 0.9.3 has added a new option `category_only`. With this option enabled, wp2txt extracts article title and category info only. Please see output examples below.
+**UPDATE (July 2022)**: Version 0.9.3 has added a new option `category_only`. With this option enabled, wp2txt extracts article title and category info only. Please see output examples below.
 
 ## Features
 
@@ -27,7 +27,7 @@ Obtain a Wikipedia dump file (from [here](http://dumps.wikimedia.org/backup-inde
 
     xxwiki-yyyymmdd-pages-articles.xml.bz2
 
-where `xx` is language code such as "en (English)" or "", and  `yyyymmdd` is the date of creation (e.g. 20120601).
+where `xx` is language code such as "en (English)" or "", and  `yyyymmdd` is the date of creation (e.g. 20220720).
 
 ### Example 1
 
@@ -42,7 +42,7 @@ The following extracts text data, including list items and excluding tables.
 
 The following will extract only article titles and the categories to which each article belongs:
 
-    $ wp2txt -i xxwiki-yyyymmdd-pages-articles.xml.bz2 -o /output_dir
+    $ wp2txt -y -i xxwiki-yyyymmdd-pages-articles.xml.bz2 -o /output_dir
 
 - [Output example (English)](https://raw.githubusercontent.com/yohasebe/wp2txt/master/data/output_samples/testdata_en_categories.txt)
 - [Output example (Japanese)](https://raw.githubusercontent.com/yohasebe/wp2txt/master/data/output_samples/testdata_ja_categories.txt)
