@@ -8,13 +8,14 @@ Wikipedia dump file to text converter
 
 WP2TXT extracts plain text data from Wikipedia dump file (encoded in XML/compressed with Bzip2) stripping all the MediaWiki markups and other metadata. It is originally intended to be useful for researchers who look for an easy way to obtain open-source multi-lingual corpora, but may be handy for other purposes.
 
-**UPDATE:** Version 0.9.1 has added a new option `num-threads`, which improves the performance significantly . Note also that `--category` option is enabled by default, resulting with output format somewhat different from previous versions. Check out the new format using test data in `data/output_samples` folder before going on to convert a huge wikipedia dump.
+**UPDATE:** Version 0.9.3 has added a new option `category_only`. With this option enabled, wp2txt extracts article title and category info only. Please see output examples below.
 
 ## Features
 
-* Convert dump files of Wikipedia of various languages (I hope).
+* Convert dump files of Wikipedia of various languages
 * Create output files of specified size.
-* Allow users to specify text elements to be extracted/converted (page titles, section titles, lists, and tables).
+* Allow users to specify text elements to be extracted/converted (page titles, section titles, lists, and tables)
+* Extract category information of each article
 
 ## Installation
     
@@ -34,8 +35,8 @@ The following extracts text data, including list items and excluding tables.
 
     $ wp2txt -i xxwiki-yyyymmdd-pages-articles.xml.bz2 -o /output_dir
 
-- [Example Output (English)](https://raw.githubusercontent.com/yohasebe/wp2txt/master/data/output_samples/testdata_en.txt)
-- [Example Output (Japanese)](https://raw.githubusercontent.com/yohasebe/wp2txt/master/data/output_samples/testdata_ja.txt)
+- [Output example (English)](https://raw.githubusercontent.com/yohasebe/wp2txt/master/data/output_samples/testdata_en.txt)
+- [Output example (Japanese)](https://raw.githubusercontent.com/yohasebe/wp2txt/master/data/output_samples/testdata_ja.txt)
 
 ### Example 2
 
@@ -43,8 +44,8 @@ The following will extract only article titles and the categories to which each 
 
     $ wp2txt -i xxwiki-yyyymmdd-pages-articles.xml.bz2 -o /output_dir
 
-- [Example Output (English)](https://raw.githubusercontent.com/yohasebe/wp2txt/master/data/output_samples/testdata_en_categories.txt)
-- [Example Output (Japanese)](https://raw.githubusercontent.com/yohasebe/wp2txt/master/data/output_samples/testdata_ja_categories.txt)
+- [Output example (English)](https://raw.githubusercontent.com/yohasebe/wp2txt/master/data/output_samples/testdata_en_categories.txt)
+- [Output example (Japanese)](https://raw.githubusercontent.com/yohasebe/wp2txt/master/data/output_samples/testdata_ja_categories.txt)
 
 ## Options
 
