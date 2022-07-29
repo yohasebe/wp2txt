@@ -64,13 +64,18 @@ wpconv = Wp2txt::Runner.new(parent, input_file, output_dir, tfile_size, num_thre
 
 wpconv.extract_text do |article|
   format_wiki!(article.title)
-  title = "[[#{article.title}]]\n"
 
-  if opts[:category] && !article.categories.empty?
+  if opts[:category_only]
+    title = "#{article.title}\t"
+    contents = article.categories.join(", ")
+    contents << "\n"
+  elsif opts[:category] && !article.categories.empty?
+    title = "\n[[#{article.title}]]\n\n"
     contents = "\nCATEGORIES: "
     contents << article.categories.join(", ")
     contents << "\n\n"
   else
+    title = "\n[[#{article.title}]]\n\n"
     contents = ""
   end
 
@@ -132,6 +137,6 @@ wpconv.extract_text do |article|
   if /\A[\s　]*\z/m =~ contents
     result = ""
   else
-    result = config[:title] ? "\n#{title}\n" << contents : contents
+    result = config[:title] ? title << contents : contents
   end
 end

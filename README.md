@@ -16,7 +16,7 @@ WP2TXT extracts plain text data from Wikipedia dump file (encoded in XML/compres
 * Extract category information of each article
 
 ## Installation
-    
+
     $ gem install wp2txt
 
 ## Usage
@@ -25,7 +25,7 @@ Obtain a Wikipedia dump file (from [here](http://dumps.wikimedia.org/backup-inde
 
     xxwiki-yyyymmdd-pages-articles.xml.bz2
 
-where `xx` is language code such as "en (English)" or "", and  `yyyymmdd` is the date of creation (e.g. 20220720).
+where `xx` is language code such as "en (English)" or "ja (Japanese)", and  `yyyymmdd` is the date of creation (e.g. 20220720).
 
 ### Example 1
 
@@ -71,7 +71,7 @@ Command line options are as follows:
             --category-only, -y:   Extract only article title and categories (default: false)
             --file-size, -f <i>:   Approximate size (in MB) of each output file
                                    (default: 10)
-          -u, --num-threads=<i>:   Number of threads to be spawned (capped to the number of CPU cores; 
+          -u, --num-threads=<i>:   Number of threads to be spawned (capped to the number of CPU cores;
                                    set 99 to spawn max num of threads) (default: 4)
                   --version, -v:   Print version and exit
                      --help, -h:   Show this message
@@ -79,14 +79,14 @@ Command line options are as follows:
 ## Caveats
 
 * Certain types of data such as mathematical equations and computer source code are not be properly converted.  Please remember this software is originally intended for correcting “sentences” for linguistic studies.
-* Extraction of normal text data could sometimes fail for various reasons (e.g. illegal matching of begin/end tags, language-specific conventions of formatting, etc). 
+* Extraction of normal text data could sometimes fail for various reasons (e.g. illegal matching of begin/end tags, language-specific conventions of formatting, etc).
 * Conversion process can take far more than you would expect. It could take several hours or more when dealing with a huge data set such as the English Wikipedia on a low-spec environments.
 * Because of nature of the task, WP2TXT needs much machine power and consumes a lot of memory/storage resources. The process thus could halt unexpectedly. It may even get stuck, in the worst case, without getting gracefully terminated. Please understand this and use the software __at your own risk__.
 
 ### Useful Links
 
 * [Wikipedia Database backup dumps](http://dumps.wikimedia.org/backup-index.html)
-                
+
 ### Author
 
 * Yoichiro Hasebe (<yohasebe@gmail.com>)
