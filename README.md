@@ -29,16 +29,22 @@ Obtain a Wikipedia dump file (from [here](http://dumps.wikimedia.org/backup-inde
 
 where `xx` is language code such as "en (English)" or "ja (Japanese)", and  `yyyymmdd` is the date of creation (e.g. 20220720).
 
-### Example 1 (basic)
+### Example: Basic
 
 The following extracts text data, including list items and excluding tables.
 
     $ wp2txt -i xxwiki-yyyymmdd-pages-articles.xml.bz2 -o /output_dir
 
-- [Output example (English)](https://raw.githubusercontent.com/yohasebe/wp2txt/master/data/output_samples/testdata_en.txt)
-- [Output example (Japanese)](https://raw.githubusercontent.com/yohasebe/wp2txt/master/data/output_samples/testdata_ja.txt)
+[Output example (English)](https://raw.githubusercontent.com/yohasebe/wp2txt/master/data/output_samples/testdata_en.txt)
 
-### Example 2 (title and category information only)
+<img src='https://github.com/yohasebe/wp2txt/raw/master/data/images/wiki_en_basic.png' width="500" />
+
+[Output example (Japanese)](https://raw.githubusercontent.com/yohasebe/wp2txt/master/data/output_samples/testdata_ja.txt)
+
+<img src='https://github.com/yohasebe/wp2txt/raw/master/data/images/wiki_ja_basic.png' width="500" />
+
+
+### Example: Title and category information only
 
 The following will extract only article titles and the categories to which each article belongs:
 
@@ -48,8 +54,13 @@ Each line of the output data contains the title and the categories of an article
 
 > title `TAB` category1`,` category2`,` category3`,` ... 
 
-- [Output example (English)](https://raw.githubusercontent.com/yohasebe/wp2txt/master/data/output_samples/testdata_en_categories.txt)
-- [Output example (Japanese)](https://raw.githubusercontent.com/yohasebe/wp2txt/master/data/output_samples/testdata_ja_categories.txt)
+[Output example (English)](https://raw.githubusercontent.com/yohasebe/wp2txt/master/data/output_samples/testdata_en_categories.txt)
+
+<img src='https://github.com/yohasebe/wp2txt/raw/master/data/images/wiki_en_category.png' width="500" />
+
+[Output example (Japanese)](https://raw.githubusercontent.com/yohasebe/wp2txt/master/data/output_samples/testdata_ja_categories.txt)
+
+<img src='https://github.com/yohasebe/wp2txt/raw/master/data/images/wiki_ja_category.png' width="500" />
 
 ## Options
 
