@@ -53,7 +53,6 @@ strip_tmarker = opts[:marker] ? false : true
 opt_array = [:title, :list, :heading, :table, :redirect, :multiline]
 $leave_inline_template = true if opts[:inline]
 $leave_ref = true if opts[:ref]
-# $leave_table = true if opts[:table]
 config = {}
 opt_array.each do |opt|
   config[opt] = opts[opt]
