@@ -37,10 +37,11 @@ module Wp2txt
     def initialize(text, title = "", strip_tmarker = false)
       @title = title.strip
       @strip_tmarker = strip_tmarker
-      convert_characters!(text)    
+      convert_characters!(text)
+      remove_html!(text)
+      remove_complex!(text)
       make_reference!(text)
       remove_ref!(text)
-      
       parse text
     end
     

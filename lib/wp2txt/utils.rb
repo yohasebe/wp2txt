@@ -108,7 +108,7 @@ module Wp2txt
     process_interwiki_links!(text)
     process_external_links!(text)
     unescape_nowiki!(text)      
-    #####
+
     remove_directive!(text)
     remove_emphasis!(text)
     mndash!(text)
@@ -116,11 +116,15 @@ module Wp2txt
     remove_tag!(text)
     correct_inline_template!(text) unless $leave_inline_template
     remove_templates!(text) unless $leave_inline_template
-    # remove_table!(text) unless $leave_table
+    remove_table!(text) unless $leave_table
   end
   
   def cleanup!(text)
     text.gsub!(/\[ref\]\s*\[\/ref\]/m){""}
+    text.gsub!(/^File:.+$/){""}
+    text.gsub!(/^\|.*$/){""}
+    text.gsub!(/^{{.*$/){""}
+    text.gsub!(/^}}.*$/){""}
     text.gsub!(/\n\n\n+/m){"\n\n"}
     text.strip!
     text << "\n\n"
@@ -128,8 +132,9 @@ module Wp2txt
   #################### parser for nested structure ####################
    
   def process_nested_structure(scanner, left, right, &block)
+    test = false
     buffer = ""
-    begin
+    # begin
     if left == "[" && right == "]"
       regex = $single_square_bracket_regex
     elsif left == "[[" && right == "]]"
@@ -141,7 +146,7 @@ module Wp2txt
     elsif left == "{|" && right == "|}"
       regex = $curly_square_bracket_regex
     else
-      regex = Regexp.new('(#{Regexp.escape(left)}|#{Regexp.escape(right)})', Regexp::MULTILINE)
+      regex = Regexp.new("(#{Regexp.escape(left)}|#{Regexp.escape(right)})")
     end
     while str = scanner.scan_until(regex)
       case scanner[1]
@@ -167,9 +172,9 @@ module Wp2txt
       scanner.string = buffer
       return process_nested_structure(scanner, left, right, &block) || ""
     end
-    rescue => e
-      return scanner.string
-    end
+    # rescue => e
+    #   return scanner.string
+    # end
   end  
 
   #################### methods used from format_wiki ####################
@@ -232,6 +237,10 @@ module Wp2txt
     end
     scanner = StringScanner.new(result)
     result = process_nested_structure(scanner, "{", "}") do |contents|
+      ""
+    end
+    scanner = StringScanner.new(result)
+    result = process_nested_structure(scanner, "{{", "}}") do |contents|
       ""
     end
     str.replace(result)
@@ -299,6 +308,24 @@ module Wp2txt
   def remove_ref!(str)
     str.gsub!($format_ref_regex){""}
   end
+
+  def remove_html!(str)
+    ["div", "gallery", "timeline"].each do |tag|
+      scanner = StringScanner.new(str)
+      result = process_nested_structure(scanner, "<#{tag}", "#{tag}>") do |contents|
+        ""
+      end
+      str.replace(result)
+    end
+  end
+
+  def remove_complex!(str)
+    str.gsub!(/(?:'')?\[https?\:[^\[\]]+?\s([^\]]++)?\](?:'')?/){$1}
+    str.gsub!(/(?:'')?\[https?\:[^\[\]]++\](?:'')?\s?/){""}
+    str.gsub!(/\<\<([^<>]++)\>\>\s?/){"《#{$1}》"}
+    str.gsub!(/\{\{(?:Infobox|efn|Sfn|div col|no col|bar box|formatnum\:|Refnest\||Refnest\||Col\||See also\||R\|)((?:[^{}]++|\{\{\g<1>\}\})++)\}\}/im){""}
+    str.gsub!(/\[\[(?:File|ファイル)\:((?:[^\[\]]++|\[\[\g<1>\]\])++)\]\]/im){""}
+  end
   
   def make_reference!(str)
     str.gsub!($make_reference_regex_a){"\n"}
@@ -311,30 +338,28 @@ module Wp2txt
     scanner = StringScanner.new(str)
     result = process_nested_structure(scanner, "{{", "}}") do |contents|
       parts = contents.split("|")
-      # type_code = parts.first
-      # case type_code
-      # when $type_code_regex
-      #   out = parts[-1]
-      # else
-      #   case parts.size
-      #   when 0
-      #     out = ""
-      #   when 1
-      #     out = parts.first || ""
-      #   else
-          # while parts.size > 2 && parts.last.split("=").size > 1
-          while parts.size > 1 && parts.last.split("=").size > 1
-            parts.pop
-          end
-          out = parts.last || ""
-      #   end
-      # end
+      if /\A(?:lang|fontsize)\z/i =~ parts[0]
+        parts.shift
+      elsif /\Alang=/i =~ parts[1]
+        parts.shift
+      end
+
+      if parts.size == 1
+        out = parts[0]
+      else
+        keyval = parts[1].split("=")
+        if keyval.size > 1
+          out = keyval[1]
+        else
+          out = parts[1] || ""
+        end
+      end
+
       out.strip
     end
     str.replace result
   end
 
-  
 #################### file related utilities ####################
 
   # collect filenames recursively
@@ -427,5 +452,4 @@ module Wp2txt
     str = i.to_s.reverse
     return str.scan(/.?.?./).join(',').reverse
   end
-    
 end

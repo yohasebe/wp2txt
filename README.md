@@ -29,22 +29,16 @@ Obtain a Wikipedia dump file (from [here](http://dumps.wikimedia.org/backup-inde
 
 where `xx` is language code such as "en (English)" or "ja (Japanese)", and  `yyyymmdd` is the date of creation (e.g. 20220720).
 
-### Example: Basic
+### Example 1: Basic
 
 The following extracts text data, including list items and excluding tables.
 
     $ wp2txt -i xxwiki-yyyymmdd-pages-articles.xml.bz2 -o /output_dir
 
-[Output example (English)](https://raw.githubusercontent.com/yohasebe/wp2txt/master/data/output_samples/testdata_en.txt)
+- [Output example (English)](https://raw.githubusercontent.com/yohasebe/wp2txt/master/data/output_samples/testdata_en.txt)
+- [Output example (Japanese)](https://raw.githubusercontent.com/yohasebe/wp2txt/master/data/output_samples/testdata_ja.txt)
 
-<img src='https://github.com/yohasebe/wp2txt/raw/master/data/images/wiki_en_basic.png' width="500" />
-
-[Output example (Japanese)](https://raw.githubusercontent.com/yohasebe/wp2txt/master/data/output_samples/testdata_ja.txt)
-
-<img src='https://github.com/yohasebe/wp2txt/raw/master/data/images/wiki_ja_basic.png' width="500" />
-
-
-### Example: Title and category information only
+### Example 2: Title and category information only
 
 The following will extract only article titles and the categories to which each article belongs:
 
@@ -54,13 +48,18 @@ Each line of the output data contains the title and the categories of an article
 
 > title `TAB` category1`,` category2`,` category3`,` ... 
 
-[Output example (English)](https://raw.githubusercontent.com/yohasebe/wp2txt/master/data/output_samples/testdata_en_categories.txt)
+- [Output example (English)](https://raw.githubusercontent.com/yohasebe/wp2txt/master/data/output_samples/testdata_en_categories.txt)
+- [Output example (Japanese)](https://raw.githubusercontent.com/yohasebe/wp2txt/master/data/output_samples/testdata_ja_categories.txt)
 
-<img src='https://github.com/yohasebe/wp2txt/raw/master/data/images/wiki_en_category.png' width="500" />
+### Example 3: Title, category, and summary text only
 
-[Output example (Japanese)](https://raw.githubusercontent.com/yohasebe/wp2txt/master/data/output_samples/testdata_ja_categories.txt)
+The following will extract only article titles, the categories to which each article belongs, and text blocks before the first heading of the article:
 
-<img src='https://github.com/yohasebe/wp2txt/raw/master/data/images/wiki_ja_category.png' width="500" />
+    $ wp2txt --summary-only -i xxwiki-yyyymmdd-pages-articles.xml.bz2 -o /output_dir
+
+- [Output example (English)](https://raw.githubusercontent.com/yohasebe/wp2txt/master/data/output_samples/testdata_en_summary.txt)
+- [Output example (Japanese)](https://raw.githubusercontent.com/yohasebe/wp2txt/master/data/output_samples/testdata_ja_summary.txt)
+
 
 ## Options
 
@@ -86,6 +85,7 @@ Command line options are as follows:
                                    definitions, etc. (Default: true)
                  --category, -g:   Show article category information (default: true)
             --category-only, -y:   Extract only article title and categories (default: false)
+             -s, --summary-only:   Extract only article title, categories, and summary text before first heading
             --file-size, -f <i>:   Approximate size (in MB) of each output file
                                    (default: 10)
           -u, --num-threads=<i>:   Number of threads to be spawned (capped to the number of CPU cores;

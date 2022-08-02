@@ -27,7 +27,7 @@ EOS
   opt :input_file,  "Wikipedia dump file with .bz2 (compressed) or .txt (uncompressed) format", :required => true
   opt :output_dir,  "Output directory", :default => Dir::pwd, :type => String
   opt :convert,     "Output in plain text (converting from XML)", :default => true
-  opt :list,    "Show list items in output", :default => true
+  opt :list,    "Show list items in output", :default => false 
   opt :heading, "Show section titles in output", :default => true, :short => "-d"
   opt :title,   "Show page titles in output", :default => true
   opt :table,   "Show table source code in output", :default => false
@@ -38,6 +38,7 @@ EOS
   opt :marker, "Show symbols prefixed to list items, definitions, etc.", :default => true
   opt :category, "Show article category information", :default => true 
   opt :category_only, "Extract only article title and categories", :default => false
+  opt :summary_only, "Extract only article title, categories, and summary text before first heading", :default => false
   opt :file_size,   "Approximate size (in MB) of each output file", :default => 10
   opt :num_threads,   "Number of threads to be spawned (capped to the number of CPU cores; set 99 to spawn max num of threads)", :default => 4
 end
@@ -50,7 +51,7 @@ tfile_size = opts[:file_size]
 num_threads = opts[:num_threads]
 convert = opts[:convert]
 strip_tmarker = opts[:marker] ? false : true
-opt_array = [:title, :list, :heading, :table, :redirect, :multiline]
+opt_array = [:title, :list, :heading, :table, :redirect, :multiline, :category, :category_only, :summary_only]
 $leave_inline_template = true if opts[:inline]
 $leave_ref = true if opts[:ref]
 config = {}
@@ -64,11 +65,11 @@ wpconv = Wp2txt::Runner.new(parent, input_file, output_dir, tfile_size, num_thre
 wpconv.extract_text do |article|
   format_wiki!(article.title)
 
-  if opts[:category_only]
+  if config[:category_only]
     title = "#{article.title}\t"
     contents = article.categories.join(", ")
     contents << "\n"
-  elsif opts[:category] && !article.categories.empty?
+  elsif config[:category] && !article.categories.empty?
     title = "\n[[#{article.title}]]\n\n"
     contents = "\nCATEGORIES: "
     contents << article.categories.join(", ")
@@ -78,10 +79,11 @@ wpconv.extract_text do |article|
     contents = ""
   end
 
-  unless opts[:category_only]
+  unless config[:category_only]
     article.elements.each do |e|
       case e.first
       when :mw_heading
+        break if config[:summary_only]
         next if !config[:heading]
         format_wiki!(e.last)
         line = e.last
