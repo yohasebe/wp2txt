@@ -134,47 +134,47 @@ module Wp2txt
   def process_nested_structure(scanner, left, right, &block)
     test = false
     buffer = ""
-    # begin
-    if left == "[" && right == "]"
-      regex = $single_square_bracket_regex
-    elsif left == "[[" && right == "]]"
-      regex = $double_square_bracket_regex
-    elsif left == "{" && right == "}"
-      regex = $single_curly_bracket_regex
-    elsif left == "{{" && right == "}}"
-      regex = $double_curly_bracket_regex
-    elsif left == "{|" && right == "|}"
-      regex = $curly_square_bracket_regex
-    else
-      regex = Regexp.new("(#{Regexp.escape(left)}|#{Regexp.escape(right)})")
-    end
-    while str = scanner.scan_until(regex)
-      case scanner[1]
-      when left
-        buffer << str
-        has_left = true
-      when right
-        if has_left
-          buffer = buffer[0...-(left.size)]
-          contents = block.call(str[0...-(left.size)])
-          buffer << contents
-          break
-        else
+    begin
+      if left == "[" && right == "]"
+        regex = $single_square_bracket_regex
+      elsif left == "[[" && right == "]]"
+        regex = $double_square_bracket_regex
+      elsif left == "{" && right == "}"
+        regex = $single_curly_bracket_regex
+      elsif left == "{{" && right == "}}"
+        regex = $double_curly_bracket_regex
+      elsif left == "{|" && right == "|}"
+        regex = $curly_square_bracket_regex
+      else
+        regex = Regexp.new("(#{Regexp.escape(left)}|#{Regexp.escape(right)})")
+      end
+      while str = scanner.scan_until(regex)
+        case scanner[1]
+        when left
           buffer << str
+          has_left = true
+        when right
+          if has_left
+            buffer = buffer[0...-(left.size)]
+            contents = block.call(str[0...-(left.size)])
+            buffer << contents
+            break
+          else
+            buffer << str
+          end
         end
       end
-    end
-    buffer << scanner.rest
+      buffer << scanner.rest
 
-    if buffer == scanner.string
-      return buffer
-    else
-      scanner.string = buffer
-      return process_nested_structure(scanner, left, right, &block) || ""
+      if buffer == scanner.string
+        return buffer
+      else
+        scanner.string = buffer
+        return process_nested_structure(scanner, left, right, &block) || ""
+      end
+    rescue => e
+      return scanner.string
     end
-    # rescue => e
-    #   return scanner.string
-    # end
   end  
 
   #################### methods used from format_wiki ####################
@@ -347,10 +347,14 @@ module Wp2txt
       if parts.size == 1
         out = parts[0]
       else
-        keyval = parts[1].split("=")
-        if keyval.size > 1
-          out = keyval[1]
-        else
+        begin
+          keyval = parts[1].split("=")
+          if keyval.size > 1
+            out = keyval[1]
+          else
+            out = parts[1] || ""
+          end
+        rescue
           out = parts[1] || ""
         end
       end
