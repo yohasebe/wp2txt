@@ -1,104 +1,129 @@
-# WP2TXT
+<img src='./image/wp2txt-logo.svg' width="400" />
 
-Wikipedia dump file to text converter that extracts both content and category data
+Text conversion tool to extract content and category data from Wikipedia dump files
 
 ## About
 
-WP2TXT extracts plain text data from a Wikipedia dump file (encoded in XML / compressed with Bzip2), removing all MediaWiki markup and other metadata. It was developed for researchers who want easy access to open-source multilingual corpora, but may be used for other purposes as well.
+WP2TXT extracts plain text data from Wikipedia dump files (encoded in XML / compressed with Bzip2), removing all MediaWiki markup and other metadata. It was developed for researchers who want easy access to open source multilingual corpora, but can be used for other purposes as well.
 
-**UPDATE (July 2022)**: Version 0.9.3 adds a new option `category_only`. When this option is enabled, wp2txt will extract only the title and category information of the article. See output examples below.
+**UPDATE (August 2022)**
 
+1. A new option `--category-only` has been added. When this option is enabled, only the title and category information of the article is extracted.
+2. A new option `--summary-only` has been added. If this option is enabled, only the title and text data from the first paragraph of the article (= summary) will be extracted.
+3. The current WP2TXT is *several times faster* than the previous version due to parallel processing of multiple files (the rate of speedup depends on the CPU cores used for processing).
 
 ## Features
 
-* Converts Wikipedia dump files in various languages
-* Creates output files of specified size
-* Can specify text elements to be extracted and converted (page titles, section titles, lists, tables)
-* Can extract category information for each article
-
+- Converts Wikipedia dump files in various languages
+- Creates output files of specified size
+- Allows specifying ext elements (page titles, section headers, paragraphs, list items) to be extracted
+- Allows extracting category information of the article
+- Allows extracting summary text of the article
 
 ## Installation
 
     $ gem install wp2txt
 
-## Usage
+## Preparation
 
-Obtain a Wikipedia dump file (from [here](http://dumps.wikimedia.org/backup-index.html)) with a file name such as:
+First, you will need to obtain a Wikipedia dump file (from [here](http://dumps.wikimedia.org/backup-index.html)) with a file name like this:
 
-> `xxwiki-yyyymmdd-pages-articles.xml.bz2`
+    xxwiki-yyyymmdd-pages-articles.xml.bz2
 
 where `xx` is language code such as "en (English)" or "ja (Japanese)", and  `yyyymmdd` is the date of creation (e.g. 20220720).
 
-### Example 1: Basic
+Alternatively, you can download multiple smaller files with file names such as:
 
-The following extracts text data, including list items and excluding tables.
+    enwiki-yyyymmdd-pages-articles1-xxxxxxxx.xml.bz2
+    enwiki-yyyymmdd-pages-articles2-xxxxxxxx.xml.bz2
+    enwiki-yyyymmdd-pages-articles3-xxxxxxxx.xml.bz2
 
-    $ wp2txt -i xxwiki-yyyymmdd-pages-articles.xml.bz2 -o /output_dir
+## Basic Usage
 
-- [Output example (English)](https://raw.githubusercontent.com/yohasebe/wp2txt/master/data/output_samples/testdata_en.txt)
-- [Output example (Japanese)](https://raw.githubusercontent.com/yohasebe/wp2txt/master/data/output_samples/testdata_ja.txt)
+Suppose you have a folder with a wikipedia dump file and empty subfolders organized as follows:
 
-### Example 2: Title and category information only
+```
+.
+├── enwiki-20220801-pages-articles.xml.bz2
+├── /xml
+├── /text
+├── /category
+└── /summary
+```
 
-The following will extract only article titles and the categories to which each article belongs:
+### Decompress and Split
 
-    $ wp2txt --category-only -i xxwiki-yyyymmdd-pages-articles.xml.bz2 -o /output_dir
+The following command will decompress the entire wikipedia data and split it into many small (approximately 10 MB) XML files.
 
-Each line of the output data contains the title and the categories of an article:
+    $ wp2txt --no-convert -i ./enwiki-20220801-pages-articles.xml.bz2 -o ./xml
 
-> title `TAB` category1`,` category2`,` category3`,` ... 
+**Note**: The resulting files are not well-formed XML. They contain part of the orignal XML extracted from the Wikipedia dump file, taking care to ensure that the content within the <page> tag is not split into multiple files.
 
-- [Output example (English)](https://raw.githubusercontent.com/yohasebe/wp2txt/master/data/output_samples/testdata_en_categories.txt)
-- [Output example (Japanese)](https://raw.githubusercontent.com/yohasebe/wp2txt/master/data/output_samples/testdata_ja_categories.txt)
+### Extract plain text from MediaWiki XML
 
-### Example 3: Title, category, and summary text only
-
-The following will extract only article titles, the categories to which each article belongs, and text blocks before the first heading of the article:
-
-    $ wp2txt --summary-only -i xxwiki-yyyymmdd-pages-articles.xml.bz2 -o /output_dir
-
-- [Output example (English)](https://raw.githubusercontent.com/yohasebe/wp2txt/master/data/output_samples/testdata_en_summary.txt)
-- [Output example (Japanese)](https://raw.githubusercontent.com/yohasebe/wp2txt/master/data/output_samples/testdata_ja_summary.txt)
+    $ wp2txt -i ./xml -o ./text
 
 
-## Options
+### Extract only category info from MediaWiki XML
+
+    $ wp2txt -g -i ./xml -o ./category
+
+### Extract opening paragraphs from MediaWiki XML
+
+    $ wp2txt -s -i ./xml -o ./summary
+
+### Extract directly from bz2 compressed file
+
+It is possible (though not recommended) to 1) decompress the dump files, 2) split the data into files, and 3) extract the text from them with just one line of command.
+
+    $ wp2txt -i ./enwiki-20220801-pages-articles.xml.bz2 -o ./text
+
+## Sample Input and Output
+
+Output contains title, category info, paragraphs
+
+- [English](https://raw.githubusercontent.com/yohasebe/wp2txt/master/data/output_samples/testdata_en.txt)
+- [Japanese](https://raw.githubusercontent.com/yohasebe/wp2txt/master/data/output_samples/testdata_ja.txt)
+
+Output containing title and category info only
+
+- [English](https://raw.githubusercontent.com/yohasebe/wp2txt/master/data/output_samples/testdata_en_category.txt)
+- [Japanese](https://raw.githubusercontent.com/yohasebe/wp2txt/master/data/output_samples/testdata_ja_category.txt)
+
+Output containing title, category, and summary
+
+- [English](https://raw.githubusercontent.com/yohasebe/wp2txt/master/data/output_samples/testdata_en_summary.txt)
+- [Japanese](https://raw.githubusercontent.com/yohasebe/wp2txt/master/data/output_samples/testdata_ja_summary.txt)
+
+## Command Line Options
 
 Command line options are as follows:
 
     Usage: wp2txt [options]
     where [options] are:
-               --input-file, -i:   Wikipedia dump file with .bz2 (compressed) or
-                                   .txt (uncompressed) format
-           --output-dir, -o <s>:   Output directory (default: current directory)
-    --convert, --no-convert, -c:   Output in plain text (converting from XML)
-                                   (default: true)
-          --list, --no-list, -l:   Show list items in output (default: true)
-    --heading, --no-heading, -d:   Show section titles in output (default: true)
-        --title, --no-title, -t:   Show page titles in output (default: true)
-                    --table, -a:   Show table source code in output (default: false)
-                   --inline, -n:   leave inline template notations unmodified (default: false)
-                --multiline, -m:   leave multiline template notations unmodified (default: false)
-                      --ref, -r:   leave reference notations in the format (default: false)
-                                   [ref]...[/ref]
-                 --redirect, -e:   Show redirect destination (default: false)
-      --marker, --no-marker, -k:   Show symbols prefixed to list items,
-                                   definitions, etc. (Default: true)
-                 --category, -g:   Show article category information (default: true)
-            --category-only, -y:   Extract only article title and categories (default: false)
-             -s, --summary-only:   Extract only article title, categories, and summary text before first heading
-            --file-size, -f <i>:   Approximate size (in MB) of each output file
-                                   (default: 10)
-          -u, --num-threads=<i>:   Number of threads to be spawned (capped to the number of CPU cores;
-                                   set 99 to spawn max num of threads) (default: 4)
-                  --version, -v:   Print version and exit
-                     --help, -h:   Show this message
+      -i, --input                      Path to compressed file (bz2) or uncompressed file (xml), or path to directory containing files of the latter format
+      -o, --output-dir=<s>             Path to output directory
+      -c, --convert, --no-convert      Output in plain text (converting from XML) (default: true)
+      -a, --category, --no-category    Show article category information (default: true)
+      -g, --category-only              Extract only article title and categories
+      -s, --summary-only               Extract only article title, categories, and summary text before first heading
+      -f, --file-size=<i>              Approximate size (in MB) of each output file (default: 10)
+      -n, --num-procs                  Number of proccesses to be run concurrently (default: max num of CPU cores minus two)
+      -x, --del-interfile              Delete intermediate XML files from output dir
+      -t, --title, --no-title          Keep page titles in output (default: true)
+      -d, --heading, --no-heading      Keep section titles in output (default: true)
+      -l, --list                       Keep unprocessed list items in output
+      -r, --ref                        Keep reference notations in the format [ref]...[/ref]
+      -e, --redirect                   Show redirect destination
+      -m, --marker, --no-marker        Show symbols prefixed to list items, definitions, etc. (Default: true)
+      -v, --version                    Print version and exit
+      -h, --help                       Show this message
 
 ## Caveats
 
-* Some data, such as mathematical formulas and computer source code, will not be converted correctly. 
+* Some data, such as mathematical formulas and computer source code, will not be converted correctly.
 * Some text data may not be extracted correctly for various reasons (incorrect matching of begin/end tags, language-specific formatting rules, etc.).
 * The conversion process can take longer than expected. When dealing with a huge data set such as the English Wikipedia on a low-spec environment, it can take several hours or more.
-* WP2TXT, by the nature of its task, requires a lot of machine power and consumes a large amount of memory/storage resources. Therefore, there is a possibility that the process may stop unexpectedly. In the worst case, the process may even freeze without terminating successfully. Please understand this and use at your own risk. 
 
 ## Useful Links
 

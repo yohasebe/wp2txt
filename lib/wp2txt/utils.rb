@@ -77,6 +77,22 @@ $double_square_bracket_regex = Regexp.new("(#{Regexp.escape('[[')}|#{Regexp.esca
 $single_curly_bracket_regex = Regexp.new("(#{Regexp.escape('{')}|#{Regexp.escape('}')})", Regexp::MULTILINE)
 $double_curly_bracket_regex = Regexp.new("(#{Regexp.escape('{{')}|#{Regexp.escape('}}')})", Regexp::MULTILINE)
 $curly_square_bracket_regex = Regexp.new("(#{Regexp.escape('{|')}|#{Regexp.escape('|}')})", Regexp::MULTILINE)
+
+$complex_regex_01 = Regexp.new('\<\<([^<>]++)\>\>\s?')
+$complex_regex_02 = Regexp.new('\[\[File\:((?:[^\[\]]++|\[\[\g<1>\]\])++)\]\]', Regexp::MULTILINE | Regexp::IGNORECASE)
+$complex_regex_03 = Regexp.new('^\[\[((?:[^\[\]]++|\[\[\g<1>\]\])++)^\]\]', Regexp::MULTILINE)
+$complex_regex_04 = Regexp.new('\{\{(?:infobox|efn|sfn|unreliable source|refn|reflist|col(?:umns)?\-list|div col|no col|bar box|formatnum\:|col\||see also\||r\||#)((?:[^{}]++|\{\{\g<1>\}\})++)\}\}', Regexp::MULTILINE | Regexp::IGNORECASE)
+$complex_regex_05 = Regexp.new('\{\{[^{}]+?\n\|((?:[^{}]++|\{\{\g<1>\}\})++)\}\}', Regexp::MULTILINE | Regexp::IGNORECASE)
+
+$cleanup_regex_01 = Regexp.new('\[ref\]\s*\[\/ref\]', Regexp::MULTILINE)
+$cleanup_regex_02 = Regexp.new('^File:.+$')
+$cleanup_regex_03 = Regexp.new('^\|.*$')
+$cleanup_regex_04 = Regexp.new('\{\{.*$')
+$cleanup_regex_05 = Regexp.new('^.*\}\}')
+$cleanup_regex_06 = Regexp.new('\{\|.*$')
+$cleanup_regex_07 = Regexp.new('^.*\|\}')
+$cleanup_regex_08 = Regexp.new('\n\n\n+', Regexp::MULTILINE)
+
 ###################################################
 
 module Wp2txt
@@ -104,11 +120,12 @@ module Wp2txt
   end
   
   def format_wiki!(text, has_retried = false)
+    remove_complex!(text)
+
     escape_nowiki!(text)
     process_interwiki_links!(text)
     process_external_links!(text)
     unescape_nowiki!(text)      
-
     remove_directive!(text)
     remove_emphasis!(text)
     mndash!(text)
@@ -120,15 +137,18 @@ module Wp2txt
   end
   
   def cleanup!(text)
-    text.gsub!(/\[ref\]\s*\[\/ref\]/m){""}
-    text.gsub!(/^File:.+$/){""}
-    text.gsub!(/^\|.*$/){""}
-    text.gsub!(/^{{.*$/){""}
-    text.gsub!(/^}}.*$/){""}
-    text.gsub!(/\n\n\n+/m){"\n\n"}
+    text.gsub!($cleanup_regex_01){""}
+    text.gsub!($cleanup_regex_02){""}
+    text.gsub!($cleanup_regex_03){""}
+    text.gsub!($cleanup_regex_04){""}
+    text.gsub!($cleanup_regex_05){""}
+    text.gsub!($cleanup_regex_06){""}
+    text.gsub!($cleanup_regex_07){""}
+    text.gsub!($cleanup_regex_08){"\n\n"}
     text.strip!
     text << "\n\n"
   end
+
   #################### parser for nested structure ####################
    
   def process_nested_structure(scanner, left, right, &block)
@@ -217,12 +237,16 @@ module Wp2txt
   def process_external_links!(str)
     scanner = StringScanner.new(str)
     result = process_nested_structure(scanner, "[", "]") do |contents|
-      parts = contents.split(" ", 2)
-      case parts.size
-      when 1
-        parts.first || ""
+      if /\A\s.+\s\z/ =~ contents
+        " (#{contents.strip}) "
       else
-        parts.last || ""
+        parts = contents.split(" ", 2)
+        case parts.size
+        when 1
+          parts.first || ""
+        else
+          parts.last || ""
+        end
       end
     end
     str.replace(result)
@@ -237,10 +261,6 @@ module Wp2txt
     end
     scanner = StringScanner.new(result)
     result = process_nested_structure(scanner, "{", "}") do |contents|
-      ""
-    end
-    scanner = StringScanner.new(result)
-    result = process_nested_structure(scanner, "{{", "}}") do |contents|
       ""
     end
     str.replace(result)
@@ -310,7 +330,8 @@ module Wp2txt
   end
 
   def remove_html!(str)
-    ["div", "gallery", "timeline"].each do |tag|
+    str.gsub!(/<[^<>]+\/>/){""}
+    ["div", "gallery", "timeline", "noinclude"].each do |tag|
       scanner = StringScanner.new(str)
       result = process_nested_structure(scanner, "<#{tag}", "#{tag}>") do |contents|
         ""
@@ -320,11 +341,11 @@ module Wp2txt
   end
 
   def remove_complex!(str)
-    str.gsub!(/(?:'')?\[https?\:[^\[\]]+?\s([^\]]++)?\](?:'')?/){$1}
-    str.gsub!(/(?:'')?\[https?\:[^\[\]]++\](?:'')?\s?/){""}
-    str.gsub!(/\<\<([^<>]++)\>\>\s?/){"《#{$1}》"}
-    str.gsub!(/\{\{(?:Infobox|efn|Sfn|div col|no col|bar box|formatnum\:|Refnest\||Refnest\||Col\||See also\||R\|)((?:[^{}]++|\{\{\g<1>\}\})++)\}\}/im){""}
-    str.gsub!(/\[\[(?:File|ファイル)\:((?:[^\[\]]++|\[\[\g<1>\]\])++)\]\]/im){""}
+    str.gsub!($complex_regex_01){"《#{$1}》"}
+    str.gsub!($complex_regex_02){""}
+    str.gsub!($complex_regex_03){""}
+    str.gsub!($complex_regex_04){""}
+    str.gsub!($complex_regex_05){""}
   end
   
   def make_reference!(str)
@@ -339,6 +360,8 @@ module Wp2txt
     result = process_nested_structure(scanner, "{{", "}}") do |contents|
       parts = contents.split("|")
       if /\A(?:lang|fontsize)\z/i =~ parts[0]
+        parts.shift
+      elsif /\Alang\-/i =~ parts[0]
         parts.shift
       elsif /\Alang=/i =~ parts[1]
         parts.shift
@@ -422,7 +445,7 @@ module Wp2txt
     end
   end
 
-  def rename(files)    
+  def rename(files, ext = "txt")    
     # num of digits necessary to name the last file generated
     maxwidth = 0  
 
@@ -435,8 +458,9 @@ module Wp2txt
       newname= f.sub(/\-(\d+)\z/) do
         "-" + sprintf("%0#{maxwidth}d", $1.to_i)
       end
-      File.rename(f, newname + ".txt")
+      File.rename(f, newname + ".#{ext}")
     end
+    return true
   end
 
   # convert int of seconds to string in the format 00:00:00

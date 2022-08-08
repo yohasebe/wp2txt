@@ -14,6 +14,7 @@ Gem::Specification.new do |s|
   s.rubyforge_project = "wp2txt"
 
   s.files         = `git ls-files`.split("\n")
+  s.files -= ["data/*", "image/*"]
   s.test_files    = `git ls-files -- {test,spec,features}/*`.split("\n")
   s.executables   = `git ls-files -- bin/*`.split("\n").map{ |f| File.basename(f) }
   s.require_paths = ["lib"]
@@ -23,7 +24,10 @@ Gem::Specification.new do |s|
   # s.add_development_dependency "rake"
 
   s.add_dependency "nokogiri"
+  s.add_dependency "ruby-progressbar"
   s.add_dependency "parallel"
   s.add_dependency "htmlentities"
   s.add_dependency "optimist"
+  s.add_dependency "pastel"
+  s.add_dependency "tty-spinner"
 end

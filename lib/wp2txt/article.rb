@@ -38,8 +38,8 @@ module Wp2txt
       @title = title.strip
       @strip_tmarker = strip_tmarker
       convert_characters!(text)
+      text.gsub!(/\|\n\n+/m){"|\n"}
       remove_html!(text)
-      remove_complex!(text)
       make_reference!(text)
       remove_ref!(text)
       parse text
@@ -120,8 +120,6 @@ module Wp2txt
           @elements << create_element(:mw_blank, "\n")      
         when $redirect_regex
           @elements << create_element(:mw_redirect, line)
-        # when $in_template_regex
-        #   @elements << create_element(:mw_template, line)
         when $in_heading_regex
           line = line.sub($heading_onset_regex){$1}.sub($heading_coda_regex){$1}          
           @elements << create_element(:mw_heading, "\n" + line + "\n")

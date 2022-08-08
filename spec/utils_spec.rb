@@ -184,10 +184,6 @@ describe "Wp2txt" do
   
   describe "correct_inline_template!" do
     it "removes brackets and leaving some text" do
-      # str_before = "{{}}"
-      # str_after = ""
-      # correct_inline_template!(str_before)
-      # expect(str_before).to eq str_after
       str_before = "{{MedalCountry | {{JPN}} }}"
       str_after  = "JPN"
       correct_inline_template!(str_before)
@@ -197,11 +193,11 @@ describe "Wp2txt" do
       correct_inline_template!(str_before)
       expect(str_before).to eq str_after
       str_before = "{{a|b=c|d=f}}"
-      str_after  = "a"
+      str_after  = "c"
       correct_inline_template!(str_before)
       expect(str_before).to eq str_after
       str_before = "{{a|b|{{c|d|e}}}}"
-      str_after  = "e"
+      str_after  = "b"
       correct_inline_template!(str_before)
       expect(str_before).to eq str_after
       str_before = "{{要出典範囲|日本人に多く見受けられる|date=2013年8月|title=日本人特有なのか、本当に多いのかを示す必要がある}}"
@@ -210,18 +206,4 @@ describe "Wp2txt" do
       expect(str_before).to eq str_after
     end
   end
-  
-  #   describe "expand_template" do
-  #     it "gets data corresponding to a given template using mediawiki api" do
-  #       uri = "http://en.wiktionary.org/w/api.php"
-  #       template = "{{en-verb}}"
-  #       word = "kick"
-  #       expanded = expand_template(uri, template, word)
-  #       html =<<EOD
-  # <span class=\"infl-inline\"><b class=\"Latn \" lang=\"en\">kick</b> (''third-person singular simple present'' <span class=\"form-of third-person-singular-form-of\">'''<span class=\"Latn \" lang=\"en\">[[kicks#English|kicks]]</span>'''</span>, ''present participle'' <span class=\"form-of present-participle-form-of\">'''<span class=\"Latn \" lang=\"en\">[[kicking#English|kicking]]</span>'''</span>, ''simple past and past participle'' <span class=\"form-of simple-past-and-participle-form-of\"> '''<span class=\"Latn \" lang=\"en\">[[kicked#English|kicked]]</span>'''</span>)</span>[[Category:English verbs|kick]]
-  # EOD
-  #       html.strip!
-  #       expanded.should == html
-  #     end
-  #   end
 end

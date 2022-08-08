@@ -1,3 +1,3 @@
 module Wp2txt
-  VERSION = "0.9.5.1"
+  VERSION = "1.0.0"
 end
