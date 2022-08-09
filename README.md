@@ -1,16 +1,26 @@
-<img src='./image/wp2txt-logo.svg' width="400" />
+<img src='https://raw.githubusercontent.com/yohasebe/wp2txt/master/image/wp2txt-logo.svg' width="400" />
 
 Text conversion tool to extract content and category data from Wikipedia dump files
 
 ## About
 
-WP2TXT extracts plain text data from Wikipedia dump files (encoded in XML / compressed with Bzip2), removing all MediaWiki markup and other metadata. It was developed for researchers who want easy access to open source multilingual corpora, but can be used for other purposes as well.
+WP2TXT extracts plain text data from Wikipedia dump files (encoded in XML / compressed with Bzip2), removing all MediaWiki markup and other metadata.
 
 **UPDATE (August 2022)**
 
 1. A new option `--category-only` has been added. When this option is enabled, only the title and category information of the article is extracted.
-2. A new option `--summary-only` has been added. If this option is enabled, only the title and text data from the first paragraph of the article (= summary) will be extracted.
+2. A new option `--summary-only` has been added. If this option is enabled, only the title and text data from the opening paragraphs of the article (= summary) will be extracted.
 3. The current WP2TXT is *several times faster* than the previous version due to parallel processing of multiple files (the rate of speedup depends on the CPU cores used for processing).
+
+## Screenshot
+
+<img src='https://raw.githubusercontent.com/yohasebe/wp2txt/master/image/screenshot.png' width="700" />
+
+- WP2TXT 1.0.0
+- MacBook Pro (2019) 2.3GHz 8Core Intel Core i9
+- enwiki-20220802-pages-articles.xml.bz2 (approx. 20GB)
+
+In the above environment, the process (decompression, splitting, extraction, and conversion) to obtain the plain text data of the English Wikipedia takes a little over two hours.
 
 ## Features
 
@@ -18,7 +28,7 @@ WP2TXT extracts plain text data from Wikipedia dump files (encoded in XML / comp
 - Creates output files of specified size
 - Allows specifying ext elements (page titles, section headers, paragraphs, list items) to be extracted
 - Allows extracting category information of the article
-- Allows extracting summary text of the article
+- Allows extracting opening paragraphs of the article
 
 ## Installation
 
@@ -26,17 +36,17 @@ WP2TXT extracts plain text data from Wikipedia dump files (encoded in XML / comp
 
 ## Preparation
 
-First, you will need to obtain a Wikipedia dump file (from [here](http://dumps.wikimedia.org/backup-index.html)) with a file name like this:
+First, download the latest Wikipedia dump file for the language of your choice.
+
+    https://dumps.wikimedia.org/xxwiki/latest/xxwiki-latest-pages-articles.xml.bz2
+
+where `xx` is language code such as `en` (English) or `zh` (Chinese). Change it to `ja`, for instance, if you want the latest Japanese Wikipedia dump file.
+
+Alternatively, you can also select Wikipedia dump files created on a specific date from [here](http://dumps.wikimedia.org/backup-index.html). Make sure to download a file named in the following format:
 
     xxwiki-yyyymmdd-pages-articles.xml.bz2
 
-where `xx` is language code such as "en (English)" or "ja (Japanese)", and  `yyyymmdd` is the date of creation (e.g. 20220720).
-
-Alternatively, you can download multiple smaller files with file names such as:
-
-    enwiki-yyyymmdd-pages-articles1-xxxxxxxx.xml.bz2
-    enwiki-yyyymmdd-pages-articles2-xxxxxxxx.xml.bz2
-    enwiki-yyyymmdd-pages-articles3-xxxxxxxx.xml.bz2
+where `xx` is language code such as `en` (English)" or `ko` (Korean), and  `yyyymmdd` is the date of creation (e.g. `20220801`).
 
 ## Basic Usage
 
@@ -74,26 +84,32 @@ The following command will decompress the entire wikipedia data and split it int
 
 ### Extract directly from bz2 compressed file
 
-It is possible (though not recommended) to 1) decompress the dump files, 2) split the data into files, and 3) extract the text from them with just one line of command.
+It is possible (though not recommended) to 1) decompress the dump files, 2) split the data into files, and 3) extract the text just one line of command. You can automatically remove all the intermediate XML files with `-x` option.
 
-    $ wp2txt -i ./enwiki-20220801-pages-articles.xml.bz2 -o ./text
+    $ wp2txt -i ./enwiki-20220801-pages-articles.xml.bz2 -o ./text -x
 
-## Sample Input and Output
+## Sample Output
 
 Output contains title, category info, paragraphs
 
-- [English](https://raw.githubusercontent.com/yohasebe/wp2txt/master/data/output_samples/testdata_en.txt)
-- [Japanese](https://raw.githubusercontent.com/yohasebe/wp2txt/master/data/output_samples/testdata_ja.txt)
+    $ wp2txt -i ./input -o /output
 
-Output containing title and category info only
+- [English Wikipedia](https://raw.githubusercontent.com/yohasebe/wp2txt/master/data/output_samples/testdata_en.txt)
+- [Japanese Wikipedia](https://raw.githubusercontent.com/yohasebe/wp2txt/master/data/output_samples/testdata_ja.txt)
 
-- [English](https://raw.githubusercontent.com/yohasebe/wp2txt/master/data/output_samples/testdata_en_category.txt)
-- [Japanese](https://raw.githubusercontent.com/yohasebe/wp2txt/master/data/output_samples/testdata_ja_category.txt)
+Output containing title and category only
+
+    $ wp2txt -g -i ./input -o /output
+
+- [English Wikipedia](https://raw.githubusercontent.com/yohasebe/wp2txt/master/data/output_samples/testdata_en_category.txt)
+- [Japanese Wikipedia](https://raw.githubusercontent.com/yohasebe/wp2txt/master/data/output_samples/testdata_ja_category.txt)
 
 Output containing title, category, and summary
 
-- [English](https://raw.githubusercontent.com/yohasebe/wp2txt/master/data/output_samples/testdata_en_summary.txt)
-- [Japanese](https://raw.githubusercontent.com/yohasebe/wp2txt/master/data/output_samples/testdata_ja_summary.txt)
+    $ wp2txt -s -i ./input -o /output
+
+- [English Wikipedia](https://raw.githubusercontent.com/yohasebe/wp2txt/master/data/output_samples/testdata_en_summary.txt)
+- [Japanese Wikipedia](https://raw.githubusercontent.com/yohasebe/wp2txt/master/data/output_samples/testdata_ja_summary.txt)
 
 ## Command Line Options
 
@@ -101,7 +117,7 @@ Command line options are as follows:
 
     Usage: wp2txt [options]
     where [options] are:
-      -i, --input                      Path to compressed file (bz2) or uncompressed file (xml), or path to directory containing files of the latter format
+      -i, --input                      Path to compressed file (bz2) or decompressed file (xml), or path to directory containing files of the latter format
       -o, --output-dir=<s>             Path to output directory
       -c, --convert, --no-convert      Output in plain text (converting from XML) (default: true)
       -a, --category, --no-category    Show article category information (default: true)

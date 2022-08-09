@@ -50,7 +50,7 @@ module Wp2txt
       size
     end
 
-    # check the size of input file (bz2 or plain xml) when uncompressed
+    # check the size of input file (bz2 or plain xml) when decompressed
     def prepare
       # if output_dir is not specified, output in the same directory
       # as the imput file

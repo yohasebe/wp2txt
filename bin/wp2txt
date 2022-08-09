@@ -28,7 +28,7 @@ Usage: wp2txt [options]
 where [options] are:
 EOS
 
-  opt :input,  "Path to compressed file (bz2) or uncompressed file (xml), or path to directory containing files of the latter format", :required => true, :short => "-i"
+  opt :input,  "Path to compressed file (bz2) or decompressed file (xml), or path to directory containing files of the latter format", :required => true, :short => "-i"
   opt :output_dir,  "Path to output directory", :default => Dir::pwd, :type => String, :short => "-o"
   opt :convert,     "Output in plain text (converting from XML)", :default => true, :short => "-c"
   opt :category, "Show article category information", :default => true, :short => "-a"
@@ -86,15 +86,15 @@ if File::ftype(input_file) == "directory"
   input_files = Dir.glob("#{input_file}/*.xml")
 else
   puts ""
-  puts pastel.green.bold("Extracting")
-  puts "Uncompressing and splitting the original dump file."
+  puts pastel.green.bold("Preprocessing")
+  puts "Decompressing and splitting the original dump file."
   puts pastel.underline("This may take a while. Please be patient!")
 
   spinner = TTY::Spinner.new(":spinner", format: :arrow_pulse, hide_cursor: true, interval: 5)
   spinner.auto_spin
   wpsplitter = Wp2txt::Splitter.new(input_file, output_dir, tfile_size)
   wpsplitter.split_file
-  spinner.stop("Done!") # Stop animation
+  spinner.stop(pastel.blue.bold("Done!")) # Stop animation
   exit if !convert
   input_files = Dir.glob("#{output_dir}/*.xml")
 end
@@ -187,6 +187,5 @@ Parallel.map(input_files, progress: pastel.magenta.bold("WP2TXT"), in_processes:
   end
 end
 
-puts ""
-puts pastel.blue.bold("Processing complete!")
+puts pastel.blue.bold("Complete!")
 
