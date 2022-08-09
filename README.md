@@ -1,6 +1,6 @@
 <img src='https://raw.githubusercontent.com/yohasebe/wp2txt/master/image/wp2txt-logo.svg' width="400" />
 
-Text conversion tool to extract content and category data from Wikipedia dump files
+A command-line toolkit to extract text content and category data from Wikipedia dump files
 
 ## About
 
@@ -161,7 +161,7 @@ Or use this BibTeX entry:
 ```
 @misc{WP2TXT_2022,
   author = {Yoichiro Hasebe},
-  title = {WP2TXT: Text conversion tool to extract content and category data from Wikipedia dump files},
+  title = {WP2TXT: A command-line toolkit to extract text content and category data from Wikipedia dump files},
   url = {https://github.com/yohasebe/wp2txt}
   year = {2022},
 }
