@@ -36,17 +36,17 @@ In the above environment, the process (decompression, splitting, extraction, and
 
 ## Preparation
 
-First, download the latest Wikipedia dump file for the language of your choice.
+Download the latest Wikipedia dump file for the desired language at a URL such as
 
-    https://dumps.wikimedia.org/xxwiki/latest/xxwiki-latest-pages-articles.xml.bz2
+    https://dumps.wikimedia.org/enwiki/latest/enwiki-latest-pages-articles.xml.bz2
 
-where `xx` is language code such as `en` (English) or `zh` (Chinese). Change it to `ja`, for instance, if you want the latest Japanese Wikipedia dump file.
+Here, `enwiki` refers to the English Wikipedia. To get the Japanese Wikipedia dump file, for instance, change this to jawiki (Japanese). In doing so, note that there are two instances of `enwiki` in the URL above.
 
 Alternatively, you can also select Wikipedia dump files created on a specific date from [here](http://dumps.wikimedia.org/backup-index.html). Make sure to download a file named in the following format:
 
     xxwiki-yyyymmdd-pages-articles.xml.bz2
 
-where `xx` is language code such as `en` (English)" or `ko` (Korean), and  `yyyymmdd` is the date of creation (e.g. `20220801`).
+where `xx` is language code such as `en` (English)" or `ja` (japanese), and  `yyyymmdd` is the date of creation (e.g. `20220801`).
 
 ## Basic Usage
 
