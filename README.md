@@ -156,7 +156,7 @@ The author will appreciate your mentioning one of these in your research.
 * Yoichiro HASEBE. 2006. [Method for using Wikipedia as Japanese corpus.](http://ci.nii.ac.jp/naid/110006226727) _Doshisha Studies in Language and Culture_ 9(2), 373-403.
 * 長谷部陽一郎. 2006. [Wikipedia日本語版をコーパスとして用いた言語研究の手法](http://ci.nii.ac.jp/naid/110006226727). 『言語文化』9(2), 373-403.
 
-Or use this $BibTeX$ entry:
+Or use this BibTeX entry:
 
 ```
 @misc{WP2TXT_2022,
