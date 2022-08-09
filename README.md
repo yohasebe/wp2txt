@@ -17,7 +17,7 @@ WP2TXT extracts plain text data from Wikipedia dump files (encoded in XML / comp
 <img src='https://raw.githubusercontent.com/yohasebe/wp2txt/master/image/screenshot.png' width="700" />
 
 - WP2TXT 1.0.0
-- MacBook Pro (2019) 2.3GHz 8Core Intel Core i9
+- MacBook Pro (2019) 2.3GHz 8-Core Intel Core i9
 - enwiki-20220802-pages-articles.xml.bz2 (approx. 20GB)
 
 In the above environment, the process (decompression, splitting, extraction, and conversion) to obtain the plain text data of the English Wikipedia takes a little over two hours.
@@ -124,7 +124,7 @@ Command line options are as follows:
       -g, --category-only              Extract only article title and categories
       -s, --summary-only               Extract only article title, categories, and summary text before first heading
       -f, --file-size=<i>              Approximate size (in MB) of each output file (default: 10)
-      -n, --num-procs                  Number of proccesses to be run concurrently (default: max num of CPU cores minus two)
+      -n, --num-procs                  Number of proccesses to be run concurrently (default: max num of available CPU cores minus two)
       -x, --del-interfile              Delete intermediate XML files from output dir
       -t, --title, --no-title          Keep page titles in output (default: true)
       -d, --heading, --no-heading      Keep section titles in output (default: true)
