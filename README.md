@@ -156,6 +156,17 @@ The author will appreciate your mentioning one of these in your research.
 * Yoichiro HASEBE. 2006. [Method for using Wikipedia as Japanese corpus.](http://ci.nii.ac.jp/naid/110006226727) _Doshisha Studies in Language and Culture_ 9(2), 373-403.
 * 長谷部陽一郎. 2006. [Wikipedia日本語版をコーパスとして用いた言語研究の手法](http://ci.nii.ac.jp/naid/110006226727). 『言語文化』9(2), 373-403.
 
+Or use this $BibTeX$ entry:
+
+```
+@misc{WP2TXT_2022,
+  author = {Yoichiro Hasebe},
+  title = {WP2TXT: Text conversion tool to extract content and category data from Wikipedia dump files},
+  url = {https://github.com/yohasebe/wp2txt}
+  year = {2022},
+}
+```
+
 ## License
 
 This software is distributed under the MIT License. Please see the LICENSE file.
