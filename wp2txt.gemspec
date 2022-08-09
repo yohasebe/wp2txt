@@ -7,9 +7,9 @@ Gem::Specification.new do |s|
   s.version     = Wp2txt::VERSION
   s.authors     = ["Yoichiro Hasebe"]
   s.email       = ["yohasebe@gmail.com"]
-  s.homepage    = "http://github.com/yohasebe/wp2txt"
-  s.summary     = %q{Wikipedia dump to text converter}
-  s.description = %q{WP2TXT extracts plain text data from Wikipedia dump file (encoded in XML/compressed with Bzip2) stripping all the MediaWiki markups and other metadata.}
+  s.homepage    = "https://github.com/yohasebe/wp2txt"
+  s.summary     = %q{A command-line toolkit to extract text content and category data from Wikipedia dump files}
+  s.description = %q{WP2TXT extracts text and category data from Wikipedia dump files (encoded in XML / compressed with Bzip2), removing MediaWiki markup and other metadata.}
 
   s.rubyforge_project = "wp2txt"
 

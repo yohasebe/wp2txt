@@ -4,7 +4,7 @@ A command-line toolkit to extract text content and category data from Wikipedia 
 
 ## About
 
-WP2TXT extracts plain text data from Wikipedia dump files (encoded in XML / compressed with Bzip2), removing all MediaWiki markup and other metadata.
+WP2TXT extracts text and category data from Wikipedia dump files (encoded in XML / compressed with Bzip2), removing MediaWiki markup and other metadata.
 
 **UPDATE (August 2022)**
 
