@@ -10,7 +10,7 @@ WP2TXT extracts text and category data from Wikipedia dump files (encoded in XML
 
 1. A new option `--category-only` has been added. When this option is enabled, only the title and category information of the article is extracted.
 2. A new option `--summary-only` has been added. If this option is enabled, only the title, category information, and opening paragraphs of the article will be extracted.
-3. The current WP2TXT is *several times faster* than the previous version due to parallel processing of multiple files (the rate of speedup depends on the CPU cores used for processing).
+3. Text conversion with the current version of WP2TXT is *several times faster* than the previous version due to parallel processing of multiple files (the rate of speedup depends on the CPU cores used for processing).
 
 ## Screenshot
 
