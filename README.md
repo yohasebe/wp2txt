@@ -14,7 +14,7 @@ WP2TXT extracts text and category data from Wikipedia dump files (encoded in XML
 
 ## Screenshot
 
-<img src='https://raw.githubusercontent.com/yohasebe/wp2txt/master/image/screenshot.png' width="700" />
+<img src='https://raw.githubusercontent.com/yohasebe/wp2txt/master/image/screenshot.png' width="800" />
 
 **Environment** 
 
