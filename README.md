@@ -34,7 +34,7 @@ In the above environment, the process (decompression, splitting, extraction, and
 
 ## Preparation
 
-### For MacOS / Linux/ WSL2
+### For MacOS and Linux
 
 WP2TXT requires that one of the following commands be installed on the system in order to decompress `bz2` files:
 
