@@ -188,7 +188,7 @@ Or use this BibTeX entry:
   author = {Yoichiro Hasebe},
   title = {WP2TXT: A command-line toolkit to extract text content and category data from Wikipedia dump files},
   url = {https://github.com/yohasebe/wp2txt}
-  year = {2022},
+  year = {2022}
 }
 ```
 
