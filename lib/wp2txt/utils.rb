@@ -476,8 +476,4 @@ module Wp2txt
     return str
   end
 
-  def decimal_format(i)
-    str = i.to_s.reverse
-    return str.scan(/.?.?./).join(',').reverse
-  end
 end

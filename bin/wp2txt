@@ -43,6 +43,7 @@ EOS
   opt :ref, "Keep reference notations in the format [ref]...[/ref]", :default => false, :short => "-r"
   opt :redirect, "Show redirect destination", :default => false, :short => "-e"
   opt :marker, "Show symbols prefixed to list items, definitions, etc.", :default => true, :short => "-m"
+  opt :bz2_gem, "Use Ruby's bzip2-ruby gem instead of a system command", :default => false, :short => "-b"
 end
 
 Optimist::die :size, "must be larger than 0" unless opts[:file_size] >= 0
@@ -72,7 +73,8 @@ opt_array = [:title,
              :category,
              :category_only,
              :summary_only,
-             :del_interfile]
+             :del_interfile,
+             :bz2_gem ]
 
 $leave_inline_template = true if opts[:inline]
 $leave_ref = true if opts[:ref]
@@ -90,11 +92,15 @@ else
   puts "Decompressing and splitting the original dump file."
   puts pastel.underline("This may take a while. Please be patient!")
 
+  time_start = Time.now.to_i
+  wpsplitter = Wp2txt::Splitter.new(input_file, output_dir, tfile_size)
   spinner = TTY::Spinner.new(":spinner", format: :arrow_pulse, hide_cursor: true, interval: 5)
   spinner.auto_spin
-  wpsplitter = Wp2txt::Splitter.new(input_file, output_dir, tfile_size)
   wpsplitter.split_file
-  spinner.stop(pastel.blue.bold("Done!")) # Stop animation
+  time_finish = Time.now.to_i
+
+  spinner.stop("Time: #{sec_to_str(time_finish - time_start)}")# Stop animation
+  puts pastel.blue.bold("Complete!")
   exit if !convert
   input_files = Dir.glob("#{output_dir}/*.xml")
 end

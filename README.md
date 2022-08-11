@@ -10,17 +10,19 @@ WP2TXT extracts text and category data from Wikipedia dump files (encoded in XML
 
 1. A new option `--category-only` has been added. When this option is enabled, only the title and category information of the article is extracted.
 2. A new option `--summary-only` has been added. If this option is enabled, only the title, category information, and opening paragraphs of the article will be extracted.
-3. Text conversion with the current version of WP2TXT is *several times faster* than the previous version due to parallel processing of multiple files (the rate of speedup depends on the CPU cores used for processing).
+3. Text conversion with the current version of WP2TXT is *more than 2x times faster* than the previous version due to parallel processing of multiple files (the rate of speedup depends on the CPU cores used for processing).
 
 ## Screenshot
 
 <img src='https://raw.githubusercontent.com/yohasebe/wp2txt/master/image/screenshot.png' width="700" />
 
-- WP2TXT 1.0.0
-- MacBook Pro (2019) 2.3GHz 8-Core Intel Core i9 (16 virtual cores)
-- enwiki-20220802-pages-articles.xml.bz2 (approx. 20GB)
+**Environment** 
 
-In the above environment, the process (decompression, splitting, extraction, and conversion) to obtain the plain text data of the English Wikipedia takes a little over two hours.
+- WP2TXT 1.0.1
+- MacBook Pro (2021 Apple M1 Pro) 
+- enwiki-20220720-pages-articles.xml.bz2 (19.98 GB)
+
+In the above environment, the process (decompression, splitting, extraction, and conversion) to obtain the plain text data of the English Wikipedia takes less than 1.5 hours.
 
 ## Features
 
@@ -30,11 +32,33 @@ In the above environment, the process (decompression, splitting, extraction, and
 - Allows extracting category information of the article
 - Allows extracting opening paragraphs of the article
 
+## Preparation
+
+### For MacOS / Linux/ WSL2
+
+WP2TXT requires that one of the following commands be installed on the system in order to decompress `bz2` files:
+
+- `lbzip2` (recommended)
+- `pbzip2`
+- `bzip2`
+
+In most cases, the `bzip2` command is pre-installed on the system. However, since `lbzip2` can use multiple CPU cores and is faster than `bzip2`, it is recommended that you install it additionally. WP2TXT will attempt to find the decompression command available on your system in the order listed above.
+
+If you are using MacOS with Homebrew installed, you can install `lbzip2` with the following command:
+
+    $ brew install lbzip2
+
+### For Windows
+
+Install [Bzip2 for Windows](http://gnuwin32.sourceforge.net/packages/bzip2.htm) and set the path so that WP2TXT can use the bunzip2.exe command. Alternatively, you can extract the Wikipedia dump file in your own way and process the resulting XML file with WP2TXT.
+
 ## Installation
+
+### WP2TXT command
 
     $ gem install wp2txt
 
-## Preparation
+## Wikipedia Dump File
 
 Download the latest Wikipedia dump file for the desired language at a URL such as
 
@@ -132,6 +156,7 @@ Command line options are as follows:
       -r, --ref                        Keep reference notations in the format [ref]...[/ref]
       -e, --redirect                   Show redirect destination
       -m, --marker, --no-marker        Show symbols prefixed to list items, definitions, etc. (Default: true)
+      -b, --bz2-gem                    Use Ruby's bzip2-ruby gem instead of a system command
       -v, --version                    Print version and exit
       -h, --help                       Show this message
 

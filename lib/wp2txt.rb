@@ -7,26 +7,22 @@ require "nokogiri"
 require "wp2txt/article"
 require "wp2txt/utils"
 
-begin
-  require "bzip2-ruby"
-  NO_BZ2 = false  
-rescue LoadError
-  # in case bzip2-ruby gem is not available
-  NO_BZ2 = true
-end
-
 module Wp2txt
   class Splitter
     include Wp2txt
-    def initialize(input_file, output_dir = ".", tfile_size = 10)
+    def initialize(input_file, output_dir = ".", tfile_size = 10, bz2_gem = false)
       @fp = nil
       @input_file = input_file
       @output_dir = output_dir
       @tfile_size = tfile_size
-      prepare            
+      if bz2_gem
+        require "bzip2-ruby"
+      end
+      @bz2_gem = bz2_gem
+      prepare
     end
-    
-    def file_size(file) 
+
+    def file_size(file)
       origin = Time.now
       size = 0;  unit = 10485760; star = 0; before = Time.now.to_f
       error_count = 10
@@ -36,7 +32,7 @@ module Wp2txt
         rescue => e
           a = nil
         end
-        break unless a    
+        break unless a
 
         present = Time.now.to_f
         size += a.size
@@ -44,10 +40,27 @@ module Wp2txt
           star = 0 if star > 10
           star += 1
           before = present
-        end    
+        end
       end
       time_elapsed = Time.now - origin
       size
+    end
+
+    # check if a given command exists: return the path if it does, return false if not
+    def command_exist?(command)
+      basename = File.basename(command)
+      path = ""
+      print "Checking #{basename}: "
+      if open("| which #{command} 2>/dev/null"){ |f| path = f.gets.strip }
+        puts "detected [#{path}]"
+        return path.strip
+      elsif open("| which #{basename} 2>/dev/null"){ |f| path = f.gets.strip }
+        puts "detected [#{path}]"
+        return path.strip
+      else
+        puts "not found"
+        return false
+      end
     end
 
     # check the size of input file (bz2 or plain xml) when decompressed
@@ -58,31 +71,31 @@ module Wp2txt
         @output_dir = File.dirname(@input_file)
       end
 
-      # if input file is bz2 compressed, use bz2-ruby if available,
-      # use command line bzip2 program otherwise.
       if /.bz2$/ =~ @input_file
-        unless NO_BZ2
+        if @bz2_gem
           file = Bzip2::Reader.new File.open(@input_file, "r:UTF-8")
+        elsif RUBY_PLATFORM.index("win32")
+          file = IO.popen("bunzip2.exe -c #{@input_file}")
         else
-          if RUBY_PLATFORM.index("win32")
-            file = IO.popen("bunzip2.exe -c #{@input_file}")
-          else
-            file = IO.popen("bzip2 -c -d #{@input_file}") 
+          if bzpath = command_exist?("lbzip2") ||
+                      command_exist?("pbzip2") ||
+                      command_exist?("bzip2")
+            file = IO.popen("#{bzpath} -c -d #{@input_file}")
           end
-        end 
+        end
       else # meaning that it is a text file
         @infile_size = File.stat(@input_file).size
         file = open(@input_file)
       end
 
       #create basename of output file
-      @outfile_base = File.basename(@input_file, ".*") + "-"            
+      @outfile_base = File.basename(@input_file, ".*") + "-"
       @total_size = 0
       @file_index = 1
       outfilename = File.join(@output_dir, @outfile_base + @file_index.to_s)
       @outfiles = []
       @outfiles << outfilename
-      @fp = File.open(outfilename, "w")    
+      @fp = File.open(outfilename, "w")
       @file_pointer = file
       return true
     end
@@ -100,7 +113,7 @@ module Wp2txt
         # temp_buf is filled with text split by "\n"
         temp_buf = []
         ss = StringScanner.new(new_lines)
-        while ss.scan(/.*?\n/m)             
+        while ss.scan(/.*?\n/m)
           temp_buf << ss[0]
         end
         temp_buf << ss.rest unless ss.eos?
@@ -122,16 +135,16 @@ module Wp2txt
     end
 
     def get_newline
-      @buffer ||= [""]   
+      @buffer ||= [""]
       if @buffer.size == 1
         return nil unless fill_buffer
       end
       if @buffer.empty?
         return nil
-      else 
+      else
         new_line = @buffer.shift
         return new_line
-      end  
+      end
     end
 
     def split_file
@@ -145,7 +158,7 @@ module Wp2txt
         output_text << text
         end_flag = true if @total_size > (@tfile_size * 1024 * 1024)
         # never close the file until the end of the page even if end_flag is on
-        if end_flag && /<\/page/ =~ text 
+        if end_flag && /<\/page/ =~ text
           @fp.puts(output_text)
           output_text = ""
           @total_size = 0
@@ -159,15 +172,15 @@ module Wp2txt
         end
       end
       @fp.puts(output_text) if output_text != ""
-      @fp.close    
+      @fp.close
 
       if File.size(outfilename) == 0
-        File.delete(outfilename) 
+        File.delete(outfilename)
         @outfiles.delete(outfilename)
       end
 
-      rename(@outfiles, "xml")    
-    end 
+      rename(@outfiles, "xml")
+    end
   end
 
   class Runner
@@ -181,7 +194,7 @@ module Wp2txt
       @del_interfile = del_interfile
       prepare
     end
-    
+
     def prepare
       @infile_size = File.stat(@input_file).size
       file = open(@input_file)
@@ -203,7 +216,7 @@ module Wp2txt
         # temp_buf is filled with text split by "\n"
         temp_buf = []
         ss = StringScanner.new(new_lines)
-        while ss.scan(/.*?\n/m)             
+        while ss.scan(/.*?\n/m)
           temp_buf << ss[0]
         end
         temp_buf << ss.rest unless ss.eos?
@@ -225,16 +238,16 @@ module Wp2txt
     end
 
     def get_newline
-      @buffer ||= [""]   
+      @buffer ||= [""]
       if @buffer.size == 1
         return nil unless fill_buffer
       end
       if @buffer.empty?
         return nil
-      else 
+      else
         new_line = @buffer.shift
         return new_line
-      end  
+      end
     end
 
     def get_page
@@ -270,7 +283,7 @@ module Wp2txt
       pages = []
       data_empty = false
 
-      while !data_empty 
+      while !data_empty
         page = get_page
         if page
           pages << page
