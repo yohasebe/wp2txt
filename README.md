@@ -184,10 +184,10 @@ The author will appreciate your mentioning one of these in your research.
 Or use this BibTeX entry:
 
 ```
-@misc{WP2TXT_2022,
+@misc{wp2txt_2022,
   author = {Yoichiro Hasebe},
   title = {WP2TXT: A command-line toolkit to extract text content and category data from Wikipedia dump files},
-  url = {https://github.com/yohasebe/wp2txt}
+  url = {https://github.com/yohasebe/wp2txt},
   year = {2022}
 }
 ```

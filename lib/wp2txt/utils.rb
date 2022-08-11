@@ -41,7 +41,7 @@ $in_table_regex2 = Regexp.new('^\|\}.*?$')
 $in_unordered_regex  = Regexp.new('^\*')
 $in_ordered_regex    = Regexp.new('^\#')
 $in_pre_regex = Regexp.new('^ ')
-$in_definition_regex  = Regexp.new('^[\;\:]')    
+$in_definition_regex  = Regexp.new('^[\;\:]')
 $blank_line_regex = Regexp.new('^\s*$')
 $redirect_regex = Regexp.new('#(?:REDIRECT|転送)\s+\[\[(.+)\]\]', Regexp::IGNORECASE)
 $remove_tag_regex = Regexp.new("\<[^\<\>]*\>")
@@ -98,11 +98,11 @@ $cleanup_regex_08 = Regexp.new('\n\n\n+', Regexp::MULTILINE)
 module Wp2txt
 
   def convert_characters!(text, has_retried = false)
-    begin 
-      text << "" 
+    begin
+      text << ""
       chrref_to_utf!(text)
       special_chr!(text)
-      
+
     rescue # detect invalid byte sequence in UTF-8
       if has_retried
         puts "invalid byte sequence detected"
@@ -118,14 +118,14 @@ module Wp2txt
       end
     end
   end
-  
+
   def format_wiki!(text, has_retried = false)
     remove_complex!(text)
 
     escape_nowiki!(text)
     process_interwiki_links!(text)
     process_external_links!(text)
-    unescape_nowiki!(text)      
+    unescape_nowiki!(text)
     remove_directive!(text)
     remove_emphasis!(text)
     mndash!(text)
@@ -135,7 +135,7 @@ module Wp2txt
     remove_templates!(text) unless $leave_inline_template
     remove_table!(text) unless $leave_table
   end
-  
+
   def cleanup!(text)
     text.gsub!($cleanup_regex_01){""}
     text.gsub!($cleanup_regex_02){""}
@@ -150,7 +150,7 @@ module Wp2txt
   end
 
   #################### parser for nested structure ####################
-   
+
   def process_nested_structure(scanner, left, right, &block)
     test = false
     buffer = ""
@@ -195,7 +195,7 @@ module Wp2txt
     rescue => e
       return scanner.string
     end
-  end  
+  end
 
   #################### methods used from format_wiki ####################
   def escape_nowiki!(str)
@@ -218,11 +218,11 @@ module Wp2txt
       @nowikis[obj_id]
     end
   end
-      
+
   def process_interwiki_links!(str)
     scanner = StringScanner.new(str)
     result = process_nested_structure(scanner, "[[", "]]") do |contents|
-      parts = contents.split("|")      
+      parts = contents.split("|")
       case parts.size
       when 1
         parts.first || ""
@@ -265,7 +265,7 @@ module Wp2txt
     end
     str.replace(result)
   end
-  
+
   def remove_table!(str)
     scanner = StringScanner.new(str)
     result = process_nested_structure(scanner, "{|", "|}") do |contents|
@@ -273,7 +273,7 @@ module Wp2txt
     end
     str.replace(result)
   end
-  
+
   def special_chr!(str)
     str.replace $html_decoder.decode(str)
   end
@@ -316,7 +316,7 @@ module Wp2txt
     end
     return true
   end
-  
+
   def mndash!(str)
     str.gsub!($mndash_regex, "–")
   end
@@ -347,7 +347,7 @@ module Wp2txt
     str.gsub!($complex_regex_04){""}
     str.gsub!($complex_regex_05){""}
   end
-  
+
   def make_reference!(str)
     str.gsub!($make_reference_regex_a){"\n"}
     str.gsub!($make_reference_regex_b){""}
@@ -413,7 +413,7 @@ module Wp2txt
     File.rename(file_path, file_path + ".bak")
     File.rename("temp", file_path)
     File.unlink(file_path + ".bak") unless backup
-  end  
+  end
 
   # modify files under a directry (recursive)
   def batch_file_mod(dir_path, &block)
@@ -421,7 +421,7 @@ module Wp2txt
       collect_files(dir_path).each do |file|
         yield file if FileTest.file?(file)
       end
-    else   
+    else
       yield dir_path if FileTest.file?(dir_path)
     end
   end
@@ -445,9 +445,9 @@ module Wp2txt
     end
   end
 
-  def rename(files, ext = "txt")    
+  def rename(files, ext = "txt")
     # num of digits necessary to name the last file generated
-    maxwidth = 0  
+    maxwidth = 0
 
     files.each do |f|
       width = f.slice(/\-(\d+)\z/, 1).to_s.length.to_i
