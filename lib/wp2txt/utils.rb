@@ -102,6 +102,7 @@ module Wp2txt
       text << ""
       chrref_to_utf!(text)
       special_chr!(text)
+      text.encode!("UTF-8", "UTF-8", invalid: :replace, replace: "")
 
     rescue # detect invalid byte sequence in UTF-8
       if has_retried
@@ -112,8 +113,8 @@ module Wp2txt
         end
         exit
       else
-        text.encode!("UTF-16")
-        text.encode!("UTF-8")
+        text.encode!("UTF-16", "UTF-16", invalid: :replace, replace: "")
+        text.encode!("UTF-16", "UTF-16", invalid: :replace, replace: "")
         convert_characters!(text, true)
       end
     end
