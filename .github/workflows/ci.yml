@@ -1,0 +1,36 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+  schedule:
+    - cron: '42 5 * * *'
+
+jobs:
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        ruby: [ '3.1' ]
+
+    runs-on: ubuntu-latest
+    name: Ruby ${{matrix.ruby}}
+    container: ruby:${{matrix.ruby}}
+
+    steps:
+    - uses: actions/checkout@v3
+
+    - name: Show Ruby Version
+      run: ruby -v
+
+    - name: Install dependencies
+      run: bundle install
+
+    - name: Install rspec
+      run: gem install rspec
+
+    - name: Run tests
+      run: rspec
+
+
