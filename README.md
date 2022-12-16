@@ -46,7 +46,7 @@ In the above environment, the process (decompression, splitting, extraction, and
 
 ### Run WP2TXT on Docker
 
-1. Install [Docker Desktop](https://www.docker.com/products/docker-desktop/)
+1. Install [Docker Desktop](https://www.docker.com/products/docker-desktop/) (Mac/Windows/Linux)
 2. Execute `docker` command in a terminal:
 
 ```shell
