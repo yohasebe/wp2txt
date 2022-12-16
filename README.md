@@ -42,9 +42,9 @@ In the above environment, the process (decompression, splitting, extraction, and
 - Allows extracting category information of the article
 - Allows extracting opening paragraphs of the article
 
-## Preparation
+## Setting Up
 
-### Run WP2TXT on Docker
+### WP2TXT on Docker
 
 1. Install [Docker Desktop](https://www.docker.com/products/docker-desktop/) (Mac/Windows/Linux)
 2. Execute `docker` command in a terminal:
@@ -56,11 +56,14 @@ docker run -it -v /Users/me/localdata:/data yohasebe/wp2txt
 - Make sure to Replace `/Users/me/localdata` with the full path to the data directory in your local computer
 
 3. The Docker image will begin downloading and a bash prompt will appear when finished.
-4. The `wp2txt` command and `/data` directory will be avalable in the Docker environment.
+4. The `wp2txt` command will be avalable anywhare in the Docker container. Use the `/data` directory as the location of the input dump files and the output text files.
 
-**IMPORTANT:** Configure Docker Desktop resource settings (number of cores, amount of memory, etc.) to get the best performance possible.
+**IMPORTANT:**
 
-### Run WP2TXT on MacOS and Linux
+- Configure Docker Desktop resource settings (number of cores, amount of memory, etc.) to get the best performance possible.
+- When running the `wp2txt` command inside a Docker container, be sure to set the output directory to somewhere in the mounted local directory specified by the `docker run` command.
+
+### WP2TXT on MacOS and Linux
 
 WP2TXT requires that one of the following commands be installed on the system in order to decompress `bz2` files:
 
@@ -74,7 +77,7 @@ If you are using MacOS with Homebrew installed, you can install `lbzip2` with th
 
     $ brew install lbzip2
 
-### Run WP2TXT on Windows
+### WP2TXT on Windows
 
 Install [Bzip2 for Windows](http://gnuwin32.sourceforge.net/packages/bzip2.htm) and set the path so that WP2TXT can use the bunzip2.exe command. Alternatively, you can extract the Wikipedia dump file in your own way and process the resulting XML file with WP2TXT.
 
