@@ -10,7 +10,7 @@ WP2TXT extracts text and category data from Wikipedia dump files (encoded in XML
 
 **December 2022**
 
-- Docker images available for download 
+- Docker images available via Docker Hub
 
 **November 2022**
 
