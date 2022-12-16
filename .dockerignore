@@ -1,0 +1,8 @@
+.git
+.github
+image
+pkg
+spec
+.dockerignore
+.gitignore
+Gemfile.lock

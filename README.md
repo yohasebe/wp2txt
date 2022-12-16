@@ -8,6 +8,10 @@ WP2TXT extracts text and category data from Wikipedia dump files (encoded in XML
 
 ## Changelog
 
+**December 2022**
+
+- Docker images available for download 
+
 **November 2022**
 
 - Code added to suppress "Invalid byte sequence error" when an ilegal UTF-8 character is input.
@@ -40,7 +44,23 @@ In the above environment, the process (decompression, splitting, extraction, and
 
 ## Preparation
 
-### For MacOS and Linux
+### Run WP2TXT on Docker
+
+1. Install [Docker Desktop](https://www.docker.com/products/docker-desktop/)
+2. Execute `docker` command in a terminal:
+
+```shell
+docker run -it -v /Users/me/localdata:/data yohasebe/wp2txt
+```
+
+- Make sure to Replace `/Users/me/localdata` with the full path to the data directory in your local computer
+
+3. The Docker image will begin downloading and a bash prompt will appear when finished.
+4. The `wp2txt` command and `/data` directory will be avalable in the Docker environment.
+
+**IMPORTANT:** Configure Docker Desktop resource settings (number of cores, amount of memory, etc.) to get the best performance possible.
+
+### Run WP2TXT on MacOS and Linux
 
 WP2TXT requires that one of the following commands be installed on the system in order to decompress `bz2` files:
 
@@ -54,7 +74,7 @@ If you are using MacOS with Homebrew installed, you can install `lbzip2` with th
 
     $ brew install lbzip2
 
-### For Windows
+### Run WP2TXT on Windows
 
 Install [Bzip2 for Windows](http://gnuwin32.sourceforge.net/packages/bzip2.htm) and set the path so that WP2TXT can use the bunzip2.exe command. Alternatively, you can extract the Wikipedia dump file in your own way and process the resulting XML file with WP2TXT.
 

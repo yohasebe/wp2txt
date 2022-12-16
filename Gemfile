@@ -1,4 +1,9 @@
 source "http://rubygems.org"
 
-# Specify your gem's dependencies in wp2txt.gemspec
-gemspec
+gem "nokogiri"
+gem "ruby-progressbar"
+gem "parallel"
+gem "htmlentities"
+gem "optimist"
+gem "pastel"
+gem "tty-spinner"
