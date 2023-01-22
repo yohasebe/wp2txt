@@ -29,7 +29,7 @@ class WpApp
         where [options] are:
       BANNER
 
-      opt :input, "Path to compressed file (bz2) or decompressed file (xml), or path to directory containing files of the latter format", required: true, short: "-i"
+      opt :input, "Path to compressed file (bz2) or decompressed file (xml), or path to directory containing files of the latter format", type: String, required: true, short: "-i"
       opt :output_dir, "Path to output directory", default: Dir.pwd, type: String, short: "-o"
       opt :convert, "Output in plain text (converting from XML)", default: true, short: "-c"
       opt :category, "Show article category information", default: true, short: "-a"
@@ -48,11 +48,12 @@ class WpApp
     end
 
     Optimist.die :size, "must be larger than 0" unless opts[:file_size] >= 0
+    Optimist.die :input, "must exist" unless File.exist?(opts[:input])
     Optimist.die :output_dir, "must exist" unless File.exist?(opts[:output_dir])
 
     pastel = Pastel.new
 
-    input_file = ARGV[0]
+    input_file = opts[:input]
     output_dir = opts[:output_dir]
     tfile_size = opts[:file_size]
     num_processors = Etc.nprocessors
