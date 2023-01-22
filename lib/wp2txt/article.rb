@@ -1,62 +1,54 @@
-#!/usr/bin/env ruby
-# -*- coding: utf-8 -*-
-
-$: << File.join(File.dirname(__FILE__))
-
+# frozen_string_literal: true
 
 require 'strscan'
-require 'utils'
+require_relative 'utils'
 
 module Wp2txt
-
   # possible element type, which could be later chosen to print or not to print
-    # :mw_heading
-    # :mw_htable
-    # :mw_quote
-    # :mw_unordered
-    # :mw_ordered
-    # :mw_definition
-    # :mw_pre
-    # :mw_paragraph
-    # :mw_comment
-    # :mw_math
-    # :mw_source
-    # :mw_inputbox
-    # :mw_template
-    # :mw_link
-    # :mw_summary
-    # :mw_blank
-    # :mw_redirect
+  # :mw_heading
+  # :mw_htable
+  # :mw_quote
+  # :mw_unordered
+  # :mw_ordered
+  # :mw_definition
+  # :mw_pre
+  # :mw_paragraph
+  # :mw_comment
+  # :mw_math
+  # :mw_source
+  # :mw_inputbox
+  # :mw_template
+  # :mw_link
+  # :mw_summary
+  # :mw_blank
+  # :mw_redirect
 
   # an article contains elements, each of which is [TYPE, string]
   class Article
-    
     include Wp2txt
     attr_accessor :elements, :title, :categories
-    
+
     def initialize(text, title = "", strip_tmarker = false)
       @title = title.strip
       @strip_tmarker = strip_tmarker
-      convert_characters!(text)
-      text.gsub!(/\|\n\n+/m){"|\n"}
-      remove_html!(text)
-      make_reference!(text)
-      remove_ref!(text)
+      text = convert_characters(text)
+      text = text.gsub(/\|\n\n+/m) { "|\n" }
+      text = remove_html(text)
+      text = make_reference(text)
+      text = remove_ref(text)
       parse text
     end
-    
-    def create_element(tp, text)
-      [tp, text]
+
+    def create_element(tpx, text)
+      [tpx, text]
     end
-  
+
     def parse(source)
       @elements = []
-      @categories  = []
+      @categories = []
       mode = nil
-      open_stack  = []
-      close_stack = []
       source.each_line do |line|
-        matched = line.scan($category_regex)
+        matched = line.scan(CATEGORY_REGEX)
         if matched && !matched.empty?
           @categories += matched
           @categories.uniq!
@@ -65,108 +57,94 @@ module Wp2txt
         case mode
         when :mw_ml_template
           scanner = StringScanner.new(line)
-          str= process_nested_structure(scanner, "{{", "}}") {""}
-          if $ml_template_end_regex =~ str
-            mode = nil
-          end
+          str = process_nested_structure(scanner, "{{", "}}") { "" }
+          mode = nil if ML_TEMPLATE_END_REGEX =~ str
           @elements.last.last << line
           next
         when :mw_ml_link
           scanner = StringScanner.new(line)
-          str= process_nested_structure(scanner, "[[", "]]") {""}
-          if $ml_link_end_regex =~ str
-            mode = nil
-          end
+          str = process_nested_structure(scanner, "[[", "]]") { "" }
+          mode = nil if ML_LINK_END_REGEX =~ str
           @elements.last.last << line
           next
         when :mw_table
-          if $in_table_regex2 =~ line
-            mode = nil
-          end
+          mode = nil if IN_TABLE_REGEX2 =~ line
           @elements.last.last << line
-          next          
+          next
         when :mw_inputbox
-          if $in_inputbox_regex2 =~ line
-            mode = nil
-          end
+          mode = nil if IN_INPUTBOX_REGEX2 =~ line
           @elements.last.last << line
           next
         when :mw_source
-          if $in_source_regex2 =~ line
-            mode = nil
-          end
+          mode = nil if IN_SOURCE_REGEX2 =~ line
           @elements.last.last << line
           next
         when :mw_math
-          if $in_math_regex2 =~ line
-            mode = nil
-          end
+          mode = nil if IN_MATH_REGEX2 =~ line
           @elements.last.last << line
           next
         when :mw_htable
-          if $in_html_table_regex2 =~ line
-            mode = nil
-          end
+          mode = nil if IN_HTML_TABLE_REGEX2 =~ line
           @elements.last.last << line
           next
         end
 
         case line
-        when $isolated_template_regex
+        when ISOLATED_TEMPLATE_REGEX
           @elements << create_element(:mw_isolated_template, line)
-        when $isolated_tag_regex
+        when ISOLATED_TAG_REGEX
           @elements << create_element(:mw_isolated_tag, line)
-        when $blank_line_regex
-          @elements << create_element(:mw_blank, "\n")      
-        when $redirect_regex
+        when BLANK_LINE_REGEX
+          @elements << create_element(:mw_blank, "\n")
+        when REDIRECT_REGEX
           @elements << create_element(:mw_redirect, line)
-        when $in_heading_regex
-          line = line.sub($heading_onset_regex){$1}.sub($heading_coda_regex){$1}          
+        when IN_HEADING_REGEX
+          line = line.sub(HEADING_ONSET_REGEX) { $1 }.sub(HEADING_CODA_REGEX) { $1 }
           @elements << create_element(:mw_heading, "\n" + line + "\n")
-        when $in_inputbox_regex
+        when IN_INPUTBOX_REGEX
           @elements << create_element(:mw_inputbox, line)
-        when $ml_template_onset_regex 
+        when ML_TEMPLATE_ONSET_REGEX
           @elements << create_element(:mw_ml_template, line)
           mode = :mw_ml_template
-        when $ml_link_onset_regex 
+        when ML_LINK_ONSET_REGEX
           @elements << create_element(:mw_ml_link, line)
           mode = :mw_ml_link
-        when $in_inputbox_regex1
+        when IN_INPUTBOX_REGEX1
           mode = :mw_inputbox
           @elements << create_element(:mw_inputbox, line)
-        when $in_source_regex
-        @elements << create_element(:mw_source, line)
-        when $in_source_regex1
+        when IN_SOURCE_REGEX
+          @elements << create_element(:mw_source, line)
+        when IN_SOURCE_REGEX1
           mode = :mw_source
           @elements << create_element(:mw_source, line)
-        when $in_math_regex
+        when IN_MATH_REGEX
           @elements << create_element(:mw_math, line)
-        when $in_math_regex1
+        when IN_MATH_REGEX1
           mode = :mw_math
           @elements << create_element(:mw_math, line)
-        when $in_html_table_regex
+        when IN_HTML_TABLE_REGEX
           @elements << create_element(:mw_htable, line)
-        when $in_html_table_regex1
+        when IN_HTML_TABLE_REGEX1
           mode = :mw_htable
           @elements << create_element(:mw_htable, line)
-        when $in_table_regex1
+        when IN_TABLE_REGEX1
           mode = :mw_table
           @elements << create_element(:mw_table, line)
-        when $in_unordered_regex
-          line = line.sub($list_marks_regex, "") if @strip_tmarker          
+        when IN_UNORDERED_REGEX
+          line = line.sub(LIST_MARKS_REGEX, "") if @strip_tmarker
           @elements << create_element(:mw_unordered, line)
-        when $in_ordered_regex
-          line = line.sub($list_marks_regex, "") if @strip_tmarker          
+        when IN_ORDERED_REGEX
+          line = line.sub(LIST_MARKS_REGEX, "") if @strip_tmarker
           @elements << create_element(:mw_ordered, line)
-        when $in_pre_regex
-          line = line.sub($pre_marks_regex, "") if @strip_tmarker          
+        when IN_PRE_REGEX
+          line = line.sub(PRE_MARKS_REGEX, "") if @strip_tmarker
           @elements << create_element(:mw_pre, line)
-        when $in_definition_regex
-          line = line.sub($def_marks_regex, "") if @strip_tmarker
+        when IN_DEFINITION_REGEX
+          line = line.sub(DEF_MARKS_REGEX, "") if @strip_tmarker
           @elements << create_element(:mw_definition, line)
-        when $in_link_regex
+        when IN_LINK_REGEX
           @elements << create_element(:mw_link, line)
-        else 
+        else
           @elements << create_element(:mw_paragraph, "\n" + line)
         end
       end

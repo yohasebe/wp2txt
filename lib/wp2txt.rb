@@ -1,11 +1,8 @@
-#!/usr/bin/env ruby
-# -*- coding: utf-8 -*-
-
-$: << File.join(File.dirname(__FILE__))
+# frozen_string_literal: true
 
 require "nokogiri"
-require "wp2txt/article"
-require "wp2txt/utils"
+require_relative "wp2txt/article"
+require_relative "wp2txt/utils"
 
 module Wp2txt
   class Splitter
@@ -15,51 +12,51 @@ module Wp2txt
       @input_file = input_file
       @output_dir = output_dir
       @tfile_size = tfile_size
-      if bz2_gem
-        require "bzip2-ruby"
-      end
+      require "bzip2-ruby" if bz2_gem
       @bz2_gem = bz2_gem
       prepare
     end
 
     def file_size(file)
-      origin = Time.now
-      size = 0;  unit = 10485760; star = 0; before = Time.now.to_f
-      error_count = 10
-      while true do
+      size = 0
+      unit = 10_485_760
+      star = 0
+      before = Time.now.to_f
+
+      loop do
         begin
           a = file.read(unit)
-        rescue => e
+        rescue StandardError
           a = nil
         end
         break unless a
 
         present = Time.now.to_f
         size += a.size
-        if present - before > 0.3
-          star = 0 if star > 10
-          star += 1
-          before = present
-        end
+
+        next if present - before <= 0.3
+
+        star = 0 if star > 10
+        star += 1
+        before = present
       end
-      time_elapsed = Time.now - origin
       size
     end
 
     # check if a given command exists: return the path if it does, return false if not
     def command_exist?(command)
       basename = File.basename(command)
-      path = ""
+      path = +""
       print "Checking #{basename}: "
-      if open("| which #{command} 2>/dev/null"){ |f| path = f.gets.strip }
+      if open("| which #{command} 2>/dev/null") { |f| path = f.gets.strip }
         puts "detected [#{path}]"
-        return path.strip
-      elsif open("| which #{basename} 2>/dev/null"){ |f| path = f.gets.strip }
+        path.strip
+      elsif open("| which #{basename} 2>/dev/null") { |f| path = f.gets.strip }
         puts "detected [#{path}]"
-        return path.strip
+        path.strip
       else
         puts "not found"
-        return false
+        false
       end
     end
 
@@ -67,28 +64,22 @@ module Wp2txt
     def prepare
       # if output_dir is not specified, output in the same directory
       # as the imput file
-      if !@output_dir && @input_file
-        @output_dir = File.dirname(@input_file)
-      end
+      @output_dir = File.dirname(@input_file) if !@output_dir && @input_file
 
       if /.bz2$/ =~ @input_file
         if @bz2_gem
           file = Bzip2::Reader.new File.open(@input_file, "r:UTF-8")
         elsif RUBY_PLATFORM.index("win32")
           file = IO.popen("bunzip2.exe -c #{@input_file}")
-        else
-          if bzpath = command_exist?("lbzip2") ||
-                      command_exist?("pbzip2") ||
-                      command_exist?("bzip2")
-            file = IO.popen("#{bzpath} -c -d #{@input_file}")
-          end
+        elsif (bzpath = command_exist?("lbzip2") || command_exist?("pbzip2") || command_exist?("bzip2"))
+          file = IO.popen("#{bzpath} -c -d #{@input_file}")
         end
       else # meaning that it is a text file
         @infile_size = File.stat(@input_file).size
         file = open(@input_file)
       end
 
-      #create basename of output file
+      # create basename of output file
       @outfile_base = File.basename(@input_file, ".*") + "-"
       @total_size = 0
       @file_index = 1
@@ -97,15 +88,15 @@ module Wp2txt
       @outfiles << outfilename
       @fp = File.open(outfilename, "w")
       @file_pointer = file
-      return true
+      true
     end
 
     # read text data from bz2 compressed file by 1 megabyte
     def fill_buffer
-      while true do
+      loop do
         begin
-          new_lines = @file_pointer.read(10485760)
-        rescue => e
+          new_lines = @file_pointer.read(10_485_760)
+        rescue StandardError
           return nil
         end
         return nil unless new_lines
@@ -113,68 +104,58 @@ module Wp2txt
         # temp_buf is filled with text split by "\n"
         temp_buf = []
         ss = StringScanner.new(new_lines)
-        while ss.scan(/.*?\n/m)
-          temp_buf << ss[0]
-        end
+        temp_buf << ss[0] while ss.scan(/.*?\n/m)
         temp_buf << ss.rest unless ss.eos?
 
         new_first_line = temp_buf.shift
-        if new_first_line[-1, 1] == "\n" # new_first_line.index("\n")
-          @buffer.last <<  new_first_line
-          @buffer << ""
-        else
-          @buffer.last << new_first_line
-        end
+        @buffer.last << new_first_line
+        @buffer << +"" if new_first_line[-1, 1] == "\n" # new_first_line.index("\n")
         @buffer += temp_buf unless temp_buf.empty?
-        if @buffer.last[-1, 1] == "\n" # @buffer.last.index("\n")
-          @buffer << ""
-        end
+        @buffer << +"" if @buffer.last[-1, 1] == "\n" # @buffer.last.index("\n")
         break if @buffer.size > 1
       end
-      return true
+      true
     end
 
     def get_newline
-      @buffer ||= [""]
-      if @buffer.size == 1
-        return nil unless fill_buffer
-      end
-      if @buffer.empty?
-        return nil
+      @buffer ||= [+""]
+      if @buffer.size == 1 && !fill_buffer
+        nil
+      elsif @buffer.empty?
+        nil
       else
-        new_line = @buffer.shift
-        return new_line
+        @buffer.shift
       end
     end
 
     def split_file
-      output_text = ""
+      output_text = +""
       end_flag = false
-      while text = get_newline
-        @count ||= 0;@count += 1;
-        @size_read ||=0
+      while (text = get_newline)
+        @count ||= 0
+        @count += 1
+        @size_read ||= 0
         @size_read += text.bytesize
         @total_size += text.bytesize
         output_text << text
         end_flag = true if @total_size > (@tfile_size * 1024 * 1024)
         # never close the file until the end of the page even if end_flag is on
-        if end_flag && /<\/page/ =~ text
-          @fp.puts(output_text)
-          output_text = ""
-          @total_size = 0
-          end_flag = false
-          @fp.close
-          @file_index += 1
-          outfilename = File.join(@output_dir, @outfile_base + @file_index.to_s)
-          @outfiles << outfilename
-          @fp = File.open(outfilename, "w")
-          next
-        end
+        next unless end_flag && %r{</page} =~ text
+
+        @fp.puts(output_text)
+        output_text = +""
+        @total_size = 0
+        end_flag = false
+        @fp.close
+        @file_index += 1
+        outfilename = File.join(@output_dir, @outfile_base + @file_index.to_s)
+        @outfiles << outfilename
+        @fp = File.open(outfilename, "w")
       end
       @fp.puts(output_text) if output_text != ""
       @fp.close
 
-      if File.size(outfilename) == 0
+      if File.size(outfilename).zero?
         File.delete(outfilename)
         @outfiles.delete(outfilename)
       end
@@ -201,14 +182,14 @@ module Wp2txt
       @file_pointer = file
       @outfile_base = File.basename(@input_file, ".*")
       @total_size = 0
-      return true
+      true
     end
 
     def fill_buffer
-      while true do
+      loop do
         begin
-          new_lines = @file_pointer.read(10485760)
-        rescue => e
+          new_lines = @file_pointer.read(10_485_760)
+        rescue StandardError
           return nil
         end
         return nil unless new_lines
@@ -216,49 +197,40 @@ module Wp2txt
         # temp_buf is filled with text split by "\n"
         temp_buf = []
         ss = StringScanner.new(new_lines)
-        while ss.scan(/.*?\n/m)
-          temp_buf << ss[0]
-        end
+        temp_buf << ss[0] while ss.scan(/.*?\n/m)
         temp_buf << ss.rest unless ss.eos?
 
         new_first_line = temp_buf.shift
-        if new_first_line[-1, 1] == "\n" # new_first_line.index("\n")
-          @buffer.last <<  new_first_line
-          @buffer << ""
-        else
-          @buffer.last << new_first_line
-        end
+        @buffer.last <<  new_first_line
+        @buffer << +"" if new_first_line[-1, 1] == "\n" # new_first_line.index("\n")
         @buffer += temp_buf unless temp_buf.empty?
-        if @buffer.last[-1, 1] == "\n" # @buffer.last.index("\n")
-          @buffer << ""
-        end
+        @buffer << +"" if @buffer.last[-1, 1] == "\n" # @buffer.last.index("\n")
         break if @buffer.size > 1
       end
-      return true
+      true
     end
 
     def get_newline
-      @buffer ||= [""]
-      if @buffer.size == 1
-        return nil unless fill_buffer
-      end
-      if @buffer.empty?
-        return nil
+      @buffer ||= [+""]
+      if @buffer.size == 1 && !fill_buffer
+        nil
+      elsif @buffer.empty?
+        nil
       else
-        new_line = @buffer.shift
-        return new_line
+        @buffer.shift
       end
     end
 
     def get_page
       inside_page = false
-      page = ""
-      while line = get_newline
-        if /<page>/ =~ line #
+      page = +""
+      while (line = get_newline)
+        case line
+        when /<page>/
           page << line
           inside_page = true
           next
-        elsif  /<\/page>/ =~ line #
+        when %r{</page>}
           page << line
           inside_page = false
           break
@@ -266,65 +238,62 @@ module Wp2txt
         page << line if inside_page
       end
       if page.empty?
-        return false
+        false
       else
-        return page.force_encoding("utf-8") rescue page
+        page.force_encoding("utf-8")
       end
+    rescue StandardError
+      page
     end
 
     def extract_text(&block)
-      in_text = false
-      in_message = false
-      result_text = ""
       title = nil
-      end_flag = false
-      terminal_round = false
-      output_text = ""
+      output_text = +""
       pages = []
       data_empty = false
 
-      while !data_empty
-        page = get_page
-        if page
-          pages << page
+      until data_empty
+        new_page = get_page
+        if new_page
+          pages << new_page
         else
           data_empty = true
         end
-        if data_empty
-          pages.each do |page|
-            xmlns = '<mediawiki xmlns="http://www.mediawiki.org/xml/export-0.5/" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.mediawiki.org/xml/export-0.5/ http://www.mediawiki.org/xml/export-0.5.xsd" version="0.5" xml:lang="en">' + "\n"
-            xml = xmlns + page + "</mediawiki>"
+        next unless data_empty
 
-            input = Nokogiri::XML(xml, nil, 'UTF-8')
-            page = input.xpath("//xmlns:text").first
-            pp_title = page.parent.parent.at_css "title"
-            title = pp_title.content
-            unless  /\:/ =~ title
-              text = page.content
-              text.gsub!(/\<\!\-\-(.*?)\-\-\>/m) do |content|
-                num_of_newlines = content.count("\n")
-                if num_of_newlines == 0
-                  ""
-                else
-                  "\n" * num_of_newlines
-                end
-              end
-              article = Article.new(text, title, @strip_tmarker)
-              page_text = block.call(article)
-              output_text << page_text
+        pages.each do |page|
+          xmlns = '<mediawiki xmlns="http://www.mediawiki.org/xml/export-0.5/" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.mediawiki.org/xml/export-0.5/ http://www.mediawiki.org/xml/export-0.5.xsd" version="0.5" xml:lang="en">' + "\n"
+          xml = xmlns + page + "</mediawiki>"
+
+          input = Nokogiri::XML(xml, nil, 'UTF-8')
+          page = input.xpath("//xmlns:text").first
+          pp_title = page.parent.parent.at_css "title"
+          title = pp_title.content
+          next if /:/ =~ title
+
+          text = page.content
+          text.gsub!(/<!--(.*?)-->/m) do |content|
+            num_of_newlines = content.count("\n")
+            if num_of_newlines.zero?
+              +""
+            else
+              "\n" * num_of_newlines
             end
           end
-
-          cleanup!(output_text)
-          if output_text.size > 0
-            outfilename = File.join(@output_dir, @outfile_base + ".txt")
-            @fp = File.open(outfilename, "w")
-            @fp.puts(output_text)
-            @fp.close
-          end
-          File.delete(@input_file) if @del_interfile
-          output_text = ""
+          article = Article.new(text, title, @strip_tmarker)
+          page_text = block.call(article)
+          output_text << page_text
         end
+
+        output_text = cleanup(output_text)
+        unless output_text.empty?
+          outfilename = File.join(@output_dir, @outfile_base + ".txt")
+          @fp = File.open(outfilename, "w")
+          @fp.puts(output_text)
+          @fp.close
+        end
+        File.delete(@input_file) if @del_interfile
+        output_text = +""
       end
     end
   end

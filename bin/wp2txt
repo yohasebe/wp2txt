@@ -1,197 +1,191 @@
 #!/usr/bin/env ruby
-# -*- coding: utf-8 -*-
 
-$: << File.join(File.dirname(__FILE__))
-$: << File.join(File.dirname(__FILE__), '..', 'lib')
+# frozen_string_literal: true
 
-$DEBUG_MODE = false
-SHAREDIR = File.join(File.dirname(__FILE__), '..', 'share')
-DOCDIR = File.join(File.dirname(__FILE__), '..', 'doc')
+DEBUG_MODE = false
+SHAREDIR = File.join(File.dirname(__FILE__), "..", "share")
+DOCDIR = File.join(File.dirname(__FILE__), "..", "doc")
 
-require 'wp2txt'
-require 'wp2txt/utils'
-require 'wp2txt/version'
-require 'etc'
-require 'optimist'
-require 'parallel'
-require 'pastel'
-require 'tty-spinner'
+require_relative "../lib/wp2txt"
+require_relative "../lib/wp2txt/utils"
+require_relative "../lib/wp2txt/version"
 
-include Wp2txt
+require "etc"
+require "optimist"
+require "parallel"
+require "pastel"
+require "tty-spinner"
 
-opts = Optimist::options do
-  version Wp2txt::VERSION
-  banner <<-EOS
-WP2TXT extracts plain text data from Wikipedia dump file (encoded in XML/compressed with Bzip2) stripping all the MediaWiki markups and other metadata.
+class WpApp
+  include Wp2txt
 
-Usage: wp2txt [options]
-where [options] are:
-EOS
+  def run
+    opts = Optimist.options do
+      version VERSION
+      banner <<~BANNER
+        WP2TXT extracts plain text data from Wikipedia dump file (encoded in XML/compressed with Bzip2) stripping all the MediaWiki markups and other metadata.
 
-  opt :input,  "Path to compressed file (bz2) or decompressed file (xml), or path to directory containing files of the latter format", :required => true, :short => "-i"
-  opt :output_dir,  "Path to output directory", :default => Dir::pwd, :type => String, :short => "-o"
-  opt :convert,     "Output in plain text (converting from XML)", :default => true, :short => "-c"
-  opt :category, "Show article category information", :default => true, :short => "-a"
-  opt :category_only, "Extract only article title and categories", :default => false, :short => "-g"
-  opt :summary_only, "Extract only article title, categories, and summary text before first heading", :default => false, :short => "-s"
-  opt :file_size,   "Approximate size (in MB) of each output file", :default => 10, :short => "-f"
-  opt :num_procs,   "Number of proccesses to be run concurrently (default: max num of CPU cores minus two)", :short => "-n"
-  opt :del_interfile,   "Delete intermediate XML files from output dir", :short => "-x", :default => false
-  opt :title,   "Keep page titles in output", :default => true, :short => "-t"
-  opt :heading, "Keep section titles in output", :default => true, :short => "-d"
-  opt :list,    "Keep unprocessed list items in output", :default => false, :short => "-l"
-  opt :ref, "Keep reference notations in the format [ref]...[/ref]", :default => false, :short => "-r"
-  opt :redirect, "Show redirect destination", :default => false, :short => "-e"
-  opt :marker, "Show symbols prefixed to list items, definitions, etc.", :default => true, :short => "-m"
-  opt :bz2_gem, "Use Ruby's bzip2-ruby gem instead of a system command", :default => false, :short => "-b"
-end
+        Usage: wp2txt [options]
+        where [options] are:
+      BANNER
 
-Optimist::die :size, "must be larger than 0" unless opts[:file_size] >= 0
-Optimist::die :output_dir, "must exist" unless File.exist?(opts[:output_dir])
-
-pastel = Pastel.new
-
-input_file = ARGV[0]
-output_dir = opts[:output_dir]
-tfile_size = opts[:file_size]
-num_processors = Etc.nprocessors
-if opts[:num_procs] && opts[:num_procs].to_i <= num_processors
-  num_processes = opts[:num_procs]
-else
-  num_processes = num_processors - 2
-end
-num_processes = 1 if num_processes < 1
-
-convert = opts[:convert]
-strip_tmarker = opts[:marker] ? false : true
-opt_array = [:title,
-             :list,
-             :heading,
-             :table,
-             :redirect,
-             :multiline,
-             :category,
-             :category_only,
-             :summary_only,
-             :del_interfile,
-             :bz2_gem ]
-
-$leave_inline_template = true if opts[:inline]
-$leave_ref = true if opts[:ref]
-
-config = {}
-opt_array.each do |opt|
-  config[opt] = opts[opt]
-end
-
-if File::ftype(input_file) == "directory"
-  input_files = Dir.glob("#{input_file}/*.xml")
-else
-  puts ""
-  puts pastel.green.bold("Preprocessing")
-  puts "Decompressing and splitting the original dump file."
-  puts pastel.underline("This may take a while. Please be patient!")
-
-  time_start = Time.now.to_i
-  wpsplitter = Wp2txt::Splitter.new(input_file, output_dir, tfile_size)
-  spinner = TTY::Spinner.new(":spinner", format: :arrow_pulse, hide_cursor: true, interval: 5)
-  spinner.auto_spin
-  wpsplitter.split_file
-  time_finish = Time.now.to_i
-
-  spinner.stop("Time: #{sec_to_str(time_finish - time_start)}")# Stop animation
-  puts pastel.blue.bold("Complete!")
-  exit if !convert
-  input_files = Dir.glob("#{output_dir}/*.xml")
-end
-
-puts ""
-puts pastel.red.bold("Converting")
-puts "Number of files being processed: " + pastel.bold("#{input_files.size}")
-puts "Number of CPU cores being used:  " + pastel.bold("#{num_processes}")
-
-Parallel.map(input_files, progress: pastel.magenta.bold("WP2TXT"), in_processes: num_processes) do |input_file|
-  wpconv = Wp2txt::Runner.new(input_file, output_dir, strip_tmarker, config[:del_interfile])
-  wpconv.extract_text do |article|
-    format_wiki!(article.title)
-
-    if config[:category_only]
-      title = "#{article.title}\t"
-      contents = article.categories.join(", ")
-      contents << "\n"
-    elsif config[:category] && !article.categories.empty?
-      title = "\n[[#{article.title}]]\n\n"
-      contents = "\nCATEGORIES: "
-      contents << article.categories.join(", ")
-      contents << "\n\n"
-    else
-      title = "\n[[#{article.title}]]\n\n"
-      contents = ""
+      opt :input, "Path to compressed file (bz2) or decompressed file (xml), or path to directory containing files of the latter format", required: true, short: "-i"
+      opt :output_dir, "Path to output directory", default: Dir.pwd, type: String, short: "-o"
+      opt :convert, "Output in plain text (converting from XML)", default: true, short: "-c"
+      opt :category, "Show article category information", default: true, short: "-a"
+      opt :category_only, "Extract only article title and categories", default: false, short: "-g"
+      opt :summary_only, "Extract only article title, categories, and summary text before first heading", default: false, short: "-s"
+      opt :file_size, "Approximate size (in MB) of each output file", default: 10, short: "-f"
+      opt :num_procs, "Number of proccesses to be run concurrently (default: max num of CPU cores minus two)", short: "-n"
+      opt :del_interfile, "Delete intermediate XML files from output dir", short: "-x", default: false
+      opt :title, "Keep page titles in output", default: true, short: "-t"
+      opt :heading, "Keep section titles in output", default: true, short: "-d"
+      opt :list, "Keep unprocessed list items in output", default: false, short: "-l"
+      opt :ref, "Keep reference notations in the format [ref]...[/ref]", default: false, short: "-r"
+      opt :redirect, "Show redirect destination", default: false, short: "-e"
+      opt :marker, "Show symbols prefixed to list items, definitions, etc.", default: true, short: "-m"
+      opt :bz2_gem, "Use Ruby's bzip2-ruby gem instead of a system command", default: false, short: "-b"
     end
 
-    unless config[:category_only]
-      article.elements.each do |e|
-        case e.first
-        when :mw_heading
-          break if config[:summary_only]
-          next if !config[:heading]
-          format_wiki!(e.last)
-          line = e.last
-          line << "+HEADING+" if $DEBUG_MODE
-        when :mw_paragraph
-          format_wiki!(e.last)
-          line = e.last + "\n"
-          line << "+PARAGRAPH+" if $DEBUG_MODE
-        when :mw_table, :mw_htable
-          next if !config[:table]
-          line = e.last
-          line << "+TABLE+" if $DEBUG_MODE
-        when :mw_pre
-          next if !config[:pre]
-          line = e.last
-          line << "+PRE+" if $DEBUG_MODE
-        when :mw_quote
-          line = e.last
-          line << "+QUOTE+" if $DEBUG_MODE
-        when :mw_unordered, :mw_ordered, :mw_definition
-          next if !config[:list]
-          line = e.last
-          line << "+LIST+" if $DEBUG_MODE
-        when :mw_ml_template
-          next if !config[:multiline]
-          line = e.last
-          line << "+MLTEMPLATE+" if $DEBUG_MODE
-        when :mw_redirect
-          next if !config[:redirect]
-          line = e.last
-          line << "+REDIRECT+" if $DEBUG_MODE
-          line << "\n\n"
-        when :mw_isolated_template
-          next if !config[:multiline]
-          line = e.last
-          line << "+ISOLATED_TEMPLATE+" if $DEBUG_MODE
-        when :mw_isolated_tag
-          next
+    Optimist.die :size, "must be larger than 0" unless opts[:file_size] >= 0
+    Optimist.die :output_dir, "must exist" unless File.exist?(opts[:output_dir])
+
+    pastel = Pastel.new
+
+    input_file = ARGV[0]
+    output_dir = opts[:output_dir]
+    tfile_size = opts[:file_size]
+    num_processors = Etc.nprocessors
+    num_processes = if opts[:num_procs] && opts[:num_procs].to_i <= num_processors
+                      opts[:num_procs]
+                    else
+                      num_processors - 2
+                    end
+    num_processes = 1 if num_processes < 1
+
+    convert = opts[:convert]
+    strip_tmarker = opts[:marker] ? false : true
+    opt_array = %i[title list heading table redirect multiline category category_only summary_only del_interfile bz2_gem]
+
+    config = {}
+    opt_array.each do |opt|
+      config[opt] = opts[opt]
+    end
+
+    if File.ftype(input_file) == "directory"
+      input_files = Dir.glob("#{input_file}/*.xml")
+    else
+      puts ""
+      puts pastel.green.bold("Preprocessing")
+      puts "Decompressing and splitting the original dump file."
+      puts pastel.underline("This may take a while. Please be patient!")
+
+      time_start = Time.now.to_i
+      wpsplitter = Splitter.new(input_file, output_dir, tfile_size)
+      spinner = TTY::Spinner.new(":spinner", format: :arrow_pulse, hide_cursor: true, interval: 5)
+      spinner.auto_spin
+      wpsplitter.split_file
+      time_finish = Time.now.to_i
+
+      spinner.stop("Time: #{sec_to_str(time_finish - time_start)}") # Stop animation
+      puts pastel.blue.bold("Complete!")
+      exit unless convert
+      input_files = Dir.glob("#{output_dir}/*.xml")
+    end
+
+    puts ""
+    puts pastel.red.bold("Converting")
+    puts "Number of files being processed: " + pastel.bold(input_files.size.to_s)
+    puts "Number of CPU cores being used:  " + pastel.bold(num_processes.to_s)
+
+    Parallel.map(input_files, progress: pastel.magenta.bold("WP2TXT"), in_processes: num_processes) do |infile|
+      wpconv = Runner.new(infile, output_dir, strip_tmarker, config[:del_interfile])
+      wpconv.extract_text do |article|
+        article.title = format_wiki(article.title, config)
+
+        if config[:category_only]
+          title = "#{article.title}\t"
+          contents = article.categories.join(", ")
+          contents << "\n"
+        elsif config[:category] && !article.categories.empty?
+          title = "\n[[#{article.title}]]\n\n"
+          contents = +"\nCATEGORIES: "
+          contents << article.categories.join(", ")
+          contents << "\n\n"
         else
-          if $DEBUG_MODE
-            # format_wiki!(e.last)
-            line = e.last
-            line << "+OTHER+"
-          else
-            next
+          title = "\n[[#{article.title}]]\n\n"
+          contents = +""
+        end
+
+        unless config[:category_only]
+          article.elements.each do |e|
+            case e.first
+            when :mw_heading
+              break if config[:summary_only]
+              next unless config[:heading]
+
+              e[-1] = format_wiki(e.last, config)
+              line = e.last
+              line << "+HEADING+" if DEBUG_MODE
+            when :mw_paragraph
+              e[-1] = format_wiki(e.last, config)
+              line = e.last + "\n"
+              line << "+PARAGRAPH+" if DEBUG_MODE
+            when :mw_table, :mw_htable
+              next unless config[:table]
+
+              line = e.last
+              line << "+TABLE+" if DEBUG_MODE
+            when :mw_pre
+              next unless config[:pre]
+
+              line = e.last
+              line << "+PRE+" if DEBUG_MODE
+            when :mw_quote
+              line = e.last
+              line << "+QUOTE+" if DEBUG_MODE
+            when :mw_unordered, :mw_ordered, :mw_definition
+              next unless config[:list]
+
+              line = e.last
+              line << "+LIST+" if DEBUG_MODE
+            when :mw_ml_template
+              next unless config[:multiline]
+
+              line = e.last
+              line << "+MLTEMPLATE+" if DEBUG_MODE
+            when :mw_redirect
+              next unless config[:redirect]
+
+              line = e.last
+              line << "+REDIRECT+" if DEBUG_MODE
+              line << "\n\n"
+            when :mw_isolated_template
+              next unless config[:multiline]
+
+              line = e.last
+              line << "+ISOLATED_TEMPLATE+" if DEBUG_MODE
+            when :mw_isolated_tag
+              next
+            else
+              next unless DEBUG_MODE
+
+              line = e.last
+              line << "+OTHER+"
+            end
+            contents << line << "\n"
           end
         end
-        contents << line << "\n"
+
+        if /\A[\s　]*\z/m =~ contents
+          ""
+        else
+          config[:title] ? title << contents : contents
+        end
       end
     end
-
-    if /\A[\s　]*\z/m =~ contents
-      result = ""
-    else
-      result = config[:title] ? title << contents : contents
-    end
+    puts pastel.blue.bold("Complete!")
   end
 end
 
-puts pastel.blue.bold("Complete!")
-
+WpApp.new.run
