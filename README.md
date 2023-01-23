@@ -10,6 +10,11 @@ WP2TXT extracts text and category data from Wikipedia dump files (encoded in XML
 
 **December 2022**
 
+- Bug related to command line arguments fixed
+- Code cleanup introducing Rubocop
+
+**December 2022**
+
 - Docker images available via Docker Hub
 
 **November 2022**
@@ -93,7 +98,7 @@ Download the latest Wikipedia dump file for the desired language at a URL such a
 
     https://dumps.wikimedia.org/enwiki/latest/enwiki-latest-pages-articles.xml.bz2
 
-Here, `enwiki` refers to the English Wikipedia. To get the Japanese Wikipedia dump file, for instance, change this to jawiki (Japanese). In doing so, note that there are two instances of `enwiki` in the URL above.
+Here, `enwiki` refers to the English Wikipedia. To get the Japanese Wikipedia dump file, for instance, change this to `jawiki` (Japanese). In doing so, note that there are two instances of `enwiki` in the URL above.
 
 Alternatively, you can also select Wikipedia dump files created on a specific date from [here](http://dumps.wikimedia.org/backup-index.html). Make sure to download a file named in the following format:
 
@@ -213,11 +218,11 @@ The author will appreciate your mentioning one of these in your research.
 Or use this BibTeX entry:
 
 ```
-@misc{wp2txt_2022,
+@misc{wp2txt_2023,
   author = {Yoichiro Hasebe},
   title = {WP2TXT: A command-line toolkit to extract text content and category data from Wikipedia dump files},
   url = {https://github.com/yohasebe/wp2txt},
-  year = {2022}
+  year = {2023}
 }
 ```
 
