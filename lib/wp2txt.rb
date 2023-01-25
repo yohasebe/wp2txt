@@ -48,14 +48,19 @@ module Wp2txt
       basename = File.basename(command)
       path = +""
       print "Checking #{basename}: "
-      if open("| which #{command} 2>/dev/null") { |f| path = f.gets.strip }
-        puts "detected [#{path}]"
-        path.strip
-      elsif open("| which #{basename} 2>/dev/null") { |f| path = f.gets.strip }
-        puts "detected [#{path}]"
-        path.strip
-      else
-        puts "not found"
+      begin
+        if open("| which #{command} 2>/dev/null") { |f| path = f.gets.strip }
+          puts "detected [#{path}]"
+          path.strip
+        elsif open("| which #{basename} 2>/dev/null") { |f| path = f.gets.strip }
+          puts "detected [#{path}]"
+          path.strip
+        else
+          puts "#{basename} not found"
+          false
+        end
+      rescue StandardError
+        puts "#{basename} not found"
         false
       end
     end
@@ -69,7 +74,7 @@ module Wp2txt
       if /.bz2$/ =~ @input_file
         if @bz2_gem
           file = Bzip2::Reader.new File.open(@input_file, "r:UTF-8")
-        elsif RUBY_PLATFORM.index("win32")
+        elsif Gem.win_platform?
           file = IO.popen("bunzip2.exe -c #{@input_file}")
         elsif (bzpath = command_exist?("lbzip2") || command_exist?("pbzip2") || command_exist?("bzip2"))
           file = IO.popen("#{bzpath} -c -d #{@input_file}")
