@@ -160,7 +160,7 @@ module Wp2txt
       @fp.puts(output_text) if output_text != ""
       @fp.close
 
-      if File.size(outfilename).zero?
+      if outfilename && File.size(outfilename).zero?
         File.delete(outfilename)
         @outfiles.delete(outfilename)
       end
@@ -297,6 +297,7 @@ module Wp2txt
           @fp.puts(output_text)
           @fp.close
         end
+        @file_pointer.close
         File.delete(@input_file) if @del_interfile
         output_text = +""
       end
