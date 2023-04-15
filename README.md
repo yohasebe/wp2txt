@@ -8,6 +8,10 @@ WP2TXT extracts text and category data from Wikipedia dump files (encoded in XML
 
 ## Changelog
 
+**April 2023**
+
+- File split/delete issues fixed
+
 **January 2023**
 
 - Bug related to command line arguments fixed
