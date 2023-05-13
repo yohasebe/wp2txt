@@ -8,6 +8,10 @@ WP2TXT extracts text and category data from Wikipedia dump files (encoded in XML
 
 ## Changelog
 
+**May 2023**
+
+- Problems caused by too many parallel processors are addressed by setting the upper limit on the number of processors to 8. 
+
 **April 2023**
 
 - File split/delete issues fixed
@@ -186,7 +190,7 @@ Command line options are as follows:
       -g, --category-only              Extract only article title and categories
       -s, --summary-only               Extract only article title, categories, and summary text before first heading
       -f, --file-size=<i>              Approximate size (in MB) of each output file (default: 10)
-      -n, --num-procs                  Number of proccesses to be run concurrently (default: max num of available CPU cores minus two)
+      -n, --num-procs                  Number of proccesses (up to 8) to be run concurrently (default: max num of available CPU cores minus two)
       -x, --del-interfile              Delete intermediate XML files from output dir
       -t, --title, --no-title          Keep page titles in output (default: true)
       -d, --heading, --no-heading      Keep section titles in output (default: true)

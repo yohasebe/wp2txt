@@ -3,6 +3,7 @@
 # frozen_string_literal: true
 
 DEBUG_MODE = false
+MAX_PROCESSORS = 8
 
 require_relative "../lib/wp2txt"
 require_relative "../lib/wp2txt/utils"
@@ -34,7 +35,7 @@ class WpApp
       opt :category_only, "Extract only article title and categories", default: false, short: "-g"
       opt :summary_only, "Extract only article title, categories, and summary text before first heading", default: false, short: "-s"
       opt :file_size, "Approximate size (in MB) of each output file", default: 10, short: "-f"
-      opt :num_procs, "Number of proccesses to be run concurrently (default: max num of CPU cores minus two)", short: "-n"
+      opt :num_procs, "Number of proccesses (up to #{MAX_PROCESSORS}) to be run concurrently (default: max num of CPU cores minus two)", type: Integer, short: "-n"
       opt :del_interfile, "Delete intermediate XML files from output dir", short: "-x", default: false
       opt :title, "Keep page titles in output", default: true, short: "-t"
       opt :heading, "Keep section titles in output", default: true, short: "-d"
@@ -55,10 +56,11 @@ class WpApp
     output_dir = opts[:output_dir]
     tfile_size = opts[:file_size]
     num_processors = Etc.nprocessors
-    num_processes = if opts[:num_procs] && opts[:num_procs].to_i <= num_processors
+    num_processes = if opts[:num_procs] && opts[:num_procs].to_i <= num_processors && opts[:num_procs].to_i <= MAX_PROCESSORS
                       opts[:num_procs]
                     else
-                      num_processors - 2
+                      minus2 = num_processors - 2
+                      minus2 < MAX_PROCESSORS ? minus2 : MAX_PROCESSORS
                     end
     num_processes = 1 if num_processes < 1
 
