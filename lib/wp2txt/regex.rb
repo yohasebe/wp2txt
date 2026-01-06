@@ -16,7 +16,8 @@ module Wp2txt
   HTML_REGEX = Regexp.new("(" + HTML_HASH.keys.join("|") + ")")
   ML_TEMPLATE_ONSET_REGEX = Regexp.new('^\{\{[^\}]*$')
   ML_TEMPLATE_END_REGEX = Regexp.new('\}\}\s*$')
-  ML_LINK_ONSET_REGEX = Regexp.new('^\[\[[^\]]*$')
+  # Match lines starting with [[ that don't end with ]] (handles inner links)
+  ML_LINK_ONSET_REGEX = Regexp.new('^\[\[(?!.*\]\]\s*$).*$')
   ML_LINK_END_REGEX = Regexp.new('\]\]\s*$')
   ISOLATED_TEMPLATE_REGEX = Regexp.new('^\s*\{\{.+\}\}\s*$')
   ISOLATED_TAG_REGEX = Regexp.new('^\s*\<[^\<\>]+\>.+\<[^\<\>]+\>\s*$')
@@ -30,7 +31,7 @@ module Wp2txt
   IN_MATH_REGEX = Regexp.new('<math.*?>.*?<\/math>')
   IN_MATH_REGEX1 = Regexp.new('<math.*?>')
   IN_MATH_REGEX2 = Regexp.new('<\/math>')
-  IN_HEADING_REGEX = Regexp.new('^=+.*?=+$')
+  IN_HEADING_REGEX = Regexp.new('^=+.*?=+\s*$')
   IN_HTML_TABLE_REGEX = Regexp.new("<table.*?><\/table>")
   IN_HTML_TABLE_REGEX1 = Regexp.new('<table\b')
   IN_HTML_TABLE_REGEX2 = Regexp.new('<\/\s*table>')
@@ -41,13 +42,43 @@ module Wp2txt
   IN_PRE_REGEX = Regexp.new('^ ')
   IN_DEFINITION_REGEX = Regexp.new('^[\;\:]')
   BLANK_LINE_REGEX = Regexp.new('^\s*$')
-  REDIRECT_REGEX = Regexp.new('#(?:REDIRECT|転送)\s+\[\[(.+)\]\]', Regexp::IGNORECASE)
+  # Multilingual redirect keyword support
+  REDIRECT_KEYWORDS = [
+    # English
+    "REDIRECT",
+    # European languages
+    "WEITERLEITUNG",    # de
+    "REDIRECTION",      # fr
+    "REDIRECCIÓN",      # es
+    "RINVIA",           # it
+    "DOORVERWIJZING",   # nl
+    "REDIRECIONAMENTO", # pt
+    "OMDIRIGERING",     # sv, no, da
+    "PRZEKIERUJ",       # pl
+    "PŘESMĚRUJ",        # cs
+    "OHJAUS",           # fi
+    # Cyrillic
+    "ПЕРЕНАПРАВЛЕНИЕ",  # ru
+    "ПЕРЕНАПРАВЛЕННЯ",  # uk
+    "ПРЕУСМЕРУВАЊЕ",    # mk
+    # Asian languages
+    "転送",             # ja
+    "넘겨주기",          # ko
+    "重定向",           # zh
+    "เปลี่ยนทาง",        # th
+    "đổi",              # vi
+    # Middle East
+    "تحويل",            # ar
+    "تغییرمسیر",        # fa
+    "הפניה"             # he
+  ].join("|")
+  REDIRECT_REGEX = Regexp.new('#(?:' + REDIRECT_KEYWORDS + ')\s*:?\s*\[\[([^\]]+)\]\]', Regexp::IGNORECASE)
   REMOVE_TAG_REGEX = Regexp.new("\<[^\<\>]*\>")
   REMOVE_DIRECTIVES_REGEX = Regexp.new("\_\_[^\_]*\_\_")
   REMOVE_EMPHASIS_REGEX = Regexp.new('(' + Regexp.escape("''") + '+)(.+?)\1')
   CHRREF_TO_UTF_REGEX = Regexp.new('&#(x?)([0-9a-fA-F]+);')
   MNDASH_REGEX = Regexp.new('\{(mdash|ndash|–)\}')
-  REMOVE_HR_REGEX = Regexp.new('^\s*\-+\s*$')
+  REMOVE_HR_REGEX = Regexp.new('^\s*\-{4,}\s*$')
   MAKE_REFERENCE_REGEX_A = Regexp.new('<br ?\/>')
   MAKE_REFERENCE_REGEX_B = Regexp.new('<ref[^>]*\/>')
   MAKE_REFERENCE_REGEX_C = Regexp.new('<ref[^>]*>')
@@ -60,8 +91,47 @@ module Wp2txt
   DEF_MARKS_REGEX = Regexp.new('\A[\;\:\ ]+')
   ONSET_BAR_REGEX = Regexp.new('\A[^\|]+\z')
 
-  CATEGORY_PATTERNS = ["Category", "Categoria"].join("|")
-  CATEGORY_REGEX = Regexp.new('[\{\[\|\b](?:' + CATEGORY_PATTERNS + ')\:(.*?)[\}\]\|\b]', Regexp::IGNORECASE)
+  # Multilingual category namespace support
+  # Reference: https://www.mediawiki.org/wiki/Manual:Namespace
+  CATEGORY_NAMESPACES = [
+    # English (canonical)
+    "Category",
+    # Latin-script European languages
+    "Categoria",        # it, pt, es, ca, gl, oc
+    "Catégorie",        # fr
+    "Kategorie",        # de, cs, lb
+    "Kategoria",        # pl, hu
+    "Categorie",        # nl, ro
+    "Kategorija",       # hr, sl, sr-lat, bs, lv, lt
+    "Kategori",         # sv, no, da, id, ms, tr
+    "Kategória",        # sk
+    "Luokka",           # fi
+    "Flokkur",          # is
+    # Cyrillic
+    "Категория",        # ru, bg, kk
+    "Категорія",        # uk
+    "Катэгорыя",        # be
+    "Категорија",       # sr, mk
+    # Asian languages
+    "カテゴリ",          # ja
+    "분류",             # ko
+    "分类",             # zh-hans
+    "分類",             # zh-hant
+    "หมวดหมู่",          # th
+    "Thể loại",         # vi
+    "श्रेणी",            # hi
+    "বিষয়শ্রেণী",        # bn
+    "رده",              # fa
+    # Middle East & Africa
+    "تصنيف",            # ar
+    "קטגוריה",          # he
+    # Greek
+    "Κατηγορία",        # el
+    # Other
+    "Categori",         # cy, simple
+    "Catagóir"          # ga
+  ].join("|")
+  CATEGORY_REGEX = Regexp.new('[\{\[\|\b](?:' + CATEGORY_NAMESPACES + ')\s*:(.*?)[\}\]\|\b]', Regexp::IGNORECASE)
 
   ESCAPE_NOWIKI_REGEX = Regexp.new('<nowiki>(.*?)<\/nowiki>', Regexp::MULTILINE)
   UNESCAPE_NOWIKI_REGEX = Regexp.new('<nowiki\-(\d+?)>')
@@ -76,6 +146,7 @@ module Wp2txt
   DOUBLE_CURLY_BRACKET_REGEX = Regexp.new("(#{Regexp.escape("{{")}|#{Regexp.escape("}}")})", Regexp::MULTILINE)
   CURLY_SQUARE_BRACKET_REGEX = Regexp.new("(#{Regexp.escape("{|")}|#{Regexp.escape("|}")})", Regexp::MULTILINE)
 
+  SELF_CLOSING_TAG_REGEX = Regexp.new('<[^<>]+/>')
   COMPLEX_REGEX_01 = Regexp.new('\<\<([^<>]++)\>\>\s?')
   COMPLEX_REGEX_02 = Regexp.new('\[\[File\:((?:[^\[\]]++|\[\[\g<1>\]\])++)\]\]', Regexp::MULTILINE | Regexp::IGNORECASE)
   COMPLEX_REGEX_03 = Regexp.new('^\[\[((?:[^\[\]]++|\[\[\g<1>\]\])++)^\]\]', Regexp::MULTILINE)

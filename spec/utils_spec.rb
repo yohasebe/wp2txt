@@ -1,18 +1,9 @@
 # frozen_string_literal: true
 
 require_relative "spec_helper"
-require_relative "../lib/wp2txt"
-require_relative "../lib/wp2txt/article"
-require_relative "../lib/wp2txt/utils"
 
-describe "Wp2txt" do
-  it "contains mediawiki-format related functions:" do
-  end
-
+RSpec.describe "Wp2txt Utils" do
   include Wp2txt
-
-  before do
-  end
 
   describe "process_nested_structure" do
     it "parse nested structure replacing str in the format specified" do
@@ -77,9 +68,18 @@ describe "Wp2txt" do
   end
 
   describe "remove_hr" do
-    it "removes horizontal lines" do
-      str_before = "\n----\n--\n--\n"
-      str_after  = "\n\n"
+    it "removes horizontal lines with 4+ hyphens" do
+      # MediaWiki requires 4+ hyphens for horizontal rules
+      # The hyphens are removed but newlines around them are preserved
+      str_before = "text\n----\nmore"
+      str_after  = "text\n\nmore"
+      expect(remove_hr(str_before)).to eq str_after
+    end
+
+    it "does not remove lines with fewer than 4 hyphens" do
+      # Lines with fewer than 4 hyphens should be preserved
+      str_before = "text\n--\n---\nmore"
+      str_after  = "text\n--\n---\nmore"
       expect(remove_hr(str_before)).to eq str_after
     end
   end

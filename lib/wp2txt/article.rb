@@ -48,11 +48,9 @@ module Wp2txt
       @categories = []
       mode = nil
       source.each_line do |line|
+        # Collect categories without deduplicating on each line (O(n²) → O(n))
         matched = line.scan(CATEGORY_REGEX)
-        if matched && !matched.empty?
-          @categories += matched
-          @categories.uniq!
-        end
+        @categories.concat(matched) if matched && !matched.empty?
 
         case mode
         when :mw_ml_template
@@ -148,6 +146,8 @@ module Wp2txt
           @elements << create_element(:mw_paragraph, "\n" + line)
         end
       end
+      # Deduplicate categories once at the end (O(n) instead of O(n²))
+      @categories.uniq!
       @elements
     end
   end

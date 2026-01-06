@@ -5,54 +5,56 @@ require "find"
 require_relative "regex"
 
 module Wp2txt
-  def convert_characters(text, has_retried = false)
-    text << ""
+  # Cache for dynamically generated regex patterns
+  @regex_cache = {}
+  class << self
+    attr_accessor :regex_cache
+  end
+
+  def convert_characters(text, _has_retried = false)
+    # Use scrub to safely handle invalid byte sequences
+    text = text.to_s.scrub("")
     text = chrref_to_utf(text)
     text = special_chr(text)
-    text = text.encode("UTF-8", "UTF-8", invalid: :replace, replace: "")
-  rescue StandardError # detect invalid byte sequence in UTF-8
-    if has_retried
-      puts "invalid byte sequence detected"
-      puts "******************************"
-      File.open("error_log.txt", "w") do |f|
-        f.write text
-      end
-      exit
-    else
-      text = text.encode("UTF-16", "UTF-16", invalid: :replace, replace: "")
-      text = text.encode("UTF-16", "UTF-16", invalid: :replace, replace: "")
-      convert_characters(text, true)
-    end
+    text.encode("UTF-8", "UTF-8", invalid: :replace, replace: "")
+  rescue StandardError
+    # If any encoding error persists, scrub again and return
+    text.to_s.scrub("")
   end
 
   def format_wiki(text, config = {})
-    text = remove_complex(text)
-    text = escape_nowiki(text)
-    text = process_interwiki_links(text)
-    text = process_external_links(text)
-    text = unescape_nowiki(text)
-    text = remove_directive(text)
-    text = remove_emphasis(text)
-    text = mndash(text)
-    text = remove_hr(text)
-    text = remove_tag(text)
-    text = correct_inline_template(text) unless config[:inline]
-    text = remove_templates(text) unless config[:inline]
-    text = remove_table(text) unless config[:table]
-    text
+    # Work with a mutable copy to reduce intermediate string allocations
+    result = +text.to_s
+    result = remove_complex(result)
+    result = escape_nowiki(result)
+    result = process_interwiki_links(result)
+    result = process_external_links(result)
+    result = unescape_nowiki(result)
+    # Use in-place modifications for simple regex replacements
+    result.gsub!(REMOVE_DIRECTIVES_REGEX, "")
+    result.gsub!(REMOVE_EMPHASIS_REGEX) { $2 }
+    result.gsub!(MNDASH_REGEX, "–")
+    result.gsub!(REMOVE_HR_REGEX, "")
+    result.gsub!(REMOVE_TAG_REGEX, "")
+    result = correct_inline_template(result) unless config[:inline]
+    result = remove_templates(result) unless config[:inline]
+    result = remove_table(result) unless config[:table]
+    result
   end
 
   def cleanup(text)
-    text = text.gsub(CLEANUP_REGEX_01) { "" }
-    text = text.gsub(CLEANUP_REGEX_02) { "" }
-    text = text.gsub(CLEANUP_REGEX_03) { "" }
-    text = text.gsub(CLEANUP_REGEX_04) { "" }
-    text = text.gsub(CLEANUP_REGEX_05) { "" }
-    text = text.gsub(CLEANUP_REGEX_06) { "" }
-    text = text.gsub(CLEANUP_REGEX_07) { "" }
-    text = text.gsub(CLEANUP_REGEX_08) { "\n\n" }
-    text = text.strip
-    text << "\n\n"
+    # Work with a mutable copy to reduce intermediate string allocations
+    result = +text.to_s
+    result.gsub!(CLEANUP_REGEX_01, "")
+    result.gsub!(CLEANUP_REGEX_02, "")
+    result.gsub!(CLEANUP_REGEX_03, "")
+    result.gsub!(CLEANUP_REGEX_04, "")
+    result.gsub!(CLEANUP_REGEX_05, "")
+    result.gsub!(CLEANUP_REGEX_06, "")
+    result.gsub!(CLEANUP_REGEX_07, "")
+    result.gsub!(CLEANUP_REGEX_08, "\n\n")
+    result.strip!
+    result << "\n\n"
   end
 
   #################### parser for nested structure ####################
@@ -71,7 +73,9 @@ module Wp2txt
               elsif left == "{|" && right == "|}"
                 CURLY_SQUARE_BRACKET_REGEX
               else
-                Regexp.new("(#{Regexp.escape(left)}|#{Regexp.escape(right)})")
+                # Use cached regex for custom bracket pairs
+                cache_key = "#{left}|#{right}"
+                Wp2txt.regex_cache[cache_key] ||= Regexp.new("(#{Regexp.escape(left)}|#{Regexp.escape(right)})")
               end
       while (str = scanner.scan_until(regex))
         case scanner[1]
@@ -122,13 +126,28 @@ module Wp2txt
     end
   end
 
+  # File/Image namespace patterns (multilingual)
+  FILE_NAMESPACES_REGEX = /\A\s*(?:File|Image|Media|Fichier|Datei|Bild|Archivo|Imagen|Immagine|Bestand|Afbeelding|Ficheiro|Imagem|Fil|Plik|Grafika|Soubor|Fișier|Imagine|Tiedosto|Kuva|Файл|Изображение|Зображення|Датотека|Слика|ファイル|画像|파일|文件|档案|檔案|ไฟล์|Tập tin|Hình|ملف|صورة|پرونده|تصویر|קובץ|תמונה)\s*:/i
+
   def process_interwiki_links(str)
     scanner = StringScanner.new(str)
     process_nested_structure(scanner, "[[", "]]") do |contents|
       parts = contents.split("|")
-      case parts.size
-      when 1
-        parts.first || ""
+      first_part = parts.first || ""
+
+      if FILE_NAMESPACES_REGEX.match?(first_part)
+        # For File/Image links, extract caption (last non-parameter part)
+        # Skip parts that look like parameters (contain =, or are size specs like 200px)
+        if parts.size > 1
+          caption = parts[1..].reverse.find do |p|
+            !p.include?("=") && !p.match?(/^\d+px$/i) && !p.match?(/^(thumb|thumbnail|frame|frameless|border|right|left|center|none|upright|baseline|sub|super|top|text-top|middle|bottom|text-bottom)$/i)
+          end
+          caption || ""
+        else
+          ""
+        end
+      elsif parts.size == 1
+        first_part
       else
         parts.shift
         parts.join("|")
@@ -178,8 +197,12 @@ module Wp2txt
   end
 
   def remove_inbetween(str, tagset = ["<", ">"])
-    tagsets = Regexp.quote(tagset.uniq.join(""))
-    regex = /#{Regexp.escape(tagset[0])}[^#{tagsets}]*#{Regexp.escape(tagset[1])}/
+    # Use cached regex for common tagsets
+    cache_key = "inbetween:#{tagset.join}"
+    regex = Wp2txt.regex_cache[cache_key] ||= begin
+      tagsets = Regexp.quote(tagset.uniq.join(""))
+      Regexp.new("#{Regexp.escape(tagset[0])}[^#{tagsets}]*#{Regexp.escape(tagset[1])}")
+    end
     str.gsub(regex, "")
   end
 
@@ -199,15 +222,13 @@ module Wp2txt
 
   def chrref_to_utf(num_str)
     num_str.gsub(CHRREF_TO_UTF_REGEX) do
-      ch = if $1 == "x"
-             $2.to_i(16)
-           else
-             $2.to_i
-           end
-      hi = ch >> 8
-      lo = ch & 0xff
-      u = +"\377\376" << lo.chr << hi.chr
-      u.encode("UTF-8", "UTF-16")
+      codepoint = $1 == "x" ? $2.to_i(16) : $2.to_i
+      # Handle all valid Unicode codepoints (U+0001 to U+10FFFF)
+      if codepoint > 0 && codepoint <= 0x10FFFF
+        [codepoint].pack("U")
+      else
+        ""
+      end
     end
   rescue StandardError
     num_str
@@ -226,8 +247,8 @@ module Wp2txt
   end
 
   def remove_html(str)
-    res = +str.dup
-    res.gsub!(%r{<[^<>]+/>}) { "" }
+    res = +str.to_s
+    res.gsub!(SELF_CLOSING_TAG_REGEX, "")
     ["div", "gallery", "timeline", "noinclude"].each do |tag|
       scanner = StringScanner.new(res)
       result = process_nested_structure(scanner, "<#{tag}", "#{tag}>") do
@@ -239,18 +260,24 @@ module Wp2txt
   end
 
   def remove_complex(str)
-    str = str.gsub(COMPLEX_REGEX_01) { "《#{$1}》" }
-    str = str.gsub(COMPLEX_REGEX_02) { "" }
-    str = str.gsub(COMPLEX_REGEX_03) { "" }
-    str = str.gsub(COMPLEX_REGEX_04) { "" }
-    str.gsub(COMPLEX_REGEX_05) { "" }
+    # Work with a mutable copy to reduce intermediate string allocations
+    result = +str.to_s
+    result.gsub!(COMPLEX_REGEX_01) { "《#{$1}》" }
+    result.gsub!(COMPLEX_REGEX_02, "")
+    result.gsub!(COMPLEX_REGEX_03, "")
+    result.gsub!(COMPLEX_REGEX_04, "")
+    result.gsub!(COMPLEX_REGEX_05, "")
+    result
   end
 
   def make_reference(str)
-    str = str.gsub(MAKE_REFERENCE_REGEX_A) { "\n" }
-    str = str.gsub(MAKE_REFERENCE_REGEX_B) { "" }
-    str = str.gsub(MAKE_REFERENCE_REGEX_C) { "[ref]" }
-    str.gsub(MAKE_REFERENCE_REGEX_D) { "[/ref]" }
+    # Work with a mutable copy to reduce intermediate string allocations
+    result = +str.to_s
+    result.gsub!(MAKE_REFERENCE_REGEX_A, "\n")
+    result.gsub!(MAKE_REFERENCE_REGEX_B, "")
+    result.gsub!(MAKE_REFERENCE_REGEX_C, "[ref]")
+    result.gsub!(MAKE_REFERENCE_REGEX_D, "[/ref]")
+    result
   end
 
   def correct_inline_template(str)
@@ -326,17 +353,14 @@ module Wp2txt
   def correct_separator(input)
     case input
     when String
+      # Use tr instead of gsub for simple character replacement (faster)
       if RUBY_PLATFORM.index("win32")
-        input.gsub("/", "\\")
+        input.tr("/", "\\")
       else
-        input.gsub("\\", "/")
+        input.tr("\\", "/")
       end
     when Array
-      ret_array = []
-      input.each do |item|
-        ret_array << correct_separator(item)
-      end
-      ret_array
+      input.map { |item| correct_separator(item) }
     end
   end
 

@@ -46,18 +46,20 @@ module Wp2txt
     # check if a given command exists: return the path if it does, return false if not
     def command_exist?(command)
       basename = File.basename(command)
-      path = +""
       print "Checking #{basename}: "
       begin
-        if open("| which #{command} 2>/dev/null") { |f| path = f.gets.strip }
-          puts "detected [#{path}]"
-          path.strip
-        elsif open("| which #{basename} 2>/dev/null") { |f| path = f.gets.strip }
-          puts "detected [#{path}]"
-          path.strip
-        else
+        # Use IO.popen instead of open("| ...") for Ruby 4.0 compatibility
+        path = IO.popen(["which", command], err: File::NULL, &:read).strip
+        if path.empty?
+          path = IO.popen(["which", basename], err: File::NULL, &:read).strip
+        end
+
+        if path.empty?
           puts "#{basename} not found"
           false
+        else
+          puts "detected [#{path}]"
+          path
         end
       rescue StandardError
         puts "#{basename} not found"
@@ -81,7 +83,7 @@ module Wp2txt
         end
       else # meaning that it is a text file
         @infile_size = File.stat(@input_file).size
-        file = open(@input_file)
+        file = File.open(@input_file, "r:UTF-8")
       end
 
       # create basename of output file
@@ -114,9 +116,10 @@ module Wp2txt
 
         new_first_line = temp_buf.shift
         @buffer.last << new_first_line
-        @buffer << +"" if new_first_line[-1, 1] == "\n" # new_first_line.index("\n")
-        @buffer += temp_buf unless temp_buf.empty?
-        @buffer << +"" if @buffer.last[-1, 1] == "\n" # @buffer.last.index("\n")
+        # Use end_with? instead of [-1, 1] for clarity and performance
+        @buffer << +"" if new_first_line.end_with?("\n")
+        @buffer.concat(temp_buf) unless temp_buf.empty?
+        @buffer << +"" if @buffer.last.end_with?("\n")
         break if @buffer.size > 1
       end
       true
@@ -157,7 +160,7 @@ module Wp2txt
         @outfiles << outfilename
         @fp = File.open(outfilename, "w")
       end
-      @fp.puts(output_text) if output_text != ""
+      @fp.puts(output_text) unless output_text.empty?
       @fp.close
 
       if outfilename && File.size(outfilename).zero?
@@ -183,7 +186,7 @@ module Wp2txt
 
     def prepare
       @infile_size = File.stat(@input_file).size
-      file = open(@input_file)
+      file = File.open(@input_file, "r:UTF-8")
       @file_pointer = file
       @outfile_base = File.basename(@input_file, ".*")
       @total_size = 0
@@ -206,10 +209,11 @@ module Wp2txt
         temp_buf << ss.rest unless ss.eos?
 
         new_first_line = temp_buf.shift
-        @buffer.last <<  new_first_line
-        @buffer << +"" if new_first_line[-1, 1] == "\n" # new_first_line.index("\n")
-        @buffer += temp_buf unless temp_buf.empty?
-        @buffer << +"" if @buffer.last[-1, 1] == "\n" # @buffer.last.index("\n")
+        @buffer.last << new_first_line
+        # Use end_with? instead of [-1, 1] for clarity and performance
+        @buffer << +"" if new_first_line.end_with?("\n")
+        @buffer.concat(temp_buf) unless temp_buf.empty?
+        @buffer << +"" if @buffer.last.end_with?("\n")
         break if @buffer.size > 1
       end
       true

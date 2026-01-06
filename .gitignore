@@ -19,3 +19,9 @@ tmp
 *.bak
 *.~
 tags
+
+# Claude Code development files
+CLAUDE.md
+
+# Error logs
+error_log.txt

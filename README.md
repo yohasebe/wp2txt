@@ -2,15 +2,54 @@
 
 A command-line toolkit to extract text content and category data from Wikipedia dump files
 
+## Why wp2txt?
+
+There are several tools for extracting plain text from Wikipedia dumps. [WikiExtractor](https://github.com/attardi/wikiextractor) is a popular Python-based tool known for its speed. However, **wp2txt offers unique features that WikiExtractor does not provide**:
+
+| Feature | wp2txt | WikiExtractor |
+|---------|--------|---------------|
+| Plain text extraction | ✅ | ✅ |
+| **Category metadata extraction** | ✅ | ❌ |
+| Category-only output (`-g`) | ✅ | ❌ |
+| Section headings | `==Title==` (customizable) | `Title.` (fixed format) |
+| Multilingual categories | ✅ (30+ languages) | — |
+| Processing speed | Slower | ~10x faster |
+
+### When to use wp2txt
+
+- You need **article category information** for classification or knowledge graphs
+- You want to preserve or customize section heading format
+- You're building topic classifiers using categories as labels
+- Processing time is not your primary constraint
+
+### When to use WikiExtractor
+
+- You only need plain text content (no metadata)
+- Processing speed is critical
+- Working with full Wikipedia dumps (20GB+)
+
 ## About
 
 WP2TXT extracts text and category data from Wikipedia dump files (encoded in XML / compressed with Bzip2), removing MediaWiki markup and other metadata.
 
 ## Changelog
 
+See [CHANGELOG.md](CHANGELOG.md) for detailed release notes.
+
+**January 2026 (v2.0.0)**
+
+- Full Ruby 4.0 compatibility
+- Multilingual support for category extraction (30+ languages including Japanese, Chinese, German, French, Russian, etc.)
+- Multilingual support for redirect detection (25+ languages)
+- Fixed Unicode handling for emoji and supplementary plane characters
+- Fixed encoding error handling (no longer crashes on invalid UTF-8)
+- Improved handling of File/Image links in article output
+- Performance optimizations (reduced memory allocations, regex caching)
+- Comprehensive test suite (235 tests, 85%+ coverage)
+
 **May 2023**
 
-- Problems caused by too many parallel processors are addressed by setting the upper limit on the number of processors to 8. 
+- Problems caused by too many parallel processors are addressed by setting the upper limit on the number of processors to 8.
 
 **April 2023**
 
@@ -19,7 +58,6 @@ WP2TXT extracts text and category data from Wikipedia dump files (encoded in XML
 **January 2023**
 
 - Bug related to command line arguments fixed
-- Code cleanup introducing Rubocop
 
 **December 2022**
 
@@ -50,9 +88,9 @@ In the above environment, the process (decompression, splitting, extraction, and
 ## Features
 
 - Converts Wikipedia dump files in various languages
+- **Extracts category information of the article** (unique feature)
 - Creates output files of specified size
-- Allows specifying ext elements (page titles, section headers, paragraphs, list items) to be extracted
-- Allows extracting category information of the article
+- Allows specifying elements (page titles, section headers, paragraphs, list items) to be extracted
 - Allows extracting opening paragraphs of the article
 
 ## Setting Up
@@ -226,11 +264,11 @@ The author will appreciate your mentioning one of these in your research.
 Or use this BibTeX entry:
 
 ```
-@misc{wp2txt_2023,
+@misc{wp2txt_2026,
   author = {Yoichiro Hasebe},
   title = {WP2TXT: A command-line toolkit to extract text content and category data from Wikipedia dump files},
   url = {https://github.com/yohasebe/wp2txt},
-  year = {2023}
+  year = {2026}
 }
 ```
 
