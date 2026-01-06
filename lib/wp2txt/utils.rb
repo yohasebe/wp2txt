@@ -52,56 +52,91 @@ module Wp2txt
     result.gsub!(CLEANUP_REGEX_05, "")
     result.gsub!(CLEANUP_REGEX_06, "")
     result.gsub!(CLEANUP_REGEX_07, "")
+    # Reduce 3+ consecutive newlines to 2
     result.gsub!(CLEANUP_REGEX_08, "\n\n")
+    # Also handle mixed whitespace patterns (spaces/tabs between newlines)
+    result.gsub!(/\n[ \t]*\n[ \t]*\n+/, "\n\n")
+
+    # Fix 1: Multiple consecutive spaces → single space (but preserve indentation at line start)
+    result.gsub!(/([^\n]) {2,}/, '\1 ')
+
+    # Fix 2: Empty parentheses → remove (both ASCII and Japanese)
+    result.gsub!(/\(\s*\)/, "")
+    result.gsub!(/（\s*）/, "")
+
+    # Fix 3: Leftover pipe characters (table/infobox remnants)
+    result.gsub!(/\|\|+/, "")           # Multiple pipes
+    result.gsub!(/\|\s*$/, "")          # Trailing pipe at end of line
+    result.gsub!(/^\s*\|[^|]*$\n?/m, "") # Lines that are just pipe + content (table rows)
+    # Lines with multiple pipe-separated key=value pairs (infobox remnants)
+    result.gsub!(/^\s*\|?\w+=[\w\s-]+(?:\|\w+=[\w\s-]+)+\s*$/m, "")
+    # Template name remnants (standalone words like "Clearleft", "notelist2", "reflist")
+    result.gsub!(/^\s*(?:Clearleft|Clear|notelist\d*|reflist|Reflist|Notelist|Commons\s*cat?)\s*$/im, "")
+    # Imagemap/gallery remnants: lines like "Image:file.jpg|thumb|...|caption" without [[ brackets
+    result.gsub!(/^(?:Image|File|Media|ファイル|画像|Datei|Fichier|Archivo):[^\n]+\|[^\n]+$/im, "")
+
     result.strip!
     result << "\n\n"
   end
 
   #################### parser for nested structure ####################
 
+  # Optimized single-pass nested structure processor
+  # Processes innermost brackets first, avoiding recursion overhead
   def process_nested_structure(scanner, left, right, &block)
-    buffer = +""
-    begin
-      regex = if left == "[" && right == "]"
-                SINGLE_SQUARE_BRACKET_REGEX
-              elsif left == "[[" && right == "]]"
-                DOUBLE_SQUARE_BRACKET_REGEX
-              elsif left == "{" && right == "}"
-                SINGLE_CURLY_BRACKET_REGEX
-              elsif left == "{{" && right == "}}"
-                DOUBLE_CURLY_BRACKET_REGEX
-              elsif left == "{|" && right == "|}"
-                CURLY_SQUARE_BRACKET_REGEX
-              else
-                # Use cached regex for custom bracket pairs
-                cache_key = "#{left}|#{right}"
-                Wp2txt.regex_cache[cache_key] ||= Regexp.new("(#{Regexp.escape(left)}|#{Regexp.escape(right)})")
-              end
-      while (str = scanner.scan_until(regex))
-        case scanner[1]
-        when left
-          buffer << str
-          has_left = true
-        when right
-          if has_left
-            buffer = buffer[0...-left.size]
-            contents = block.call(str[0...-left.size])
-            buffer << contents
-            break
-          else
-            buffer << str
-          end
+    str = scanner.is_a?(StringScanner) ? scanner.string : scanner.to_s
+    process_nested_single_pass(str, left, right, &block)
+  end
+
+  # Single-pass iterative processor - finds and processes innermost brackets first
+  # This avoids the overhead of recursive calls and repeated string scanning
+  def process_nested_single_pass(str, left, right, &block)
+    return str unless str.include?(left)
+
+    result = +str
+    left_len = left.length
+    right_len = right.length
+    max_iterations = 50000  # Safety limit for deeply nested structures
+
+    iterations = 0
+    loop do
+      iterations += 1
+      break if iterations > max_iterations
+
+      pos = 0
+      found = false
+
+      while pos < result.length
+        # Find next left bracket
+        left_pos = result.index(left, pos)
+        break unless left_pos
+
+        # Look for nested left bracket and matching right bracket
+        inner_left = result.index(left, left_pos + left_len)
+        right_pos = result.index(right, left_pos + left_len)
+
+        break unless right_pos
+
+        # If there's a nested left bracket before the right, skip to process inner first
+        if inner_left && inner_left < right_pos
+          pos = inner_left
+          next
         end
+
+        # Found innermost pair - process it
+        content = result[(left_pos + left_len)...right_pos]
+        processed = yield content
+        result = result[0...left_pos] + processed + result[(right_pos + right_len)..]
+        found = true
+        break
       end
-      buffer << scanner.rest
 
-      return buffer if buffer == scanner.string
-
-      scanner.string = buffer
-      process_nested_structure(scanner, left, right, &block) || ""
-    rescue StandardError
-      scanner.string
+      break unless found
     end
+
+    result
+  rescue StandardError
+    str
   end
 
   #################### methods used from format_wiki ####################
@@ -129,18 +164,25 @@ module Wp2txt
   # File/Image namespace patterns (multilingual)
   FILE_NAMESPACES_REGEX = /\A\s*(?:File|Image|Media|Fichier|Datei|Bild|Archivo|Imagen|Immagine|Bestand|Afbeelding|Ficheiro|Imagem|Fil|Plik|Grafika|Soubor|Fișier|Imagine|Tiedosto|Kuva|Файл|Изображение|Зображення|Датотека|Слика|ファイル|画像|파일|文件|档案|檔案|ไฟล์|Tập tin|Hình|ملف|صورة|پرونده|تصویر|קובץ|תמונה)\s*:/i
 
+  # Simplified regex for common File/Image patterns (faster matching)
+  FILE_NAMESPACES_QUICK_REGEX = /\A\s*(?:File|Image|Media|ファイル|画像|Datei|Fichier|Archivo)\s*:/i
+  # Parameters to skip when extracting captions
+  FILE_PARAMS_REGEX = /^(thumb|thumbnail|frame|frameless|border|right|left|center|none|upright|baseline|sub|super|top|text-top|middle|bottom|text-bottom)$/i
+
   def process_interwiki_links(str)
-    scanner = StringScanner.new(str)
-    process_nested_structure(scanner, "[[", "]]") do |contents|
+    # Early exit if no links present
+    return str unless str.include?("[[")
+
+    process_nested_single_pass(str, "[[", "]]") do |contents|
       parts = contents.split("|")
       first_part = parts.first || ""
 
-      if FILE_NAMESPACES_REGEX.match?(first_part)
+      if FILE_NAMESPACES_QUICK_REGEX.match?(first_part) || FILE_NAMESPACES_REGEX.match?(first_part)
         # For File/Image links, extract caption (last non-parameter part)
         # Skip parts that look like parameters (contain =, or are size specs like 200px)
         if parts.size > 1
           caption = parts[1..].reverse.find do |p|
-            !p.include?("=") && !p.match?(/^\d+px$/i) && !p.match?(/^(thumb|thumbnail|frame|frameless|border|right|left|center|none|upright|baseline|sub|super|top|text-top|middle|bottom|text-bottom)$/i)
+            !p.include?("=") && !p.match?(/^\d+px$/i) && !FILE_PARAMS_REGEX.match?(p)
           end
           caption || ""
         else
@@ -156,8 +198,10 @@ module Wp2txt
   end
 
   def process_external_links(str)
-    scanner = StringScanner.new(str)
-    process_nested_structure(scanner, "[", "]") do |contents|
+    # Early exit if no external links present
+    return str unless str.include?("[")
+
+    process_nested_single_pass(str, "[", "]") do |contents|
       if /\A\s.+\s\z/ =~ contents
         " (#{contents.strip}) "
       else
@@ -175,21 +219,21 @@ module Wp2txt
   #################### methods used from format_article ####################
 
   def remove_templates(str)
-    scanner1 = StringScanner.new(str)
-    result = process_nested_structure(scanner1, "{{", "}}") do
-      ""
-    end
-    scanner2 = StringScanner.new(result)
-    process_nested_structure(scanner2, "{", "}") do
-      ""
-    end
+    # Early exit if no templates present
+    return str unless str.include?("{{")
+
+    result = process_nested_single_pass(str, "{{", "}}") { "" }
+
+    # Handle single brace templates (less common)
+    return result unless result.include?("{")
+    process_nested_single_pass(result, "{", "}") { "" }
   end
 
   def remove_table(str)
-    scanner = StringScanner.new(str)
-    process_nested_structure(scanner, "{|", "|}") do
-      ""
-    end
+    # Early exit if no tables present
+    return str unless str.include?("{|")
+
+    process_nested_single_pass(str, "{|", "|}") { "" }
   end
 
   def special_chr(str)
@@ -250,10 +294,9 @@ module Wp2txt
     res = +str.to_s
     res.gsub!(SELF_CLOSING_TAG_REGEX, "")
     ["div", "gallery", "timeline", "noinclude"].each do |tag|
-      scanner = StringScanner.new(res)
-      result = process_nested_structure(scanner, "<#{tag}", "#{tag}>") do
-        ""
-      end
+      # Early exit if tag not present
+      next unless res.include?("<#{tag}")
+      result = process_nested_single_pass(res, "<#{tag}", "#{tag}>") { "" }
       res.replace(result)
     end
     res
@@ -280,34 +323,95 @@ module Wp2txt
     result
   end
 
-  def correct_inline_template(str)
-    scanner = StringScanner.new(str)
-    process_nested_structure(scanner, "{{", "}}") do |contents|
-      parts = contents.split("|")
-      if /\A(?:lang|fontsize)\z/i =~ parts[0]
-        parts.shift
-      elsif /\Alang-/i =~ parts[0]
-        parts.shift
-      elsif /\Alang=/i =~ parts[1]
-        parts.shift
-      end
+  # Templates that should be completely removed (citations, references, navigation)
+  REMOVE_TEMPLATES_REGEX = /\A\s*(?:cite\s*(?:web|book|news|journal|magazine|conference|press|av\s*media|episode|map|sign|video|thesis)|sfn|efn|refn|reflist|refbegin|refend|notelist|r\||rp|main|see\s*also|further|details|about|redirect|distinguish|other\s*(?:uses|people)|for\s*(?:other|more)|hatnote|self-?reference|portal|commons|wiktionary|wikiquote|flagicon|flag|flagcountry|fb|noflag|country\s*data|small|smaller|large|larger|nbsp|thin\s*space|nowrap|clear|break|col-?(?:begin|end|break)|div\s*col|end\s*div|anchor|visible\s*anchor|unicode)\s*(?:\||$)/i
 
-      if parts.size == 1
-        out = parts[0]
-      else
-        begin
-          keyval = parts[1].split("=")
-          out = if keyval.size > 1
-                  keyval[1]
-                else
-                  parts[1] || ""
-                end
-        rescue StandardError
-          out = parts[1] || ""
+  # Country code templates (2-3 letter codes that represent flags)
+  COUNTRY_CODE_REGEX = /\A[A-Z]{2,3}\z/
+
+  def correct_inline_template(str)
+    # Early exit if no templates present
+    return str unless str.include?("{{")
+
+    process_nested_single_pass(str, "{{", "}}") do |contents|
+      parts = contents.split("|")
+      template_name = (parts[0] || "").strip.downcase
+
+      # Remove citation and navigation templates entirely
+      if REMOVE_TEMPLATES_REGEX.match?(contents)
+        ""
+      # {{IPA|...}} or {{IPA-xx|...}} - keep the pronunciation (check BEFORE country codes)
+      elsif template_name == "ipa" || template_name.start_with?("ipa-")
+        (parts[1] || "").to_s.strip
+      # Remove country code flag templates (JPN, USA, GBR, etc.)
+      elsif COUNTRY_CODE_REGEX.match?(parts[0]&.strip || "")
+        ""
+      # Language templates: {{lang|code|text}} or {{lang-xx|text}}
+      elsif template_name == "lang" || template_name == "fontsize"
+        parts.size >= 3 ? parts[2].to_s.strip : (parts[1] || "").to_s.strip
+      elsif template_name.start_with?("lang-")
+        (parts[1] || "").to_s.strip
+      # {{langwithname|code|name|text}} - extract the text (3rd param)
+      elsif template_name == "langwithname"
+        parts.size >= 4 ? parts[3].to_s.strip : (parts.last || "").to_s.strip
+      # {{nihongo|text|kanji|romaji}} - format as "text (kanji, romaji)"
+      elsif template_name == "nihongo"
+        text = (parts[1] || "").strip
+        kanji = (parts[2] || "").strip
+        romaji = (parts[3] || "").strip
+        if kanji.empty? && romaji.empty?
+          text
+        elsif romaji.empty?
+          "#{text} (#{kanji})"
+        elsif kanji.empty?
+          "#{text} (#{romaji})"
+        else
+          "#{text} (#{kanji}, #{romaji})"
         end
+      # {{仮リンク|display|lang|article}} - Japanese interwiki, keep display
+      elsif template_name == "仮リンク"
+        (parts[1] || "").to_s.strip
+      # {{読み仮名|text|reading}} - format as "text（reading）"
+      elsif template_name == "読み仮名"
+        text = (parts[1] || "").strip
+        reading = (parts[2] || "").strip
+        reading.empty? ? text : "#{text}（#{reading}）"
+      # {{convert|num|from|to}} - keep number and first unit
+      elsif template_name == "convert"
+        num = (parts[1] || "").strip
+        unit = (parts[2] || "").strip
+        unit.empty? ? num : "#{num} #{unit}"
+      # Default handling for other templates
+      else
+        extract_template_content(parts)
       end
-      out.strip
     end
+  end
+
+  # Extract meaningful content from template parts
+  def extract_template_content(parts)
+    return "" if parts.empty?
+    return parts[0].to_s.strip if parts.size == 1
+
+    # Skip the template name, try to find non-parameter content
+    parts[1..].each do |part|
+      next if part.nil?
+      # Skip if it looks like a parameter (contains =)
+      next if part.include?("=")
+      content = part.strip
+      return content unless content.empty?
+    end
+
+    # If all parts have =, try to extract value from first parameter
+    parts[1..].each do |part|
+      next if part.nil?
+      if part.include?("=")
+        key, value = part.split("=", 2)
+        return value.to_s.strip unless value.nil? || value.strip.empty?
+      end
+    end
+
+    ""
   end
 
   #################### file related utilities ####################

@@ -38,6 +38,8 @@ See [CHANGELOG.md](CHANGELOG.md) for detailed release notes.
 
 **January 2026 (v2.0.0)**
 
+- **NEW: JSON/JSONL output format** (`--format json`) for machine-readable output
+- **NEW: Streaming processing** - no intermediate XML files, reduced disk I/O
 - Full Ruby 4.0 compatibility
 - Multilingual support for category extraction (30+ languages including Japanese, Chinese, German, French, Russian, etc.)
 - Multilingual support for redirect detection (25+ languages)
@@ -45,7 +47,8 @@ See [CHANGELOG.md](CHANGELOG.md) for detailed release notes.
 - Fixed encoding error handling (no longer crashes on invalid UTF-8)
 - Improved handling of File/Image links in article output
 - Performance optimizations (reduced memory allocations, regex caching)
-- Comprehensive test suite (235 tests, 85%+ coverage)
+- Comprehensive test suite (252 tests, 83%+ coverage)
+- Deprecated: `--convert` and `--del-interfile` options (no longer needed)
 
 **May 2023**
 
@@ -89,6 +92,8 @@ In the above environment, the process (decompression, splitting, extraction, and
 
 - Converts Wikipedia dump files in various languages
 - **Extracts category information of the article** (unique feature)
+- **JSON/JSONL output format** for machine-readable data pipelines
+- **Streaming processing** - processes bz2 files directly without intermediate files
 - Creates output files of specified size
 - Allows specifying elements (page titles, section headers, paragraphs, list items) to be extracted
 - Allows extracting opening paragraphs of the article
@@ -154,43 +159,23 @@ where `xx` is language code such as `en` (English)" or `ja` (japanese), and  `yy
 
 ## Basic Usage
 
-Suppose you have a folder with a wikipedia dump file and empty subfolders organized as follows:
+### Extract plain text from Wikipedia dump
 
-```
-.
-├── enwiki-20220801-pages-articles.xml.bz2
-├── /xml
-├── /text
-├── /category
-└── /summary
-```
+    $ wp2txt -i ./enwiki-20220801-pages-articles.xml.bz2 -o ./text
 
-### Decompress and Split
+This will stream the compressed dump file directly, extracting plain text without creating intermediate files.
 
-The following command will decompress the entire wikipedia data and split it into many small (approximately 10 MB) XML files.
+### Extract only category info
 
-    $ wp2txt --no-convert -i ./enwiki-20220801-pages-articles.xml.bz2 -o ./xml
+    $ wp2txt -g -i ./enwiki-20220801-pages-articles.xml.bz2 -o ./category
 
-**Note**: The resulting files are not well-formed XML. They contain part of the orignal XML extracted from the Wikipedia dump file, taking care to ensure that the content within the <page> tag is not split into multiple files.
+### Extract opening paragraphs (summary)
 
-### Extract plain text from MediaWiki XML
+    $ wp2txt -s -i ./enwiki-20220801-pages-articles.xml.bz2 -o ./summary
 
-    $ wp2txt -i ./xml -o ./text
+### Output as JSON/JSONL
 
-
-### Extract only category info from MediaWiki XML
-
-    $ wp2txt -g -i ./xml -o ./category
-
-### Extract opening paragraphs from MediaWiki XML
-
-    $ wp2txt -s -i ./xml -o ./summary
-
-### Extract directly from bz2 compressed file
-
-It is possible (though not recommended) to 1) decompress the dump files, 2) split the data into files, and 3) extract the text just one line of command. You can automatically remove all the intermediate XML files with `-x` option.
-
-    $ wp2txt -i ./enwiki-20220801-pages-articles.xml.bz2 -o ./text -x
+    $ wp2txt --format json -i ./enwiki-20220801-pages-articles.xml.bz2 -o ./json
 
 ## Sample Output
 
@@ -215,27 +200,44 @@ Output containing title, category, and summary
 - [English Wikipedia](https://raw.githubusercontent.com/yohasebe/wp2txt/master/data/output_samples/testdata_en_summary.txt)
 - [Japanese Wikipedia](https://raw.githubusercontent.com/yohasebe/wp2txt/master/data/output_samples/testdata_ja_summary.txt)
 
+### JSON/JSONL Output (v2.0+)
+
+Output in JSONL format (one JSON object per line):
+
+    $ wp2txt --format json -i ./input -o /output
+
+Each line contains:
+
+```json
+{"title": "Article Title", "categories": ["Cat1", "Cat2"], "text": "...", "redirect": null}
+```
+
+For redirect articles:
+
+```json
+{"title": "NYC", "categories": [], "text": "", "redirect": "New York City"}
+```
+
 ## Command Line Options
 
 Command line options are as follows:
 
     Usage: wp2txt [options]
     where [options] are:
-      -i, --input                      Path to compressed file (bz2) or decompressed file (xml), or path to directory containing files of the latter format
+      -i, --input                      Path to compressed file (bz2) or XML file, or path to directory containing XML files
       -o, --output-dir=<s>             Path to output directory
-      -c, --convert, --no-convert      Output in plain text (converting from XML) (default: true)
+      -j, --format=<s>                 Output format: text or json (JSONL) (default: text)
       -a, --category, --no-category    Show article category information (default: true)
       -g, --category-only              Extract only article title and categories
       -s, --summary-only               Extract only article title, categories, and summary text before first heading
-      -f, --file-size=<i>              Approximate size (in MB) of each output file (default: 10)
-      -n, --num-procs                  Number of proccesses (up to 8) to be run concurrently (default: max num of available CPU cores minus two)
-      -x, --del-interfile              Delete intermediate XML files from output dir
+      -f, --file-size=<i>              Approximate size (in MB) of each output file (0 for single file) (default: 10)
+      -n, --num-procs                  Number of processes (up to 8) to be run concurrently (default: max num of available CPU cores minus two)
       -t, --title, --no-title          Keep page titles in output (default: true)
       -d, --heading, --no-heading      Keep section titles in output (default: true)
       -l, --list                       Keep unprocessed list items in output
       -r, --ref                        Keep reference notations in the format [ref]...[/ref]
       -e, --redirect                   Show redirect destination
-      -m, --marker, --no-marker        Show symbols prefixed to list items, definitions, etc. (Default: true)
+      -m, --marker, --no-marker        Show symbols prefixed to list items, definitions, etc. (default: true)
       -b, --bz2-gem                    Use Ruby's bzip2-ruby gem instead of a system command
       -v, --version                    Print version and exit
       -h, --help                       Show this message

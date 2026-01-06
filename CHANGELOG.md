@@ -5,9 +5,17 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [2.0.0] - 2026-01-06
+## [2.0.0] - 2026-01-07
 
 ### Added
+
+- **JSON/JSONL output format**: New `--format json` option outputs articles as JSONL (one JSON object per line) with `title`, `categories`, `text`, and `redirect` fields. Ideal for data pipelines and machine learning workflows.
+
+- **Streaming processing**: Complete rewrite of the processing architecture:
+  - No longer creates intermediate XML files
+  - Directly streams from bz2 compressed files
+  - Reduced disk I/O and storage requirements
+  - New `StreamProcessor` and `OutputWriter` classes for modular design
 
 - **Regex cache**: Dynamic regex patterns are now cached to avoid repeated compilation
 
@@ -68,11 +76,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Deprecated
 
-- None
+- **`--convert` / `-c` option**: No longer needed as streaming processing always converts
+- **`--del-interfile` / `-x` option**: No longer needed as intermediate files are no longer created
 
 ### Removed
 
-- None
+- **Intermediate XML file creation**: The `Splitter` class no longer creates intermediate XML files; processing is now fully streamed
 
 ### Security
 

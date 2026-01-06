@@ -3,6 +3,8 @@
 require "nokogiri"
 require_relative "wp2txt/article"
 require_relative "wp2txt/utils"
+require_relative "wp2txt/stream_processor"
+require_relative "wp2txt/output_writer"
 
 module Wp2txt
   class Splitter

@@ -436,16 +436,16 @@ RSpec.describe "Integration Tests" do
   end
 
   describe "Performance optimizations" do
-    it "regex_cache stores dynamically created patterns" do
+    it "regex_cache stores dynamically created patterns for remove_inbetween" do
       # Clear cache first
       Wp2txt.regex_cache.clear
 
-      scanner = StringScanner.new("<custom>content</custom>")
-      process_nested_structure(scanner, "<custom>", "</custom>") { |c| c }
+      # remove_inbetween uses the regex cache for custom tagsets
+      remove_inbetween("<tag>content</tag>", ["<tag>", "</tag>"])
 
       # Cache should now have an entry
       expect(Wp2txt.regex_cache).not_to be_empty
-      expect(Wp2txt.regex_cache.keys.first).to include("custom")
+      expect(Wp2txt.regex_cache.keys.first).to include("inbetween")
     end
 
     it "processes articles without creating excessive intermediate strings" do

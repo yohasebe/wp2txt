@@ -162,8 +162,9 @@ RSpec.describe "Wp2txt Utils" do
 
   describe "correct_inline_template" do
     it "removes brackets and leaving some text" do
+      # Flag/country templates should be removed entirely
       str_before1 = "{{MedalCountry | {{JPN}} }}"
-      str_after1  = "JPN"
+      str_after1  = ""
       expect(correct_inline_template(str_before1)).to eq str_after1
 
       str_before2 = "{{lang|en|Japan}}"
@@ -181,6 +182,33 @@ RSpec.describe "Wp2txt Utils" do
       str_before5 = "{{要出典範囲|日本人に多く見受けられる|date=2013年8月|title=日本人特有なのか、本当に多いのかを示す必要がある}}"
       str_after5 = "日本人に多く見受けられる"
       expect(correct_inline_template(str_before5)).to eq str_after5
+    end
+
+    it "removes citation templates entirely" do
+      expect(correct_inline_template("{{cite web|url=http://example.com|title=Test}}")).to eq ""
+      expect(correct_inline_template("{{cite book|title=Book|author=Author}}")).to eq ""
+      expect(correct_inline_template("{{sfn|Smith|2020|p=123}}")).to eq ""
+    end
+
+    it "extracts content from language templates" do
+      expect(correct_inline_template("{{lang-en|Hello}}")).to eq "Hello"
+      expect(correct_inline_template("{{langwithname|en|English|Hello World}}")).to eq "Hello World"
+      expect(correct_inline_template("{{IPA|/həˈloʊ/}}")).to eq "/həˈloʊ/"
+    end
+
+    it "formats nihongo template correctly" do
+      expect(correct_inline_template("{{nihongo|Tokyo|東京|Tōkyō}}")).to eq "Tokyo (東京, Tōkyō)"
+      expect(correct_inline_template("{{nihongo|Tokyo|東京}}")).to eq "Tokyo (東京)"
+    end
+
+    it "handles convert template" do
+      expect(correct_inline_template("{{convert|100|km|mi}}")).to eq "100 km"
+    end
+
+    it "removes flag templates" do
+      expect(correct_inline_template("{{flagicon|Japan}}")).to eq ""
+      expect(correct_inline_template("{{JPN}}")).to eq ""
+      expect(correct_inline_template("{{USA}}")).to eq ""
     end
   end
 end

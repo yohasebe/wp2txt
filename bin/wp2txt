@@ -7,6 +7,7 @@ require_relative "../lib/wp2txt/utils"
 require_relative "../lib/wp2txt/version"
 
 require "etc"
+require "json"
 require "optimist"
 require "parallel"
 require "pastel"
@@ -17,10 +18,6 @@ class WpApp
 
   # Maximum number of processors that can be used for parallel processing
   MAX_PROCESSORS = 8
-  # Minimum number of processors that must be used
-  MIN_PROCESSORS = 1
-  # Number of cores reserved for system operations
-  RESERVED_CORES = 2
   # Debug mode flag
   DEBUG_MODE = false
 
@@ -41,30 +38,56 @@ class WpApp
     end.tap { |n| n = 1 if n < 1 }
   end
 
-  # Process multiple files in parallel
-  def process_files(input_files, num_processes, output_dir, config)
-    puts @pastel.red.bold("Converting")
-    puts "Number of files being processed: " + @pastel.bold(input_files.size.to_s)
-    puts "Number of CPU cores being used:  " + @pastel.bold(num_processes.to_s)
-
-    Parallel.map(input_files,
-      in_processes: num_processes,
-      progress: @pastel.magenta.bold("WP2TXT")) do |infile|
-        process_single_file(infile, output_dir, config)
-    end
-  end
-
-  # Process a single file
-  def process_single_file(infile, output_dir, config)
-    strip_tmarker = !config[:marker]
-    wpconv = Runner.new(infile, output_dir, strip_tmarker, config[:del_interfile])
-    wpconv.extract_text { |article| format_article(article, config) }
-  end
-
-  # Format article based on configuration
+  # Format article based on configuration and output format
   def format_article(article, config)
     article.title = format_wiki(article.title, config)
 
+    if config[:format] == :json
+      format_article_json(article, config)
+    else
+      format_article_text(article, config)
+    end
+  end
+
+  # Format article as JSON hash
+  def format_article_json(article, config)
+    result = { "title" => article.title }
+
+    # Categories
+    if config[:category]
+      result["categories"] = article.categories.flatten
+    else
+      result["categories"] = nil
+    end
+
+    # Text content
+    if config[:category_only]
+      result["text"] = nil
+    else
+      text = build_text_content(article, config)
+      result["text"] = text.strip
+    end
+
+    # Redirect
+    redirect_target = extract_redirect(article)
+    result["redirect"] = redirect_target
+
+    result
+  end
+
+  # Extract redirect target from article if it's a redirect
+  def extract_redirect(article)
+    article.elements.each do |type, content|
+      if type == :mw_redirect
+        match = content.match(REDIRECT_REGEX)
+        return match[1] if match
+      end
+    end
+    nil
+  end
+
+  # Format article as text string
+  def format_article_text(article, config)
     if config[:category_only]
       format_category_only(article)
     elsif config[:category] && !article.categories.empty?
@@ -74,7 +97,18 @@ class WpApp
     end
   end
 
-  # Format article with only category information
+  # Build text content from article elements
+  def build_text_content(article, config)
+    contents = +""
+    article.elements.each do |e|
+      line = process_element(e, config)
+      contents << line if line
+    end
+    # Apply cleanup to remove leftover markup, normalize whitespace, etc.
+    cleanup(contents)
+  end
+
+  # Format article with only category information (text format)
   def format_category_only(article)
     title = "#{article.title}\t"
     contents = article.categories.join(", ")
@@ -85,13 +119,7 @@ class WpApp
   # Format article with categories (includes body text)
   def format_with_categories(article, config)
     title = "\n[[#{article.title}]]\n\n"
-    contents = +""
-
-    # Add article body
-    article.elements.each do |e|
-      line = process_element(e, config)
-      contents << line if line
-    end
+    contents = build_text_content(article, config)
 
     # Add categories at the end
     contents << "\nCATEGORIES: "
@@ -104,12 +132,7 @@ class WpApp
   # Format full article content
   def format_full_article(article, config)
     title = "\n[[#{article.title}]]\n\n"
-    contents = +""
-    
-    article.elements.each do |e|
-      line = process_element(e, config)
-      contents << line if line
-    end
+    contents = build_text_content(article, config)
 
     config[:title] ? title + contents : contents
   end
@@ -121,7 +144,7 @@ class WpApp
     when :mw_heading
       return nil if config[:summary_only]
       return nil unless config[:heading]
-      
+
       content = format_wiki(content, config)
       content += "+HEADING+" if DEBUG_MODE
       content + "\n"
@@ -153,15 +176,12 @@ class WpApp
       content += "+MLTEMPLATE+" if DEBUG_MODE
       content + "\n"
     when :mw_link
-      # Process single-line links (often File: links) through format_wiki
       content = format_wiki(content, config)
       return nil if content.strip.empty?
 
       content += "+LINK+" if DEBUG_MODE
       content + "\n"
     when :mw_ml_link
-      # Process multiline links (often File: links) through format_wiki
-      # This extracts captions from File: links or returns empty for most cases
       content = format_wiki(content, config)
       return nil if content.strip.empty?
 
@@ -187,13 +207,113 @@ class WpApp
     end
   end
 
+  # Process articles using streaming (new architecture)
+  def process_stream(input_path, output_dir, config)
+    num_processes = config[:num_procs]
+    file_size_mb = config[:file_size]
+    format = config[:format]
+    bz2_gem = config[:bz2_gem]
+
+    # Determine base name for output files
+    base_name = File.basename(input_path, ".*")
+    base_name = base_name.sub(/\.xml$/, "") # Handle .xml.bz2
+
+    # Create stream processor
+    stream = StreamProcessor.new(input_path, bz2_gem: bz2_gem)
+
+    # Create output writer
+    writer = OutputWriter.new(
+      output_dir: output_dir,
+      base_name: base_name,
+      format: format,
+      file_size_mb: file_size_mb
+    )
+
+    # Collect pages for parallel processing
+    pages = []
+    page_count = 0
+
+    puts @pastel.red.bold("Processing")
+    puts "Input: #{@pastel.bold(input_path)}"
+    puts "Output format: #{@pastel.bold(format.to_s)}"
+    puts "CPU cores: #{@pastel.bold(num_processes.to_s)}"
+
+    # Initialize progress spinner
+    spinner = TTY::Spinner.new(
+      "[:spinner] Processing articles... :title",
+      format: :dots,
+      hide_cursor: true
+    )
+    spinner.auto_spin
+
+    time_start = Time.now
+
+    # Process in batches for memory efficiency
+    batch_size = num_processes * 100
+    strip_tmarker = !config[:marker]
+
+    stream.each_page do |title, text|
+      pages << [title, text]
+      page_count += 1
+
+      # Update spinner with current article
+      spinner.update(title: "(#{page_count} articles)")
+
+      # Process batch when full
+      next unless pages.size >= batch_size
+
+      process_batch(pages, writer, config, strip_tmarker, num_processes)
+      pages.clear
+    end
+
+    # Process remaining pages
+    process_batch(pages, writer, config, strip_tmarker, num_processes) unless pages.empty?
+
+    # Close output
+    output_files = writer.close
+
+    time_elapsed = Time.now - time_start
+    spinner.success("Done!")
+
+    puts "\nProcessed #{@pastel.bold(page_count.to_s)} articles in #{@pastel.bold(format_time(time_elapsed))}"
+    puts "Output files: #{output_files.size}"
+    output_files.each { |f| puts "  - #{f}" }
+  end
+
+  # Process a batch of pages in parallel
+  def process_batch(pages, writer, config, strip_tmarker, num_processes)
+    results = Parallel.map(pages, in_processes: num_processes) do |title, text|
+      article = Article.new(text, title, strip_tmarker)
+      format_article(article, config)
+    end
+
+    results.each do |result|
+      writer.write(result)
+    end
+  end
+
+  # Format elapsed time
+  def format_time(seconds)
+    if seconds < 60
+      format("%.1f seconds", seconds)
+    elsif seconds < 3600
+      minutes = (seconds / 60).to_i
+      secs = (seconds % 60).to_i
+      "#{minutes}m #{secs}s"
+    else
+      hours = (seconds / 3600).to_i
+      minutes = ((seconds % 3600) / 60).to_i
+      "#{hours}h #{minutes}m"
+    end
+  end
+
   public
 
   # Main execution method
   def run
     # Parse command line options
     opts = Optimist.options do
-      version VERSION
+      version Wp2txt::VERSION
       banner <<~BANNER
         WP2TXT extracts plain text data from Wikipedia dump file (encoded in XML/compressed with Bzip2)
         stripping all the MediaWiki markups and other metadata.
@@ -202,24 +322,22 @@ class WpApp
         where [options] are:
       BANNER
 
-      opt :input, "Path to compressed file (bz2) or decompressed file (xml), or path to directory containing files of the latter format",
+      opt :input, "Path to compressed file (bz2) or XML file, or path to directory containing XML files",
           type: String, required: true, short: "-i"
       opt :output_dir, "Path to output directory",
           default: Dir.pwd, type: String, short: "-o"
-      opt :convert, "Output in plain text (converting from XML)",
-          default: true, short: "-c"
+      opt :format, "Output format: text or json (JSONL)",
+          default: "text", short: "-j"
       opt :category, "Show article category information",
           default: true, short: "-a"
       opt :category_only, "Extract only article title and categories",
           default: false, short: "-g"
       opt :summary_only, "Extract only article title, categories, and summary text before first heading",
           default: false, short: "-s"
-      opt :file_size, "Approximate size (in MB) of each output file",
+      opt :file_size, "Approximate size (in MB) of each output file (0 for single file)",
           default: 10, short: "-f"
       opt :num_procs, "Number of processes (up to #{MAX_PROCESSORS}) to be run concurrently",
           type: Integer, short: "-n"
-      opt :del_interfile, "Delete intermediate XML files from output dir",
-          short: "-x", default: false
       opt :title, "Keep page titles in output",
           default: true, short: "-t"
       opt :heading, "Keep section titles in output",
@@ -234,60 +352,51 @@ class WpApp
           default: true, short: "-m"
       opt :bz2_gem, "Use Ruby's bzip2-ruby gem instead of a system command",
           default: false, short: "-b"
+      # Deprecated options (kept for backward compatibility)
+      opt :convert, "[DEPRECATED] This option is no longer needed",
+          default: true, short: "-c"
+      opt :del_interfile, "[DEPRECATED] Intermediate files are no longer created",
+          short: "-x", default: false
     end
 
     # Validate command line options
-    Optimist.die :file_size, "must be larger than 0" unless opts[:file_size] >= 0
+    Optimist.die :file_size, "must be 0 or larger" unless opts[:file_size] >= 0
     Optimist.die :input, "must exist" unless File.exist?(opts[:input])
     Optimist.die :output_dir, "must exist" unless File.exist?(opts[:output_dir])
 
-    input_file = opts[:input]
-    output_dir = opts[:output_dir]
-    tfile_size = opts[:file_size]
+    # Validate format option
+    format = opts[:format].to_s.downcase
+    unless %w[text json].include?(format)
+      Optimist.die :format, "must be 'text' or 'json'"
+    end
+    format = format.to_sym
+
+    # Show deprecation warnings
+    if opts[:convert_given] || opts[:del_interfile_given]
+      puts @pastel.yellow("Note: --convert and --del-interfile options are deprecated and will be ignored.")
+      puts @pastel.yellow("      Intermediate files are no longer created in v2.0+")
+      puts
+    end
+
     num_processes = calculate_num_processes(opts)
 
     # Build configuration hash from options
-    config = {}
-    %i[title list heading table redirect multiline category category_only 
-       summary_only del_interfile bz2_gem marker].each do |opt|
+    config = {
+      format: format,
+      num_procs: num_processes,
+      file_size: opts[:file_size],
+      bz2_gem: opts[:bz2_gem]
+    }
+
+    %i[title list heading table redirect multiline category category_only
+       summary_only marker].each do |opt|
       config[opt] = opts[opt]
     end
 
-    if File.directory?(input_file)
-      # Process XML files in directory
-      input_files = Dir.glob("#{input_file}/*.xml")
-      process_files(input_files, num_processes, output_dir, config)
-    else
-      # Process single compressed file
-      puts "\n#{@pastel.green.bold('Preprocessing')}"
-      puts "Decompressing and splitting the original dump file."
-      puts @pastel.underline("This may take a while. Please be patient!")
+    # Process input
+    process_stream(opts[:input], opts[:output_dir], config)
 
-      # Initialize progress spinner
-      spinner = TTY::Spinner.new(":spinner",
-        format: :arrow_pulse,
-        hide_cursor: true,
-        interval: 5)
-      spinner.auto_spin
-
-      # Split the input file
-      time_start = Time.now.to_i
-      wpsplitter = Splitter.new(input_file, output_dir, tfile_size)
-      wpsplitter.split_file
-      time_finish = Time.now.to_i
-
-      # Show completion message
-      spinner.stop("Time: #{sec_to_str(time_finish - time_start)}")
-      puts @pastel.blue.bold("Complete!")
-
-      return unless opts[:convert]
-
-      # Process the split files
-      input_files = Dir.glob("#{output_dir}/*.xml")
-      process_files(input_files, num_processes, output_dir, config)
-    end
-
-    puts @pastel.blue.bold("Complete!")
+    puts @pastel.blue.bold("\nComplete!")
   end
 end
 

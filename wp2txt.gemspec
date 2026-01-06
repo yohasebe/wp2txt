@@ -10,7 +10,6 @@ Gem::Specification.new do |s|
   s.homepage    = "https://github.com/yohasebe/wp2txt"
   s.summary     = "A command-line toolkit to extract text content and category data from Wikipedia dump files"
   s.description = "WP2TXT extracts text and category data from Wikipedia dump files (encoded in XML / compressed with Bzip2), removing MediaWiki markup and other metadata."
-  s.rubyforge_project = "wp2txt"
   s.license = "MIT"
   s.required_ruby_version = Gem::Requirement.new(">= 3.0")
   s.files = `git ls-files`.split("\n")
