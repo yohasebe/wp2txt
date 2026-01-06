@@ -74,6 +74,10 @@ module Wp2txt
     result.gsub!(/^\s*(?:Clearleft|Clear|notelist\d*|reflist|Reflist|Notelist|Commons\s*cat?)\s*$/im, "")
     # Imagemap/gallery remnants: lines like "Image:file.jpg|thumb|...|caption" without [[ brackets
     result.gsub!(/^(?:Image|File|Media|ファイル|画像|Datei|Fichier|Archivo):[^\n]+\|[^\n]+$/im, "")
+    # Incomplete File/Image links (opened but not closed on same logical unit)
+    result.gsub!(/\[\[(?:File|Image|Media|ファイル|画像|Datei|Fichier|Archivo):[^\]]*\|?\s*$/im, "")
+    # Orphaned closing brackets from split File links (e.g., "caption]] rest of text")
+    result.gsub!(/([^|\[\]]+)\]\]/, '\1')
 
     result.strip!
     result << "\n\n"
@@ -166,8 +170,8 @@ module Wp2txt
 
   # Simplified regex for common File/Image patterns (faster matching)
   FILE_NAMESPACES_QUICK_REGEX = /\A\s*(?:File|Image|Media|ファイル|画像|Datei|Fichier|Archivo)\s*:/i
-  # Parameters to skip when extracting captions
-  FILE_PARAMS_REGEX = /^(thumb|thumbnail|frame|frameless|border|right|left|center|none|upright|baseline|sub|super|top|text-top|middle|bottom|text-bottom)$/i
+  # Parameters to skip when extracting captions (use \A and \z for exact string match)
+  FILE_PARAMS_REGEX = /\A(thumb|thumbnail|frame|frameless|border|right|left|center|none|upright|baseline|sub|super|top|text-top|middle|bottom|text-bottom)\z/i
 
   def process_interwiki_links(str)
     # Early exit if no links present
@@ -179,12 +183,16 @@ module Wp2txt
 
       if FILE_NAMESPACES_QUICK_REGEX.match?(first_part) || FILE_NAMESPACES_REGEX.match?(first_part)
         # For File/Image links, extract caption (last non-parameter part)
+        # Normalize newlines to pipes (handles malformed markup with newlines instead of pipes)
+        normalized = contents.gsub(/\n/, "|")
+        parts = normalized.split("|")
         # Skip parts that look like parameters (contain =, or are size specs like 200px)
         if parts.size > 1
           caption = parts[1..].reverse.find do |p|
-            !p.include?("=") && !p.match?(/^\d+px$/i) && !FILE_PARAMS_REGEX.match?(p)
+            stripped = p.strip
+            !stripped.empty? && !stripped.include?("=") && !stripped.match?(/\A\d+px\z/i) && !FILE_PARAMS_REGEX.match?(stripped)
           end
-          caption || ""
+          caption&.strip || ""
         else
           ""
         end
