@@ -1,0 +1,12 @@
+{
+  "meta": {
+    "description": "Non-standard HTML entities used in Wikipedia articles",
+    "note": "These entities are not part of WHATWG HTML specification but appear in Wikipedia content",
+    "last_updated": "2026-01-08"
+  },
+  "entities": {
+    "&ratio;": "∶",
+    "&dash;": "–",
+    "&nbso;": " "
+  }
+}
