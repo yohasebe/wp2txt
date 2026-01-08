@@ -11,6 +11,100 @@ module Wp2txt
     attr_accessor :regex_cache
   end
 
+  # Marker types for special content
+  MARKER_TYPES = %i[math code chem table score timeline graph ipa infobox navbox gallery sidebar mapframe imagemap references].freeze
+
+  # Default: all markers enabled
+  DEFAULT_MARKERS = MARKER_TYPES.dup.freeze
+
+  # Regex patterns for marker detection
+  MARKER_PATTERNS = {
+    # MATH: <math>...</math>, {{math|...}}, {{mvar|...}}
+    math: {
+      tags: [/<math[^>]*>.*?<\/math>/mi],
+      templates: [/\{\{(?:math|mvar)\s*\|/i]
+    },
+    # CODE: <code>...</code>, <syntaxhighlight>...</syntaxhighlight>, <source>...</source>, <pre>...</pre>
+    code: {
+      tags: [
+        /<code[^>]*>.*?<\/code>/mi,
+        /<syntaxhighlight[^>]*>.*?<\/syntaxhighlight>/mi,
+        /<source[^>]*>.*?<\/source>/mi,
+        /<pre[^>]*>.*?<\/pre>/mi
+      ],
+      templates: []
+    },
+    # CHEM: <chem>...</chem>, {{chem|...}}, {{ce|...}}
+    chem: {
+      tags: [/<chem[^>]*>.*?<\/chem>/mi],
+      templates: [/\{\{(?:chem|ce)\s*\|/i]
+    },
+    # TABLE: {|...|}, <table>...</table>
+    table: {
+      tags: [/<table[^>]*>.*?<\/table>/mi],
+      wiki_table: true
+    },
+    # SCORE: <score>...</score>
+    score: {
+      tags: [/<score[^>]*>.*?<\/score>/mi],
+      templates: []
+    },
+    # TIMELINE: <timeline>...</timeline>
+    timeline: {
+      tags: [/<timeline[^>]*>.*?<\/timeline>/mi],
+      templates: []
+    },
+    # GRAPH: <graph>...</graph>
+    graph: {
+      tags: [/<graph[^>]*>.*?<\/graph>/mi],
+      templates: []
+    },
+    # IPA: {{IPA|...}}, {{IPAc-en|...}}, etc.
+    ipa: {
+      tags: [],
+      templates: [/\{\{IPA[c]?(?:-[a-z]{2,3})?\s*\|/i]
+    },
+    # INFOBOX: {{Infobox ...}}
+    infobox: {
+      tags: [],
+      templates: [/\{\{[Ii]nfobox\s*/]
+    },
+    # NAVBOX: {{Navbox ...}}
+    navbox: {
+      tags: [],
+      templates: [/\{\{[Nn]avbox\s*/]
+    },
+    # GALLERY: <gallery>...</gallery>
+    gallery: {
+      tags: [/<gallery[^>]*>.*?<\/gallery>/mi],
+      templates: []
+    },
+    # SIDEBAR: {{Sidebar ...}}
+    sidebar: {
+      tags: [],
+      templates: [/\{\{[Ss]idebar\s*/]
+    },
+    # MAPFRAME: <mapframe>...</mapframe>
+    mapframe: {
+      tags: [/<mapframe[^>]*>.*?<\/mapframe>/mi],
+      templates: []
+    },
+    # IMAGEMAP: <imagemap>...</imagemap>
+    imagemap: {
+      tags: [/<imagemap[^>]*>.*?<\/imagemap>/mi],
+      templates: []
+    },
+    # REFERENCES: {{reflist}}, {{refbegin}}...{{refend}}, <references/>
+    references: {
+      tags: [
+        /<references\s*\/>/mi,
+        /<references[^>]*>.*?<\/references>/mi
+      ],
+      templates: [/\{\{[Rr]eflist\s*/],
+      paired_templates: [{ start: /\{\{[Rr]efbegin/i, end_name: "refend" }]
+    }
+  }.freeze
+
   def convert_characters(text, _has_retried = false)
     # Use scrub to safely handle invalid byte sequences
     text = text.to_s.scrub("")
@@ -25,6 +119,22 @@ module Wp2txt
   def format_wiki(text, config = {})
     # Work with a mutable copy to reduce intermediate string allocations
     result = +text.to_s
+
+    # Determine which markers are enabled
+    # Default: all markers ON (true or not specified)
+    # false: all markers OFF
+    # Array: only specified markers ON
+    markers_config = config.fetch(:markers, true)
+    enabled_markers = parse_markers_config(markers_config)
+
+    # Citation extraction option
+    extract_citations = config.fetch(:extract_citations, false)
+
+    # Apply markers BEFORE other processing (to preserve content for replacement)
+    # Skip references marker if extracting citations (let citations be processed individually)
+    markers_to_apply = extract_citations ? enabled_markers - [:references] : enabled_markers
+    result = apply_markers(result, markers_to_apply)
+
     result = remove_complex(result)
     result = escape_nowiki(result)
     result = process_interwiki_links(result)
@@ -36,10 +146,165 @@ module Wp2txt
     result.gsub!(MNDASH_REGEX, "–")
     result.gsub!(REMOVE_HR_REGEX, "")
     result.gsub!(REMOVE_TAG_REGEX, "")
-    result = correct_inline_template(result) unless config[:inline]
+    result = correct_inline_template(result, enabled_markers, extract_citations) unless config[:inline]
     result = remove_templates(result) unless config[:inline]
-    result = remove_table(result) unless config[:table]
+    result = remove_table(result, enabled_markers) unless config[:table]
+    # Decode HTML entities (e.g., &Oslash; → Ø)
+    result = special_chr(result)
+    # Convert marker placeholders to final [MARKER] format
+    result = finalize_markers(result)
     result
+  end
+
+  # Parse markers configuration
+  # true or nil: all markers enabled
+  # false: no markers
+  # Array: only specified markers
+  def parse_markers_config(config)
+    case config
+    when true, nil
+      DEFAULT_MARKERS.dup
+    when false
+      []
+    when Array
+      config.map(&:to_sym) & MARKER_TYPES
+    else
+      DEFAULT_MARKERS.dup
+    end
+  end
+
+  # Placeholder format for markers (to avoid conflicts with bracket processing)
+  # These get converted to [MARKER] at the end of format_wiki
+  def marker_placeholder(type)
+    "\u00AB\u00AB#{type.to_s.upcase}\u00BB\u00BB"  # «« MARKER »»
+  end
+
+  # Convert marker placeholders to final [MARKER] format
+  def finalize_markers(str)
+    result = +str.to_s
+    MARKER_TYPES.each do |marker_type|
+      placeholder = marker_placeholder(marker_type)
+      final_marker = "[#{marker_type.to_s.upcase}]"
+      result.gsub!(placeholder, final_marker)
+    end
+    result
+  end
+
+  # Apply marker replacements for enabled marker types
+  # When markers are disabled, content is removed (not marked)
+  def apply_markers(str, enabled_markers)
+    result = +str.to_s
+
+    MARKER_PATTERNS.each do |marker_type, patterns|
+      placeholder = marker_placeholder(marker_type)
+      should_mark = enabled_markers.include?(marker_type)
+
+      # Process HTML-style tags
+      patterns[:tags]&.each do |tag_regex|
+        if should_mark
+          result.gsub!(tag_regex, placeholder)
+        else
+          # Remove content when marker is not enabled
+          result.gsub!(tag_regex, "")
+        end
+      end
+
+      # Process wiki tables specially (need nested handling)
+      if patterns[:wiki_table] && result.include?("{|")
+        if should_mark
+          result = replace_wiki_table_with_marker(result, placeholder)
+        end
+        # If not marking, remove_table will handle it later
+      end
+
+      # Process template-based markers (Infobox, Navbox, Sidebar)
+      patterns[:templates]&.each do |template_regex|
+        result = replace_template_with_marker(result, template_regex, placeholder, should_mark)
+      end
+
+      # Process paired templates (refbegin...refend)
+      patterns[:paired_templates]&.each do |pair|
+        result = replace_paired_templates_with_marker(result, pair[:start], pair[:end_name], placeholder, should_mark)
+      end
+    end
+
+    result
+  end
+
+  # Replace paired templates like {{refbegin}}...{{refend}} with marker
+  # When should_mark is false, skip processing entirely (don't remove content)
+  # This allows extract_citations to process the inner templates
+  def replace_paired_templates_with_marker(str, start_pattern, end_name, placeholder, should_mark)
+    return str unless should_mark  # Skip if not marking - let content be processed later
+
+    result = +str.to_s
+    end_regex = /\{\{#{Regexp.escape(end_name)}\s*\}\}/i
+
+    loop do
+      match = result.match(start_pattern)
+      break unless match
+
+      start_pos = match.begin(0)
+
+      # Find the closing template (e.g., {{refend}})
+      end_match = result.match(end_regex, start_pos)
+      break unless end_match
+
+      end_pos = end_match.end(0)
+
+      result = result[0...start_pos] + placeholder + result[end_pos..]
+    end
+    result
+  end
+
+  # Replace templates matching pattern with marker (handles nested braces)
+  def replace_template_with_marker(str, pattern, placeholder, should_mark)
+    result = +str.to_s
+    # Find all positions where template pattern matches
+    loop do
+      match = result.match(pattern)
+      break unless match
+
+      start_pos = match.begin(0)
+      # Find the end of this template by counting braces
+      depth = 0
+      pos = start_pos
+      template_end = nil
+
+      while pos < result.length
+        if result[pos, 2] == "{{"
+          depth += 1
+          pos += 2
+        elsif result[pos, 2] == "}}"
+          depth -= 1
+          pos += 2
+          if depth == 0
+            template_end = pos
+            break
+          end
+        else
+          pos += 1
+        end
+      end
+
+      if template_end
+        if should_mark
+          result = result[0...start_pos] + placeholder + result[template_end..]
+        else
+          result = result[0...start_pos] + result[template_end..]
+        end
+      else
+        # Unclosed template, break to avoid infinite loop
+        break
+      end
+    end
+    result
+  end
+
+  # Replace wiki tables {|...|} with marker
+  def replace_wiki_table_with_marker(str, placeholder)
+    return str unless str.include?("{|")
+    process_nested_single_pass(str, "{|", "|}") { placeholder }
   end
 
   def cleanup(text)
@@ -73,11 +338,49 @@ module Wp2txt
     # Template name remnants (standalone words like "Clearleft", "notelist2", "reflist")
     result.gsub!(/^\s*(?:Clearleft|Clear|notelist\d*|reflist|Reflist|Notelist|Commons\s*cat?)\s*$/im, "")
     # Imagemap/gallery remnants: lines like "Image:file.jpg|thumb|...|caption" without [[ brackets
-    result.gsub!(/^(?:Image|File|Media|ファイル|画像|Datei|Fichier|Archivo):[^\n]+\|[^\n]+$/im, "")
+    result.gsub!(CLEANUP_FILE_LINE_REGEX, "")
     # Incomplete File/Image links (opened but not closed on same logical unit)
-    result.gsub!(/\[\[(?:File|Image|Media|ファイル|画像|Datei|Fichier|Archivo):[^\]]*\|?\s*$/im, "")
+    result.gsub!(CLEANUP_FILE_INCOMPLETE_REGEX, "")
     # Orphaned closing brackets from split File links (e.g., "caption]] rest of text")
-    result.gsub!(/([^|\[\]]+)\]\]/, '\1')
+    # Only match ]] at start of line or preceded by whitespace (not part of [[...]])
+    result.gsub!(/(?:^|(?<=\s))([^|\[\]\n]+)\]\]/, '\1')
+    # Orphaned opening wiki brackets not closed on same line
+    # Only match [[ followed by non-bracket, non-newline chars until end of line
+    result.gsub!(/\[\[[^\[\]\n]*$/, "")
+    # Standalone ]] on its own line (broken/incomplete links from Wikipedia source)
+    result.gsub!(/^\s*\]\]\s*$/m, "")
+    # ]] preceded by pipe without matching [[ (orphaned from broken links)
+    # Only match if NOT immediately preceded by [[  (to protect valid links)
+    # Pattern: non-bracket char + pipe + text + ]] (where the preceding char proves no [[ nearby)
+    result.gsub!(/([^|\[\]\n])\|([^|\[\]\n]+)\]\](?!\])/) { "#{$1}#{$2}" }
+
+    # =========================================================================
+    # Multilingual cleanup (language-agnostic patterns)
+    # =========================================================================
+
+    # MediaWiki magic words: DEFAULTSORT:..., DISPLAYTITLE:...
+    result.gsub!(MAGIC_WORD_LINE_REGEX, "")
+
+    # Double-underscore magic words: __NOTOC__, __TOC__, __FORCETOC__, etc.
+    result.gsub!(DOUBLE_UNDERSCORE_MAGIC_REGEX, "")
+
+    # Interwiki links: :en:Article → Article (keep article name, remove prefix)
+    result.gsub!(INTERWIKI_PREFIX_REGEX, "")
+
+    # Authority control templates: Normdaten, Authority control, Persondata, etc.
+    result.gsub!(AUTHORITY_CONTROL_REGEX, "")
+
+    # Category lines in various languages (but NOT "CATEGORIES:" summary line)
+    result.gsub!(CATEGORY_LINE_REGEX, "")
+
+    # Wikimedia sister project markers: Wikibooks, Commons, School:..., etc.
+    result.gsub!(WIKIMEDIA_PROJECT_REGEX, "")
+
+    # Lone asterisk lines (list markers without content)
+    result.gsub!(LONE_ASTERISK_REGEX, "")
+
+    # Final cleanup: reduce multiple blank lines again after all removals
+    result.gsub!(/\n{3,}/, "\n\n")
 
     result.strip!
     result << "\n\n"
@@ -165,32 +468,29 @@ module Wp2txt
     end
   end
 
-  # File/Image namespace patterns (multilingual)
-  FILE_NAMESPACES_REGEX = /\A\s*(?:File|Image|Media|Fichier|Datei|Bild|Archivo|Imagen|Immagine|Bestand|Afbeelding|Ficheiro|Imagem|Fil|Plik|Grafika|Soubor|Fișier|Imagine|Tiedosto|Kuva|Файл|Изображение|Зображення|Датотека|Слика|ファイル|画像|파일|文件|档案|檔案|ไฟล์|Tập tin|Hình|ملف|صورة|پرونده|تصویر|קובץ|תמונה)\s*:/i
-
-  # Simplified regex for common File/Image patterns (faster matching)
-  FILE_NAMESPACES_QUICK_REGEX = /\A\s*(?:File|Image|Media|ファイル|画像|Datei|Fichier|Archivo)\s*:/i
-  # Parameters to skip when extracting captions (use \A and \z for exact string match)
-  FILE_PARAMS_REGEX = /\A(thumb|thumbnail|frame|frameless|border|right|left|center|none|upright|baseline|sub|super|top|text-top|middle|bottom|text-bottom)\z/i
+  # File/Image namespace and parameter regexes are now defined in regex.rb
+  # FILE_NAMESPACES_REGEX - matches file namespace prefixes (313 aliases from 350+ languages)
+  # IMAGE_PARAMS_REGEX - matches image parameters like thumb, right, left, etc.
 
   def process_interwiki_links(str)
     # Early exit if no links present
     return str unless str.include?("[[")
 
     process_nested_single_pass(str, "[[", "]]") do |contents|
-      parts = contents.split("|")
+      # Use -1 to preserve trailing empty strings (for pipe trick detection)
+      parts = contents.split("|", -1)
       first_part = parts.first || ""
 
-      if FILE_NAMESPACES_QUICK_REGEX.match?(first_part) || FILE_NAMESPACES_REGEX.match?(first_part)
+      if FILE_NAMESPACES_REGEX.match?(first_part)
         # For File/Image links, extract caption (last non-parameter part)
         # Normalize newlines to pipes (handles malformed markup with newlines instead of pipes)
         normalized = contents.gsub(/\n/, "|")
-        parts = normalized.split("|")
+        parts = normalized.split("|", -1)
         # Skip parts that look like parameters (contain =, or are size specs like 200px)
         if parts.size > 1
           caption = parts[1..].reverse.find do |p|
             stripped = p.strip
-            !stripped.empty? && !stripped.include?("=") && !stripped.match?(/\A\d+px\z/i) && !FILE_PARAMS_REGEX.match?(stripped)
+            !stripped.empty? && !stripped.include?("=") && !stripped.match?(/\A\d+px\z/i) && !(IMAGE_PARAMS_REGEX && IMAGE_PARAMS_REGEX.match?(stripped))
           end
           caption&.strip || ""
         else
@@ -198,11 +498,28 @@ module Wp2txt
         end
       elsif parts.size == 1
         first_part
+      elsif parts.size == 2 && parts[1].strip.empty?
+        # Pipe trick: [[Namespace:Page|]] or [[Page (disambiguation)|]]
+        apply_pipe_trick(first_part)
       else
         parts.shift
         parts.join("|")
       end
     end
+  end
+
+  # MediaWiki pipe trick: extracts display text from link target
+  # [[Wikipedia:著作権|]] → 著作権
+  # [[東京 (曖昧さ回避)|]] → 東京
+  def apply_pipe_trick(target)
+    result = target.dup
+    # Remove namespace prefix (everything before and including the last colon)
+    result = result.sub(/\A[^:]+:/, "") if result.include?(":")
+    # Remove trailing parenthetical (disambiguation)
+    result = result.sub(/\s*\([^)]+\)\s*\z/, "")
+    # Remove trailing comma and following text (for names like "LastName, FirstName")
+    result = result.sub(/\s*,.*\z/, "")
+    result.strip
   end
 
   def process_external_links(str)
@@ -237,15 +554,24 @@ module Wp2txt
     process_nested_single_pass(result, "{", "}") { "" }
   end
 
-  def remove_table(str)
+  def remove_table(str, enabled_markers = [])
     # Early exit if no tables present
     return str unless str.include?("{|")
 
-    process_nested_single_pass(str, "{|", "|}") { "" }
+    # If table marker is enabled, tables are already replaced with [TABLE]
+    # Only remove if marker is not enabled
+    if enabled_markers.include?(:table)
+      str
+    else
+      process_nested_single_pass(str, "{|", "|}") { "" }
+    end
   end
 
   def special_chr(str)
-    HTML_DECODER.decode(str)
+    result = HTML_DECODER.decode(str)
+    # Decode additional mathematical entities not covered by HTMLEntities gem
+    result.gsub!(MATH_ENTITIES_REGEX) { MATH_ENTITIES[$1] }
+    result
   end
 
   def remove_inbetween(str, tagset = ["<", ">"])
@@ -300,13 +626,17 @@ module Wp2txt
 
   def remove_html(str)
     res = +str.to_s
+    # Remove HTML comments first (before other processing to avoid [ref] in comments issue)
+    res.gsub!(HTML_COMMENT_REGEX, "")
     res.gsub!(SELF_CLOSING_TAG_REGEX, "")
-    ["div", "gallery", "timeline", "noinclude"].each do |tag|
+    ["div", "gallery", "timeline", "noinclude", "imagemap"].each do |tag|
       # Early exit if tag not present
       next unless res.include?("<#{tag}")
       result = process_nested_single_pass(res, "<#{tag}", "#{tag}>") { "" }
       res.replace(result)
     end
+    # Remove imagemap coordinate remnants (rect, poly, circle, default with coordinates)
+    res.gsub!(/^(?:rect|poly|circle|default)\s+[\d\s]+.*$/i, "")
     res
   end
 
@@ -331,13 +661,50 @@ module Wp2txt
     result
   end
 
-  # Templates that should be completely removed (citations, references, navigation)
-  REMOVE_TEMPLATES_REGEX = /\A\s*(?:cite\s*(?:web|book|news|journal|magazine|conference|press|av\s*media|episode|map|sign|video|thesis)|sfn|efn|refn|reflist|refbegin|refend|notelist|r\||rp|main|see\s*also|further|details|about|redirect|distinguish|other\s*(?:uses|people)|for\s*(?:other|more)|hatnote|self-?reference|portal|commons|wiktionary|wikiquote|flagicon|flag|flagcountry|fb|noflag|country\s*data|small|smaller|large|larger|nbsp|thin\s*space|nowrap|clear|break|col-?(?:begin|end|break)|div\s*col|end\s*div|anchor|visible\s*anchor|unicode)\s*(?:\||$)/i
+  # Citation templates that can be extracted
+  CITATION_TEMPLATE_REGEX = /\A\s*(?:cite\s*(?:web|book|news|journal|magazine|conference|press|av\s*media|episode|map|sign|video|thesis)|citation)\s*(?:\||$)/i
+
+  # Templates that should be completely removed (references, navigation, but NOT citations when extracting)
+  REMOVE_TEMPLATES_REGEX = /\A\s*(?:sfn|efn|refn|reflist|refbegin|refend|notelist|r\||rp|main|see\s*also|further|details|about|redirect|distinguish|other\s*(?:uses|people)|for\s*(?:other|more)|hatnote|self-?reference|portal|commons|wiktionary|wikiquote|flagicon|flag|flagcountry|fb|noflag|country\s*data|small|smaller|large|larger|nbsp|thin\s*space|nowrap|clear|break|col-?(?:begin|end|break)|div\s*col|end\s*div|anchor|visible\s*anchor|unicode)\s*(?:\||$)/i
 
   # Country code templates (2-3 letter codes that represent flags)
   COUNTRY_CODE_REGEX = /\A[A-Z]{2,3}\z/
 
-  def correct_inline_template(str)
+  # Extract formatted citation from template parameters
+  def format_citation(contents)
+    params = {}
+    contents.split("|").each do |part|
+      if part.include?("=")
+        key, value = part.split("=", 2)
+        params[key.strip.downcase] = value&.strip
+      end
+    end
+
+    # Extract author (last name, or author field)
+    author = params["last"] || params["last1"] || params["author"] || params["author1"] || ""
+    first = params["first"] || params["first1"] || ""
+    author = "#{author}, #{first}" if !author.empty? && !first.empty?
+
+    # Extract title
+    title = params["title"] || ""
+
+    # Extract year/date
+    year = params["year"] || ""
+    if year.empty? && params["date"]
+      # Extract year from date like "2021-05-15"
+      year = params["date"][0, 4] if params["date"] =~ /^\d{4}/
+    end
+
+    # Format: "Author. Title. Year." or partial if fields missing
+    parts = []
+    parts << author unless author.empty?
+    parts << "\"#{title}\"" unless title.empty?
+    parts << year unless year.empty?
+
+    parts.empty? ? "" : parts.join(". ") + "."
+  end
+
+  def correct_inline_template(str, enabled_markers = [], extract_citations = false)
     # Early exit if no templates present
     return str unless str.include?("{{")
 
@@ -345,12 +712,37 @@ module Wp2txt
       parts = contents.split("|")
       template_name = (parts[0] || "").strip.downcase
 
-      # Remove citation and navigation templates entirely
-      if REMOVE_TEMPLATES_REGEX.match?(contents)
+      # Handle citation templates
+      if CITATION_TEMPLATE_REGEX.match?(contents)
+        if extract_citations
+          format_citation(contents)
+        else
+          ""
+        end
+      # Remove other navigation templates entirely
+      elsif REMOVE_TEMPLATES_REGEX.match?(contents)
         ""
-      # {{IPA|...}} or {{IPA-xx|...}} - keep the pronunciation (check BEFORE country codes)
-      elsif template_name == "ipa" || template_name.start_with?("ipa-")
-        (parts[1] || "").to_s.strip
+      # {{IPA|...}} or {{IPA-xx|...}} or {{IPAc-xx|...}}
+      elsif template_name == "ipa" || template_name.start_with?("ipa-") || template_name.start_with?("ipac-")
+        if enabled_markers.include?(:ipa)
+          marker_placeholder(:ipa)
+        else
+          (parts[1] || "").to_s.strip
+        end
+      # {{math|...}} or {{mvar|...}} - mathematical notation
+      elsif template_name == "math" || template_name == "mvar"
+        if enabled_markers.include?(:math)
+          marker_placeholder(:math)
+        else
+          (parts[1] || "").to_s.strip
+        end
+      # {{chem|...}} or {{ce|...}} - chemical formulas
+      elsif template_name == "chem" || template_name == "ce"
+        if enabled_markers.include?(:chem)
+          marker_placeholder(:chem)
+        else
+          (parts[1] || "").to_s.strip
+        end
       # Remove country code flag templates (JPN, USA, GBR, etc.)
       elsif COUNTRY_CODE_REGEX.match?(parts[0]&.strip || "")
         ""

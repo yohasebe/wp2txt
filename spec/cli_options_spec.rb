@@ -18,7 +18,8 @@ class CLITestApp
     category: true,
     category_only: false,
     summary_only: false,
-    marker: true
+    marker: true,
+    extract_citations: false
   }.freeze
 
   def self.default_config
@@ -178,6 +179,10 @@ RSpec.describe "CLI Options" do
 
     it "marker defaults to true" do
       expect(defaults[:marker]).to be true
+    end
+
+    it "extract_citations defaults to false" do
+      expect(defaults[:extract_citations]).to be false
     end
   end
 
@@ -539,6 +544,75 @@ RSpec.describe "CLI Options" do
 
       expect(result).to include("日本語")
       expect(result.valid_encoding?).to be true
+    end
+  end
+
+  describe "--extract-citations option" do
+    include Wp2txt
+
+    # Test with inline citations in paragraph text
+    let(:inline_citation_wiki) do
+      <<~WIKI
+        '''Test Article''' is about testing.
+
+        The main source is {{cite book |last=Smith |first=John |title=The Book Title |year=2020}}.
+
+        Another reference: {{cite web |title=Web Page |url=http://example.com |date=2021-05-15}}.
+      WIKI
+    end
+
+    let(:inline_citation_article) { Wp2txt::Article.new(inline_citation_wiki, "Test Article") }
+
+    context "when extract_citations is false (default)" do
+      it "removes citations from text" do
+        config = CLITestApp.default_config
+        result = app.format_article(inline_citation_article, config)
+
+        expect(result).not_to include("Smith")
+        expect(result).not_to include("The Book Title")
+        expect(result).to include("The main source is")
+      end
+    end
+
+    context "when extract_citations is true" do
+      it "extracts formatted citations" do
+        config = CLITestApp.default_config.merge(extract_citations: true)
+        result = app.format_article(inline_citation_article, config)
+
+        expect(result).to include("Smith")
+        expect(result).to include("The Book Title")
+        expect(result).to include("2020")
+      end
+
+      it "extracts multiple citations" do
+        config = CLITestApp.default_config.merge(extract_citations: true)
+        result = app.format_article(inline_citation_article, config)
+
+        expect(result).to include("Smith")
+        expect(result).to include("Web Page")
+      end
+    end
+
+    # Test format_wiki directly for [REFERENCES] marker
+    describe "format_wiki with references" do
+      it "replaces {{reflist}} with [REFERENCES] marker by default" do
+        input = "Text\n{{reflist}}"
+        result = format_wiki(input)
+        expect(result).to include("[REFERENCES]")
+      end
+
+      it "replaces {{refbegin}}...{{refend}} with [REFERENCES] marker by default" do
+        input = "{{refbegin}}\n* Citation\n{{refend}}"
+        result = format_wiki(input)
+        expect(result).to include("[REFERENCES]")
+      end
+
+      it "extracts citations when extract_citations is true" do
+        input = "{{cite book |last=Author |title=Book |year=2020}}"
+        result = format_wiki(input, extract_citations: true)
+        expect(result).to include("Author")
+        expect(result).to include("Book")
+      end
     end
   end
 end

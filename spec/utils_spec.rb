@@ -144,6 +144,55 @@ RSpec.describe "Wp2txt Utils" do
       expect(c2).to eq "b|c"
       expect(d2).to eq "[ɲ], /J/"
     end
+
+    it "handles pipe trick (empty display text)" do
+      # Namespace prefix removal
+      expect(process_interwiki_links("[[Wikipedia:著作権|]]")).to eq "著作権"
+      expect(process_interwiki_links("[[Help:Contents|]]")).to eq "Contents"
+
+      # Disambiguation suffix removal
+      expect(process_interwiki_links("[[Tokyo (disambiguation)|]]")).to eq "Tokyo"
+      expect(process_interwiki_links("[[Mercury (planet)|]]")).to eq "Mercury"
+
+      # Comma suffix removal
+      expect(process_interwiki_links("[[Paris, Texas|]]")).to eq "Paris"
+      expect(process_interwiki_links("[[San Francisco, California|]]")).to eq "San Francisco"
+
+      # Combined: namespace and disambiguation
+      expect(process_interwiki_links("[[Wikipedia:Manual of Style (dates)|]]")).to eq "Manual of Style"
+    end
+
+    it "handles interwiki links" do
+      expect(process_interwiki_links("[[Wikisource:日本国憲法]]")).to eq "Wikisource:日本国憲法"
+      expect(process_interwiki_links("[[s:日本国憲法|日本国憲法]]")).to eq "日本国憲法"
+    end
+  end
+
+  describe "apply_pipe_trick" do
+    it "removes namespace prefix" do
+      expect(apply_pipe_trick("Wikipedia:Manual of Style")).to eq "Manual of Style"
+      expect(apply_pipe_trick("Help:Contents")).to eq "Contents"
+      expect(apply_pipe_trick("カテゴリ:日本")).to eq "日本"
+    end
+
+    it "removes disambiguation parenthetical" do
+      expect(apply_pipe_trick("Mercury (planet)")).to eq "Mercury"
+      expect(apply_pipe_trick("東京 (曖昧さ回避)")).to eq "東京"
+    end
+
+    it "removes comma and following text" do
+      expect(apply_pipe_trick("Paris, Texas")).to eq "Paris"
+      expect(apply_pipe_trick("San Francisco, California")).to eq "San Francisco"
+    end
+
+    it "handles combined cases" do
+      expect(apply_pipe_trick("Wikipedia:Manual of Style (dates)")).to eq "Manual of Style"
+    end
+
+    it "returns original if no transformation needed" do
+      expect(apply_pipe_trick("Simple")).to eq "Simple"
+      expect(apply_pipe_trick("東京")).to eq "東京"
+    end
   end
 
   describe "process_external_links" do

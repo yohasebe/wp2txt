@@ -73,6 +73,7 @@ module Wp2txt
     end
 
     def parse_index_stream(io)
+      count = 0
       io.each_line do |line|
         line = line.strip
         next if line.empty?
@@ -91,7 +92,14 @@ module Wp2txt
         if @stream_offsets.empty? || @stream_offsets.last != offset
           @stream_offsets << offset
         end
+
+        count += 1
+        if count % 500_000 == 0
+          print "\r  Parsed #{count / 1_000_000.0}M entries..."
+          $stdout.flush
+        end
       end
+      print "\r" + " " * 40 + "\r" if count >= 500_000  # Clear progress line
     end
   end
 
@@ -214,25 +222,40 @@ module Wp2txt
   end
 
   # Manages downloading and caching of dump files
+  # Supports any Wikipedia language code (e.g., en, ja, de, fr, zh, ar, etc.)
+  # Language metadata is stored in lib/wp2txt/data/language_metadata.json
   class DumpManager
     DUMP_BASE_URL = "https://dumps.wikimedia.org"
+    DEFAULT_CACHE_DIR = File.expand_path("~/.wp2txt/cache")
+
+    # Legacy constant for backward compatibility
     CACHE_DIR = "tmp/dump_cache"
 
-    LANGUAGES = {
-      en: { name: "English", size: :large },
-      zh: { name: "Chinese", size: :large },
-      ja: { name: "Japanese", size: :large },
-      ru: { name: "Russian", size: :large },
-      ar: { name: "Arabic", size: :medium },
-      ko: { name: "Korean", size: :medium }
-    }.freeze
+    # Legacy language configuration (for reference only - any language code is supported)
+    CORE_LANGUAGES = [:en, :ja, :zh, :ru, :ar, :ko].freeze
 
     attr_reader :lang, :cache_dir
 
-    def initialize(lang, cache_dir: CACHE_DIR)
+    class << self
+      # Get default cache directory
+      def default_cache_dir
+        DEFAULT_CACHE_DIR
+      end
+    end
+
+    def initialize(lang, cache_dir: nil)
       @lang = lang.to_sym
-      @cache_dir = cache_dir
+      @cache_dir = cache_dir || DEFAULT_CACHE_DIR
       FileUtils.mkdir_p(@cache_dir)
+    end
+
+    # Format bytes as human-readable string (KB or MB)
+    def format_size(bytes)
+      if bytes < 1_000_000
+        "#{(bytes / 1_000.0).round(0)}KB"
+      else
+        "#{(bytes / 1_000_000.0).round(1)}MB"
+      end
     end
 
     # Get the latest dump date for a language
@@ -243,23 +266,60 @@ module Wp2txt
     # Download multistream index file
     def download_index(force: false)
       index_path = cached_index_path
-      return index_path if File.exist?(index_path) && !force
+      if File.exist?(index_path) && !force
+        puts "Index already cached: #{File.basename(index_path)}"
+        $stdout.flush
+        return index_path
+      end
 
       url = index_url
       puts "Downloading index: #{url}"
+      $stdout.flush
       download_file(url, index_path)
       index_path
     end
 
     # Download multistream dump file
-    def download_multistream(force: false)
-      dump_path = cached_multistream_path
-      return dump_path if File.exist?(dump_path) && !force
+    # @param force [Boolean] Force re-download even if cached
+    # @param max_streams [Integer, nil] If set, only download first N streams (partial download)
+    def download_multistream(force: false, max_streams: nil)
+      dump_path = max_streams ? cached_partial_multistream_path(max_streams) : cached_multistream_path
+      if File.exist?(dump_path) && !force
+        puts "Multistream already cached: #{File.basename(dump_path)}"
+        $stdout.flush
+        return dump_path
+      end
 
       url = multistream_url
-      puts "Downloading multistream: #{url}"
-      download_file(url, dump_path)
+
+      if max_streams
+        # Partial download: need index first to know byte range
+        index_path = download_index
+        index = MultistreamIndex.new(index_path)
+
+        if index.stream_offsets.size >= max_streams
+          # Get byte range for first N streams
+          end_offset = index.stream_offsets[max_streams]
+          puts "Downloading first #{max_streams} streams (#{format_size(end_offset)}): #{url}"
+          $stdout.flush
+          download_file_range(url, dump_path, 0, end_offset - 1)
+        else
+          puts "Only #{index.stream_offsets.size} streams available, downloading all"
+          $stdout.flush
+          download_file(url, dump_path)
+        end
+      else
+        puts "Downloading multistream: #{url}"
+        $stdout.flush
+        download_file(url, dump_path)
+      end
+
       dump_path
+    end
+
+    # Path for partial multistream cache
+    def cached_partial_multistream_path(stream_count)
+      File.join(@cache_dir, "#{@lang}wiki-#{latest_dump_date}-multistream-#{stream_count}streams.xml.bz2")
     end
 
     # Get paths for cached files
@@ -277,6 +337,48 @@ module Wp2txt
       return false unless File.exist?(path)
 
       File.mtime(path) > Time.now - (days * 86400)
+    end
+
+    # Get cache status information
+    def cache_status
+      {
+        lang: @lang,
+        cache_dir: @cache_dir,
+        index_exists: File.exist?(cached_index_path),
+        index_path: cached_index_path,
+        index_size: File.exist?(cached_index_path) ? File.size(cached_index_path) : 0,
+        multistream_exists: File.exist?(cached_multistream_path),
+        multistream_path: cached_multistream_path,
+        multistream_size: File.exist?(cached_multistream_path) ? File.size(cached_multistream_path) : 0,
+        dump_date: (latest_dump_date rescue nil),
+        fresh: cache_fresh?
+      }
+    end
+
+    # Clear cache for this language
+    def clear_cache!
+      lang_dir = File.join(@cache_dir, "#{@lang}wiki")
+      FileUtils.rm_rf(lang_dir) if File.exist?(lang_dir)
+    end
+
+    # Clear all cache
+    def self.clear_all_cache!(cache_dir = DEFAULT_CACHE_DIR)
+      FileUtils.rm_rf(cache_dir) if File.exist?(cache_dir)
+    end
+
+    # Get status for all cached languages
+    def self.all_cache_status(cache_dir = DEFAULT_CACHE_DIR)
+      return {} unless File.exist?(cache_dir)
+
+      status = {}
+      Dir.glob(File.join(cache_dir, "*wiki")).each do |lang_dir|
+        lang = File.basename(lang_dir).sub(/wiki$/, "").to_sym
+        manager = new(lang, cache_dir: cache_dir)
+        status[lang] = manager.cache_status
+      rescue StandardError => e
+        status[lang] = { error: e.message }
+      end
+      status
     end
 
     private
@@ -323,8 +425,43 @@ module Wp2txt
                 downloaded += chunk.size
                 if total && total > 0
                   percent = (downloaded * 100.0 / total).round(1)
-                  print "\r  Progress: #{percent}% (#{downloaded / 1_000_000}MB / #{total / 1_000_000}MB)"
+                  print "\r  Progress: #{percent}% (#{format_size(downloaded)} / #{format_size(total)})"
+                  $stdout.flush
                 end
+              end
+              puts
+            else
+              raise "Download failed: #{response.code} #{response.message}"
+            end
+          end
+        end
+      end
+
+      path
+    end
+
+    # Download a range of bytes from a URL using HTTP Range header
+    def download_file_range(url, path, start_byte, end_byte)
+      uri = URI(url)
+
+      FileUtils.mkdir_p(File.dirname(path))
+
+      Net::HTTP.start(uri.host, uri.port, use_ssl: true) do |http|
+        request = Net::HTTP::Get.new(uri)
+        request["Range"] = "bytes=#{start_byte}-#{end_byte}"
+
+        File.open(path, "wb") do |file|
+          http.request(request) do |response|
+            if response.code == "206" || response.code == "200"
+              total = end_byte - start_byte + 1
+              downloaded = 0
+
+              response.read_body do |chunk|
+                file.write(chunk)
+                downloaded += chunk.size
+                percent = (downloaded * 100.0 / total).round(1)
+                print "\r  Progress: #{percent}% (#{format_size(downloaded)} / #{format_size(total)})"
+                $stdout.flush
               end
               puts
             else

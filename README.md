@@ -12,7 +12,7 @@ There are several tools for extracting plain text from Wikipedia dumps. [WikiExt
 | **Category metadata extraction** | ✅ | ❌ |
 | Category-only output (`-g`) | ✅ | ❌ |
 | Section headings | `==Title==` (customizable) | `Title.` (fixed format) |
-| Multilingual categories | ✅ (30+ languages) | — |
+| Multilingual categories | ✅ (350+ languages) | — |
 | Processing speed | Slower | ~10x faster |
 
 ### When to use wp2txt
@@ -38,16 +38,20 @@ See [CHANGELOG.md](CHANGELOG.md) for detailed release notes.
 
 **January 2026 (v2.0.0)**
 
+- **NEW: Auto-download mode** (`--lang=ja`) - automatically downloads Wikipedia dumps
+- **NEW: Article extraction** (`--articles`) - extract specific articles by title
 - **NEW: JSON/JSONL output format** (`--format json`) for machine-readable output
+- **NEW: Content type markers** (`--markers`) - mark MATH, CODE, CHEM, TABLE, etc.
 - **NEW: Streaming processing** - no intermediate XML files, reduced disk I/O
+- **NEW: Cache management** - manage downloaded dumps with `--cache-status` and `--cache-clear`
 - Full Ruby 4.0 compatibility
-- Multilingual support for category extraction (30+ languages including Japanese, Chinese, German, French, Russian, etc.)
-- Multilingual support for redirect detection (25+ languages)
+- Multilingual support for category extraction (350+ Wikipedia languages, auto-generated from MediaWiki API)
+- Multilingual support for redirect detection (350+ Wikipedia languages)
 - Fixed Unicode handling for emoji and supplementary plane characters
 - Fixed encoding error handling (no longer crashes on invalid UTF-8)
 - Improved handling of File/Image links in article output
 - Performance optimizations (reduced memory allocations, regex caching)
-- Comprehensive test suite (252 tests, 83%+ coverage)
+- Comprehensive test suite (320+ tests, 74%+ coverage)
 - Deprecated: `--convert` and `--del-interfile` options (no longer needed)
 
 **May 2023**
@@ -91,9 +95,13 @@ In the above environment, the process (decompression, splitting, extraction, and
 ## Features
 
 - Converts Wikipedia dump files in various languages
+- **Auto-download mode** - automatically download and process dumps by language code
+- **Extract specific articles** - extract individual articles by title without downloading the full dump
 - **Extracts category information of the article** (unique feature)
 - **JSON/JSONL output format** for machine-readable data pipelines
+- **Content type markers** - mark mathematical formulas, code blocks, chemical formulas, tables, etc.
 - **Streaming processing** - processes bz2 files directly without intermediate files
+- **Cache management** - downloaded dumps are cached for reuse
 - Creates output files of specified size
 - Allows specifying elements (page titles, section headers, paragraphs, list items) to be extracted
 - Allows extracting opening paragraphs of the article
@@ -145,6 +153,20 @@ Install [Bzip2 for Windows](http://gnuwin32.sourceforge.net/packages/bzip2.htm) 
 
 ## Wikipedia Dump File
 
+### Option 1: Auto-download (Recommended)
+
+WP2TXT can automatically download Wikipedia dumps. Just specify the language code:
+
+    $ wp2txt --lang=ja -o ./text
+
+The dump will be downloaded to `~/.wp2txt/cache/` and cached for future use. You can check or clear the cache:
+
+    $ wp2txt --cache-status           # Show cache status
+    $ wp2txt --cache-clear            # Clear all cache
+    $ wp2txt --cache-clear --lang=ja  # Clear cache for Japanese only
+
+### Option 2: Manual Download
+
 Download the latest Wikipedia dump file for the desired language at a URL such as
 
     https://dumps.wikimedia.org/enwiki/latest/enwiki-latest-pages-articles.xml.bz2
@@ -159,7 +181,19 @@ where `xx` is language code such as `en` (English)" or `ja` (japanese), and  `yy
 
 ## Basic Usage
 
-### Extract plain text from Wikipedia dump
+### Auto-download and process (Recommended)
+
+    $ wp2txt --lang=ja -o ./text
+
+This automatically downloads the Japanese Wikipedia dump and extracts plain text.
+
+### Extract specific articles by title
+
+    $ wp2txt --lang=ja --articles="認知言語学,生成文法" -o ./articles
+
+This extracts only the specified articles. Only the index file and necessary data streams are downloaded, making it much faster than processing the full dump.
+
+### Extract plain text from local dump file
 
     $ wp2txt -i ./enwiki-20220801-pages-articles.xml.bz2 -o ./text
 
@@ -218,15 +252,86 @@ For redirect articles:
 {"title": "NYC", "categories": [], "text": "", "redirect": "New York City"}
 ```
 
+### Content Type Markers (v2.0+)
+
+By default, special content is replaced with marker placeholders to indicate content type:
+
+| Marker | Content Type | Example MediaWiki |
+|--------|--------------|-------------------|
+| `[MATH]` | Mathematical formulas | `<math>E=mc^2</math>` |
+| `[CODE]` | Source code blocks | `<source>`, `<syntaxhighlight>`, `<code>` |
+| `[CHEM]` | Chemical formulas | `<chem>H2O</chem>` |
+| `[TABLE]` | Wiki tables | `{| ... |}` |
+| `[SCORE]` | Musical scores | `<score>...</score>` |
+| `[TIMELINE]` | Timeline graphics | `<timeline>...</timeline>` |
+| `[GRAPH]` | Graphs/charts | `<graph>...</graph>` |
+| `[IPA]` | IPA phonetic notation | `{{IPA|...}}` |
+| `[INFOBOX]` | Information boxes | `{{Infobox ...}}` |
+| `[NAVBOX]` | Navigation boxes | `{{Navbox ...}}` |
+| `[GALLERY]` | Image galleries | `<gallery>...</gallery>` |
+| `[SIDEBAR]` | Sidebar templates | `{{Sidebar ...}}` |
+| `[MAPFRAME]` | Interactive maps | `<mapframe>...</mapframe>` |
+| `[IMAGEMAP]` | Clickable image maps | `<imagemap>...</imagemap>` |
+| `[REFERENCES]` | Reference lists | `{{reflist}}`, `{{refbegin}}...{{refend}}` |
+
+Configure markers with `--markers`:
+
+    $ wp2txt --lang=en --markers=all -o ./text      # All markers (default)
+    $ wp2txt --lang=en --markers=none -o ./text     # No markers (content removed)
+    $ wp2txt --lang=en --markers=math,code -o ./text  # Only MATH and CODE markers
+
+### Citation Extraction (v2.0+)
+
+By default, citation templates like `{{cite book}}` are removed. Use `--extract-citations` to extract formatted citations instead:
+
+    $ wp2txt --lang=en --extract-citations -o ./text
+
+When using the Ruby API, you can also enable this with the `extract_citations` option:
+
+```ruby
+require 'wp2txt'
+include Wp2txt
+
+# Default: citations are removed
+text = "{{cite book |last=Smith |title=The Book |year=2020}}"
+format_wiki(text)
+# => ""
+
+# With extract_citations: true
+format_wiki(text, extract_citations: true)
+# => "Smith. \"The Book\". 2020."
+
+# Works with refbegin/refend blocks
+bibliography = "{{refbegin}}\n* {{cite book |last=Author |title=Book |year=2021}}\n{{refend}}"
+format_wiki(bibliography, extract_citations: true)
+# => "* Author. \"Book\". 2021."
+```
+
+Supported citation templates:
+- `{{cite book}}`, `{{cite web}}`, `{{cite news}}`, `{{cite journal}}`
+- `{{cite magazine}}`, `{{cite conference}}`, `{{Citation}}`
+
 ## Command Line Options
 
 Command line options are as follows:
 
     Usage: wp2txt [options]
-    where [options] are:
-      -i, --input                      Path to compressed file (bz2) or XML file, or path to directory containing XML files
-      -o, --output-dir=<s>             Path to output directory
+
+    Input source (one of --input or --lang required):
+      -i, --input=<s>                  Path to compressed file (bz2) or XML file
+      -L, --lang=<s>                   Wikipedia language code (e.g., ja, en, de) for auto-download
+      -A, --articles=<s>               Specific article titles to extract (comma-separated, requires --lang)
+
+    Output options:
+      -o, --output-dir=<s>             Path to output directory (default: current directory)
       -j, --format=<s>                 Output format: text or json (JSONL) (default: text)
+
+    Cache management:
+      --cache-dir=<s>                  Cache directory for downloaded dumps (default: ~/.wp2txt/cache)
+      --cache-status                   Show cache status and exit
+      --cache-clear                    Clear cache and exit (use with --lang to clear specific language)
+
+    Processing options:
       -a, --category, --no-category    Show article category information (default: true)
       -g, --category-only              Extract only article title and categories
       -s, --summary-only               Extract only article title, categories, and summary text before first heading
@@ -238,13 +343,15 @@ Command line options are as follows:
       -r, --ref                        Keep reference notations in the format [ref]...[/ref]
       -e, --redirect                   Show redirect destination
       -m, --marker, --no-marker        Show symbols prefixed to list items, definitions, etc. (default: true)
+      -k, --markers=<s>                Content type markers: math,code,chem,table,score,timeline,graph,ipa or 'all'/'none' (default: all)
+      -C, --extract-citations          Extract formatted citations instead of removing them
       -b, --bz2-gem                    Use Ruby's bzip2-ruby gem instead of a system command
       -v, --version                    Print version and exit
       -h, --help                       Show this message
 
 ## Caveats
 
-* Some data, such as mathematical formulas and computer source code, will not be converted correctly.
+* Special content like mathematical formulas, code blocks, and chemical formulas are marked with placeholders (e.g., `[MATH]`, `[CODE]`, `[CHEM]`) by default. Use `--markers=none` to disable markers.
 * Some text data may not be extracted correctly for various reasons (incorrect matching of begin/end tags, language-specific formatting rules, etc.).
 * The conversion process can take longer than expected. When dealing with a huge data set such as the English Wikipedia on a low-spec environment, it can take several hours or more.
 

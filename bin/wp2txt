@@ -5,6 +5,8 @@
 require_relative "../lib/wp2txt"
 require_relative "../lib/wp2txt/utils"
 require_relative "../lib/wp2txt/version"
+require_relative "../lib/wp2txt/cli"
+require_relative "../lib/wp2txt/multistream"
 
 require "etc"
 require "json"
@@ -307,69 +309,57 @@ class WpApp
     end
   end
 
+  # Parse --markers option value
+  # "all" -> true (all markers enabled)
+  # "none" -> false (no markers)
+  # "math,code,chem" -> [:math, :code, :chem]
+  def parse_markers_option(value)
+    case value.to_s.downcase.strip
+    when "all", "true", ""
+      true
+    when "none", "false"
+      false
+    else
+      # Parse comma-separated list
+      value.split(",").map { |m| m.strip.downcase.to_sym }.select do |m|
+        Wp2txt::MARKER_TYPES.include?(m)
+      end
+    end
+  end
+
   public
 
   # Main execution method
   def run
-    # Parse command line options
-    opts = Optimist.options do
-      version Wp2txt::VERSION
-      banner <<~BANNER
-        WP2TXT extracts plain text data from Wikipedia dump file (encoded in XML/compressed with Bzip2)
-        stripping all the MediaWiki markups and other metadata.
+    # Parse command line options using CLI module
+    opts = Wp2txt::CLI.parse_options(ARGV)
 
-        Usage: wp2txt [options]
-        where [options] are:
-      BANNER
-
-      opt :input, "Path to compressed file (bz2) or XML file, or path to directory containing XML files",
-          type: String, required: true, short: "-i"
-      opt :output_dir, "Path to output directory",
-          default: Dir.pwd, type: String, short: "-o"
-      opt :format, "Output format: text or json (JSONL)",
-          default: "text", short: "-j"
-      opt :category, "Show article category information",
-          default: true, short: "-a"
-      opt :category_only, "Extract only article title and categories",
-          default: false, short: "-g"
-      opt :summary_only, "Extract only article title, categories, and summary text before first heading",
-          default: false, short: "-s"
-      opt :file_size, "Approximate size (in MB) of each output file (0 for single file)",
-          default: 10, short: "-f"
-      opt :num_procs, "Number of processes (up to #{MAX_PROCESSORS}) to be run concurrently",
-          type: Integer, short: "-n"
-      opt :title, "Keep page titles in output",
-          default: true, short: "-t"
-      opt :heading, "Keep section titles in output",
-          default: true, short: "-d"
-      opt :list, "Keep unprocessed list items in output",
-          default: false, short: "-l"
-      opt :ref, "Keep reference notations in the format [ref]...[/ref]",
-          default: false, short: "-r"
-      opt :redirect, "Show redirect destination",
-          default: false, short: "-e"
-      opt :marker, "Show symbols prefixed to list items, definitions, etc.",
-          default: true, short: "-m"
-      opt :bz2_gem, "Use Ruby's bzip2-ruby gem instead of a system command",
-          default: false, short: "-b"
-      # Deprecated options (kept for backward compatibility)
-      opt :convert, "[DEPRECATED] This option is no longer needed",
-          default: true, short: "-c"
-      opt :del_interfile, "[DEPRECATED] Intermediate files are no longer created",
-          short: "-x", default: false
+    # Handle cache operations
+    if opts[:cache_status]
+      show_cache_status(opts[:cache_dir])
+      return
     end
 
-    # Validate command line options
-    Optimist.die :file_size, "must be 0 or larger" unless opts[:file_size] >= 0
-    Optimist.die :input, "must exist" unless File.exist?(opts[:input])
-    Optimist.die :output_dir, "must exist" unless File.exist?(opts[:output_dir])
+    if opts[:cache_clear]
+      clear_cache(opts[:cache_dir], opts[:lang])
+      return
+    end
+
+    # Determine input source
+    if opts[:articles] && opts[:lang]
+      # Article extraction mode
+      extract_specific_articles(opts)
+      return
+    end
+
+    input_path = if opts[:lang]
+                   download_dump(opts[:lang], opts[:cache_dir])
+                 else
+                   opts[:input]
+                 end
 
     # Validate format option
-    format = opts[:format].to_s.downcase
-    unless %w[text json].include?(format)
-      Optimist.die :format, "must be 'text' or 'json'"
-    end
-    format = format.to_sym
+    format = opts[:format].to_s.downcase.to_sym
 
     # Show deprecation warnings
     if opts[:convert_given] || opts[:del_interfile_given]
@@ -389,14 +379,255 @@ class WpApp
     }
 
     %i[title list heading table redirect multiline category category_only
-       summary_only marker].each do |opt|
+       summary_only marker extract_citations].each do |opt|
       config[opt] = opts[opt]
     end
 
+    # Parse markers option
+    config[:markers] = parse_markers_option(opts[:markers])
+
     # Process input
-    process_stream(opts[:input], opts[:output_dir], config)
+    process_stream(input_path, opts[:output_dir], config)
 
     puts @pastel.blue.bold("\nComplete!")
+  end
+
+  # Show cache status
+  def show_cache_status(cache_dir)
+    puts @pastel.cyan.bold("=== WP2TXT Cache Status ===")
+    puts "Cache directory: #{cache_dir}"
+    puts
+
+    status = Wp2txt::DumpManager.all_cache_status(cache_dir)
+
+    if status.empty?
+      puts "No cached dumps found."
+      return
+    end
+
+    status.each do |lang, info|
+      if info[:error]
+        puts "#{@pastel.yellow(lang.to_s)}: Error - #{info[:error]}"
+      else
+        index_size = info[:index_size] > 0 ? format_file_size(info[:index_size]) : "not downloaded"
+        multistream_size = info[:multistream_size] > 0 ? format_file_size(info[:multistream_size]) : "not downloaded"
+        fresh_icon = info[:fresh] ? @pastel.green("✓") : @pastel.yellow("○")
+
+        puts "#{@pastel.bold(lang.to_s)}:"
+        puts "  #{fresh_icon} Index: #{index_size}"
+        puts "  #{fresh_icon} Multistream: #{multistream_size}"
+        puts "  Date: #{info[:dump_date] || 'unknown'}"
+        puts
+      end
+    end
+  end
+
+  # Clear cache
+  def clear_cache(cache_dir, lang = nil)
+    if lang
+      puts "Clearing cache for #{lang}..."
+      manager = Wp2txt::DumpManager.new(lang, cache_dir: cache_dir)
+      manager.clear_cache!
+      puts @pastel.green("Cache cleared for #{lang}.")
+    else
+      puts "Clearing all cache..."
+      Wp2txt::DumpManager.clear_all_cache!(cache_dir)
+      puts @pastel.green("All cache cleared.")
+    end
+  end
+
+  # Download dump for a language
+  def download_dump(lang, cache_dir)
+    puts @pastel.cyan.bold("=== Auto-Download Mode ===")
+    puts "Language: #{lang}"
+    puts "Cache directory: #{cache_dir}"
+    puts
+
+    manager = Wp2txt::DumpManager.new(lang, cache_dir: cache_dir)
+
+    # Download multistream dump (includes index download)
+    puts "Checking for latest dump..."
+    dump_date = manager.latest_dump_date
+    puts "Latest dump date: #{dump_date}"
+    puts
+
+    # Download index and multistream
+    manager.download_index
+    manager.download_multistream
+
+    puts @pastel.green("\nDownload complete!")
+    puts
+
+    # Return path to multistream file
+    manager.cached_multistream_path
+  end
+
+  # Format file size for display
+  def format_file_size(bytes)
+    if bytes < 1024
+      "#{bytes} B"
+    elsif bytes < 1024 * 1024
+      "#{(bytes / 1024.0).round(1)} KB"
+    elsif bytes < 1024 * 1024 * 1024
+      "#{(bytes / (1024.0 * 1024)).round(1)} MB"
+    else
+      "#{(bytes / (1024.0 * 1024 * 1024)).round(2)} GB"
+    end
+  end
+
+  # Extract specific articles by title
+  def extract_specific_articles(opts)
+    lang = opts[:lang]
+    cache_dir = opts[:cache_dir]
+    article_titles = Wp2txt::CLI.parse_article_list(opts[:articles])
+
+    puts @pastel.cyan.bold("=== Article Extraction Mode ===")
+    puts "Language: #{lang}"
+    puts "Articles: #{article_titles.join(', ')}"
+    puts "Output: #{opts[:output_dir]}"
+    puts
+
+    # Create dump manager
+    manager = Wp2txt::DumpManager.new(lang, cache_dir: cache_dir)
+
+    # Download index only (much smaller than full dump)
+    puts "Downloading index file..."
+    index_path = manager.download_index
+    puts
+
+    # Load index
+    puts "Loading index..."
+    spinner = TTY::Spinner.new("[:spinner] Parsing index...", format: :dots, hide_cursor: true)
+    spinner.auto_spin
+    index = Wp2txt::MultistreamIndex.new(index_path)
+    spinner.success("Done! (#{index.size} articles indexed)")
+    puts
+
+    # Find requested articles
+    found_articles = []
+    not_found = []
+
+    article_titles.each do |title|
+      entry = index.find_by_title(title)
+      if entry
+        found_articles << entry
+        puts "  #{@pastel.green('✓')} Found: #{title}"
+      else
+        not_found << title
+        puts "  #{@pastel.red('✗')} Not found: #{title}"
+      end
+    end
+
+    if found_articles.empty?
+      puts @pastel.red("\nNo articles found. Please check the titles.")
+      return
+    end
+
+    puts
+
+    # Group by stream offset for efficient download
+    streams_needed = found_articles.map { |e| e[:offset] }.uniq.sort
+
+    puts "Downloading #{streams_needed.size} stream(s)..."
+
+    # Download multistream file (partial, only needed streams)
+    multistream_path = download_partial_streams(manager, index, streams_needed)
+
+    # Create multistream reader
+    reader = Wp2txt::MultistreamReader.new(multistream_path, index_path)
+
+    # Build config for processing
+    format = opts[:format].to_s.downcase.to_sym
+    config = build_extraction_config(opts, format)
+
+    # Create output writer
+    base_name = "#{lang}wiki_articles"
+    writer = OutputWriter.new(
+      output_dir: opts[:output_dir],
+      base_name: base_name,
+      format: format,
+      file_size_mb: opts[:file_size]
+    )
+
+    # Extract and process articles
+    puts "\nExtracting articles..."
+    extracted_count = 0
+
+    found_articles.each do |entry|
+      title = entry[:title]
+      page = reader.extract_article(title)
+
+      if page
+        article = Article.new(page[:text], page[:title], !config[:marker])
+        result = format_article(article, config)
+        writer.write(result)
+        extracted_count += 1
+        puts "  #{@pastel.green('✓')} Extracted: #{title}"
+      else
+        puts "  #{@pastel.yellow('!')} Could not extract: #{title}"
+      end
+    end
+
+    # Close output
+    output_files = writer.close
+
+    puts
+    puts @pastel.green.bold("Extraction complete!")
+    puts "Extracted #{extracted_count} of #{article_titles.size} articles"
+
+    if not_found.any?
+      puts @pastel.yellow("\nNot found (#{not_found.size}):")
+      not_found.each { |t| puts "  - #{t}" }
+    end
+
+    puts "\nOutput files:"
+    output_files.each { |f| puts "  - #{f}" }
+  end
+
+  # Download only the streams containing the requested articles
+  def download_partial_streams(manager, index, stream_offsets)
+    # Calculate byte range needed
+    all_offsets = index.stream_offsets
+    max_offset_needed = stream_offsets.max
+
+    # Find the end of the last needed stream
+    max_idx = all_offsets.index(max_offset_needed)
+    if max_idx && max_idx < all_offsets.size - 1
+      end_byte = all_offsets[max_idx + 1] - 1
+    else
+      # Need full file for last stream
+      return manager.download_multistream
+    end
+
+    # Check if we already have a suitable partial download
+    stream_count = max_idx + 1
+    partial_path = manager.cached_partial_multistream_path(stream_count)
+
+    if File.exist?(partial_path)
+      puts "Using cached partial download: #{File.basename(partial_path)}"
+      return partial_path
+    end
+
+    # Download partial file
+    manager.download_multistream(max_streams: stream_count)
+  end
+
+  # Build config hash for article extraction
+  def build_extraction_config(opts, format)
+    config = {
+      format: format,
+      num_procs: 1,  # Single-threaded for article extraction
+      file_size: opts[:file_size],
+      bz2_gem: opts[:bz2_gem]
+    }
+
+    %i[title list heading table redirect multiline category category_only
+       summary_only marker extract_citations].each do |opt|
+      config[opt] = opts[opt]
+    end
+
+    config[:markers] = parse_markers_option(opts[:markers])
+    config
   end
 end
 

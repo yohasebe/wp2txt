@@ -38,42 +38,157 @@ namespace :testdata do
     puts
   end
 
-  desc "Download and cache test data for a language"
-  task :prepare, [:lang, :level] do |t, args|
-    require_relative "./lib/wp2txt/test_data_manager"
+  desc "Download and cache test data for a language (partial download, ~500-1000 articles)"
+  task :prepare, [:lang, :streams] do |t, args|
+    require_relative "./lib/wp2txt/multistream"
 
     lang = (args[:lang] || "en").to_sym
-    level = (args[:level] || "unit").to_sym
+    max_streams = (args[:streams] || "10").to_i
 
-    puts "Preparing test data: #{lang}/#{level}"
-    manager = Wp2txt::TestDataManager.new(lang, level: level)
-    articles = manager.articles
-    puts "Ready: #{articles.size} articles cached"
-  end
+    puts "Preparing test data: #{lang} (first #{max_streams} streams)"
 
-  desc "Refresh test data cache for a language"
-  task :refresh, [:lang, :level] do |t, args|
-    require_relative "./lib/wp2txt/test_data_manager"
+    dump_manager = Wp2txt::DumpManager.new(lang, cache_dir: "tmp/test_cache/dumps")
 
-    lang = (args[:lang] || "en").to_sym
-    level = (args[:level] || "unit").to_sym
+    # Download index first
+    puts "\n=== Downloading index ==="
+    index_path = dump_manager.download_index
 
-    puts "Refreshing test data: #{lang}/#{level}"
-    manager = Wp2txt::TestDataManager.new(lang, level: level)
-    manager.refresh!
-  end
+    # Partial download of multistream
+    puts "\n=== Downloading partial multistream ==="
+    multistream_path = dump_manager.download_multistream(max_streams: max_streams)
 
-  desc "Prepare all test data for all languages"
-  task :prepare_all do
-    require_relative "./lib/wp2txt/test_data_manager"
+    # Extract articles
+    puts "\n=== Extracting articles ==="
+    reader = Wp2txt::MultistreamReader.new(multistream_path, index_path)
 
-    Wp2txt::TestDataManager::TEST_LANGUAGES.each do |lang|
-      [:unit].each do |level|  # Only unit level for prepare_all
-        puts "\n=== Preparing #{lang}/#{level} ==="
-        manager = Wp2txt::TestDataManager.new(lang, level: level)
-        articles = manager.articles
-        puts "Ready: #{articles.size} articles"
+    articles = []
+    stream_count = 0
+    reader.each_article_in_first_streams(max_streams) do |page|
+      articles << {
+        title: page[:title],
+        id: page[:id],
+        text: page[:text]
+      }
+      if articles.size % 50 == 0
+        print "\r  Extracted: #{articles.size} articles"
+        $stdout.flush
       end
+    end
+    puts "\r  Extracted: #{articles.size} articles (done)"
+
+    # Save to cache
+    require "json"
+    require "fileutils"
+    cache_path = "tmp/test_cache/#{lang}/test_#{max_streams}streams.json"
+    FileUtils.mkdir_p(File.dirname(cache_path))
+    File.write(cache_path, JSON.pretty_generate(articles))
+
+    puts "Ready: #{articles.size} articles cached to #{cache_path}"
+  end
+
+  desc "Prepare test data for all supported languages"
+  task :prepare_all, [:streams] do |t, args|
+    require_relative "./lib/wp2txt/multistream"
+
+    max_streams = (args[:streams] || "10").to_i
+    languages = [:en, :zh, :ja, :ru, :ar, :ko]
+
+    languages.each do |lang|
+      puts "\n" + "=" * 60
+      puts "=== Preparing #{lang} ==="
+      puts "=" * 60
+      Rake::Task["testdata:prepare"].reenable
+      Rake::Task["testdata:prepare"].invoke(lang, max_streams)
+    end
+  end
+
+  # =========================================================================
+  # Tier-based Test Data Management
+  # =========================================================================
+
+  desc "Show tier-based test data status"
+  task :tier_status do
+    require_relative "./lib/wp2txt/test_data_manager"
+    Wp2txt::TestDataManager.print_tier_status
+  end
+
+  desc "Prepare test data for a specific tier (tier1, tier2, tier3, tier4)"
+  task :prepare_tier, [:tier] do |t, args|
+    require_relative "./lib/wp2txt/test_data_manager"
+    require_relative "./lib/wp2txt/multistream"
+    require "json"
+    require "fileutils"
+
+    tier_name = args[:tier] || "tier1"
+    languages = Wp2txt::TestDataManager.languages_in_tier(tier_name)
+
+    if languages.empty?
+      puts "No languages in #{tier_name}"
+      exit 1
+    end
+
+    puts "=== Preparing #{tier_name.upcase} ==="
+    puts "Languages: #{languages.size}"
+    puts
+
+    languages.each_with_index do |lang, idx|
+      sample_size = Wp2txt::TestDataManager.sample_size_for(lang)
+      puts "\n[#{idx + 1}/#{languages.size}] #{lang} (#{sample_size} articles)"
+      $stdout.flush
+
+      begin
+        # Estimate streams needed (roughly 100 articles per stream)
+        streams_needed = [(sample_size / 100.0).ceil + 1, 1].max
+
+        dump_manager = Wp2txt::DumpManager.new(lang, cache_dir: "tmp/test_cache/dumps")
+
+        # Download index
+        index_path = dump_manager.download_index
+        multistream_path = dump_manager.download_multistream(max_streams: streams_needed)
+
+        # Extract articles
+        print "  Loading index..."
+        $stdout.flush
+        reader = Wp2txt::MultistreamReader.new(multistream_path, index_path)
+        puts " done (#{reader.index.size} articles in index)"
+
+        print "  Extracting articles: "
+        $stdout.flush
+        articles = []
+
+        reader.each_article_in_first_streams(streams_needed) do |page|
+          articles << {
+            title: page[:title],
+            id: page[:id],
+            text: page[:text]
+          }
+          if articles.size % 100 == 0
+            print "\r  Extracting articles: #{articles.size}/#{sample_size}"
+            $stdout.flush
+          end
+          break if articles.size >= sample_size
+        end
+        puts "\r  Extracting articles: #{articles.size}/#{sample_size} done"
+
+        # Save to cache
+        cache_path = "tmp/test_cache/#{lang}/tier_#{sample_size}.json"
+        FileUtils.mkdir_p(File.dirname(cache_path))
+        File.write(cache_path, JSON.pretty_generate(articles))
+
+        puts "  ✓ Cached #{articles.size} articles"
+      rescue StandardError => e
+        puts "  ✗ Error: #{e.message}"
+      end
+    end
+
+    puts "\n=== #{tier_name.upcase} Complete ==="
+  end
+
+  desc "Prepare test data for all tiers"
+  task :prepare_all_tiers do
+    %w[tier1 tier2 tier3 tier4].each do |tier|
+      Rake::Task["testdata:prepare_tier"].reenable
+      Rake::Task["testdata:prepare_tier"].invoke(tier)
     end
   end
 end
@@ -83,35 +198,28 @@ end
 # =============================================================================
 
 namespace :validate do
-  desc "Download dump files for a language"
-  task :download, [:lang] do |t, args|
-    require_relative "./lib/wp2txt/multistream"
-
-    lang = (args[:lang] || "ja").to_sym
-    manager = Wp2txt::DumpManager.new(lang)
-
-    puts "Downloading dumps for #{lang}wiki (#{manager.latest_dump_date})..."
-    manager.download_index
-    manager.download_multistream
-    puts "Done!"
-  end
-
   desc "Run validation on cached test data"
-  task :run, [:lang, :level] do |t, args|
+  task :run, [:lang, :streams] do |t, args|
     require_relative "./lib/wp2txt"
     require_relative "./lib/wp2txt/article"
     require_relative "./lib/wp2txt/utils"
     require_relative "./lib/wp2txt/test_data_manager"
+    require "json"
 
     include Wp2txt
 
-    lang = (args[:lang] || "ja").to_sym
-    level = (args[:level] || "unit").to_sym
+    lang = (args[:lang] || "en").to_sym
+    streams = (args[:streams] || "10").to_i
+    cache_path = "tmp/test_cache/#{lang}/test_#{streams}streams.json"
 
-    puts "=== Validation: #{lang}/#{level} ==="
+    unless File.exist?(cache_path)
+      puts "Cache not found. Run: rake testdata:prepare[#{lang},#{streams}]"
+      exit 1
+    end
 
-    manager = Wp2txt::TestDataManager.new(lang, level: level)
-    articles = manager.articles
+    puts "=== Validation: #{lang} (#{streams} streams) ==="
+
+    articles = JSON.parse(File.read(cache_path), symbolize_names: true)
     puts "Loaded #{articles.size} articles"
 
     detector = Wp2txt::IssueDetector.new
@@ -129,6 +237,10 @@ namespace :validate do
 
           case type
           when :mw_heading, :mw_paragraph, :mw_link, :mw_ml_link
+            output << format_wiki(content, {}) << "\n"
+          when :mw_unordered, :mw_ordered, :mw_definition
+            output << format_wiki(content, {}) << "\n"
+          when :mw_isolated_tag
             output << format_wiki(content, {}) << "\n"
           end
         end
@@ -149,28 +261,42 @@ namespace :validate do
           output: "",
           processing_time: nil
         )
-        puts "  Error processing #{article_data[:title]}: #{e.message}"
+        puts "  Error: #{article_data[:title]}: #{e.message}"
       end
 
       processed += 1
-      print "\r  Processed: #{processed}/#{articles.size}" if processed % 10 == 0
+      if processed % 10 == 0
+        print "\r  Processed: #{processed}/#{articles.size}"
+        $stdout.flush
+      end
     end
 
     puts "\n\n=== Summary ==="
     summary = detector.summary
-    if summary.is_a?(String)
-      puts summary
-    else
-      puts "Articles with issues: #{summary[:total_articles_with_issues]}"
+    puts "Analyzed: #{summary[:total_analyzed]} articles (#{summary[:skipped_non_articles]} non-article pages skipped)"
+    puts "Articles with issues: #{summary[:total_articles_with_issues]} (#{summary[:issue_rate]}%)"
+    if summary[:issues_by_type].any?
       puts "\nIssues by type:"
       summary[:issues_by_type].each do |type, count|
         puts "  #{type}: #{count}"
       end
     end
 
-    # Save detailed log
-    log_path = "tmp/validation/#{lang}_#{level}_#{Time.now.strftime('%Y%m%d_%H%M%S')}.jsonl"
+    # Save log
+    log_path = "tmp/validation/#{lang}_#{streams}streams_#{Time.now.strftime('%Y%m%d_%H%M%S')}.jsonl"
     detector.save(log_path)
+  end
+
+  desc "Run validation on all supported languages"
+  task :run_all, [:streams] do |t, args|
+    streams = (args[:streams] || "10").to_i
+    languages = [:en, :zh, :ja, :ru, :ar, :ko]
+
+    languages.each do |lang|
+      puts "\n" + "=" * 60
+      Rake::Task["validate:run"].reenable
+      Rake::Task["validate:run"].invoke(lang, streams)
+    end
   end
 
   desc "Run full validation on complete dump"
@@ -213,6 +339,11 @@ namespace :validate do
             case type
             when :mw_heading, :mw_paragraph, :mw_link, :mw_ml_link
               output << format_wiki(content, {}) << "\n"
+            when :mw_unordered, :mw_ordered, :mw_definition
+              output << format_wiki(content, {}) << "\n"
+            when :mw_isolated_tag
+              # Process HTML content (e.g., <ul><li> lists)
+              output << format_wiki(content, {}) << "\n"
             end
           end
           output = cleanup(output)
@@ -235,7 +366,8 @@ namespace :validate do
         if processed % 1000 == 0
           elapsed = Time.now - start_time
           rate = processed / elapsed
-          puts "\r  Processed: #{processed} (#{rate.round(1)} articles/sec)"
+          print "\r  Processed: #{processed} (#{rate.round(1)} articles/sec)"
+          $stdout.flush
         end
       end
 
@@ -247,7 +379,10 @@ namespace :validate do
     end
 
     elapsed = Time.now - start_time
-    puts "\n\nCompleted: #{processed} articles in #{(elapsed / 60).round(1)} minutes"
+    summary = detector.summary
+    puts "\n\nCompleted in #{(elapsed / 60).round(1)} minutes"
+    puts "Analyzed: #{summary[:total_analyzed]} articles (#{summary[:skipped_non_articles]} non-article pages skipped)"
+    puts "Issues: #{summary[:total_articles_with_issues]} (#{summary[:issue_rate]}%)"
 
     # Save final log
     log_path = "tmp/validation/#{lang}_full_#{Time.now.strftime('%Y%m%d_%H%M%S')}.jsonl"
@@ -287,6 +422,130 @@ namespace :validate do
       type_samples[type].each do |sample|
         puts "  - #{sample[:title]}: #{sample[:context][0..80]}"
       end
+    end
+  end
+
+  # =========================================================================
+  # Tier-based Validation
+  # =========================================================================
+
+  desc "Validate a specific tier"
+  task :tier, [:tier] do |t, args|
+    require_relative "./lib/wp2txt"
+    require_relative "./lib/wp2txt/article"
+    require_relative "./lib/wp2txt/utils"
+    require_relative "./lib/wp2txt/test_data_manager"
+    require "json"
+
+    include Wp2txt
+
+    tier_name = args[:tier] || "tier1"
+    languages = Wp2txt::TestDataManager.languages_in_tier(tier_name)
+
+    if languages.empty?
+      puts "No languages in #{tier_name}"
+      exit 1
+    end
+
+    puts "=== Validating #{tier_name.upcase} ==="
+    puts "Languages: #{languages.size}"
+
+    tier_summary = {}
+
+    languages.each_with_index do |lang, idx|
+      sample_size = Wp2txt::TestDataManager.sample_size_for(lang)
+      cache_path = "tmp/test_cache/#{lang}/tier_#{sample_size}.json"
+
+      unless File.exist?(cache_path)
+        puts "\n[#{idx + 1}/#{languages.size}] #{lang}: ❌ Cache missing"
+        tier_summary[lang] = { status: :missing }
+        next
+      end
+
+      puts "\n[#{idx + 1}/#{languages.size}] #{lang} (#{sample_size} articles)"
+
+      begin
+        articles = JSON.parse(File.read(cache_path), symbolize_names: true)
+        detector = Wp2txt::IssueDetector.new
+
+        articles.each do |article_data|
+          begin
+            article = Wp2txt::Article.new(article_data[:text], article_data[:title], true)
+
+            output = +""
+            article.elements.each do |type, content|
+              next unless content
+
+              case type
+              when :mw_heading, :mw_paragraph, :mw_link, :mw_ml_link
+                output << format_wiki(content, {}) << "\n"
+              when :mw_unordered, :mw_ordered, :mw_definition
+                output << format_wiki(content, {}) << "\n"
+              when :mw_isolated_tag
+                output << format_wiki(content, {}) << "\n"
+              end
+            end
+            output = cleanup(output)
+
+            detector.analyze(
+              title: article_data[:title],
+              input: article_data[:text],
+              output: output
+            )
+          rescue StandardError => e
+            detector.analyze(
+              title: article_data[:title],
+              input: article_data[:text],
+              output: ""
+            )
+          end
+        end
+
+        summary = detector.summary
+        issue_count = summary[:total_articles_with_issues]
+        analyzed = summary[:total_analyzed]
+        skipped = summary[:skipped_non_articles]
+        rate = summary[:issue_rate]
+
+        puts "  ✓ #{analyzed} articles analyzed (#{skipped} non-article pages skipped)"
+        puts "    Issues: #{issue_count} (#{rate}%)"
+
+        tier_summary[lang] = {
+          status: :ok,
+          articles: analyzed,
+          skipped: skipped,
+          issues: issue_count,
+          rate: rate
+        }
+
+        # Save log
+        log_path = "tmp/validation/#{tier_name}_#{lang}_#{Time.now.strftime('%Y%m%d_%H%M%S')}.jsonl"
+        detector.save(log_path)
+      rescue StandardError => e
+        puts "  ✗ Error: #{e.message}"
+        tier_summary[lang] = { status: :error, message: e.message }
+      end
+    end
+
+    # Print tier summary
+    puts "\n" + "=" * 60
+    puts "=== #{tier_name.upcase} Summary ==="
+    ok_count = tier_summary.count { |_, v| v[:status] == :ok }
+    total_articles = tier_summary.values.sum { |v| v[:articles] || 0 }
+    total_skipped = tier_summary.values.sum { |v| v[:skipped] || 0 }
+    total_issues = tier_summary.values.sum { |v| v[:issues] || 0 }
+    overall_rate = total_articles > 0 ? (total_issues.to_f / total_articles * 100).round(2) : 0
+
+    puts "Languages: #{ok_count}/#{languages.size} validated"
+    puts "Articles analyzed: #{total_articles} (#{total_skipped} non-article pages skipped)"
+    puts "Issues: #{total_issues} (#{overall_rate}%)"
+  end
+
+  desc "Validate all tiers"
+  task :all_tiers do
+    %w[tier1 tier2 tier3 tier4].each do |tier|
+      Rake::Task["validate:tier"].reenable
+      Rake::Task["validate:tier"].invoke(tier)
     end
   end
 end

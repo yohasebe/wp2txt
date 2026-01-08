@@ -5,6 +5,74 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- **Auto-download mode**: New `--lang` option automatically downloads Wikipedia dumps:
+  - `wp2txt --lang=ja -o ./output` downloads and processes Japanese Wikipedia
+  - Downloads cached to `~/.wp2txt/cache/` for reuse
+  - Supports any Wikipedia language code (en, ja, de, fr, zh, etc.)
+
+- **Article extraction**: New `--articles` option extracts specific articles by title:
+  - `wp2txt --lang=ja --articles="認知言語学,生成文法" -o ./articles`
+  - Only downloads index + needed data streams (efficient partial download)
+  - O(1) hash lookup for article search
+
+- **Cache management**: New options to manage downloaded dumps:
+  - `--cache-status` - Show cache status for all languages
+  - `--cache-clear` - Clear all cache
+  - `--cache-clear --lang=ja` - Clear cache for specific language
+  - `--cache-dir` - Custom cache directory
+
+- **Content type markers**: New `--markers` option marks special content:
+  - Supported types: `[MATH]`, `[CODE]`, `[CHEM]`, `[TABLE]`, `[SCORE]`, `[TIMELINE]`, `[GRAPH]`, `[IPA]`, `[INFOBOX]`, `[NAVBOX]`, `[GALLERY]`, `[SIDEBAR]`, `[MAPFRAME]`, `[IMAGEMAP]`, `[REFERENCES]`
+  - `--markers=all` (default) - Enable all markers
+  - `--markers=none` - Disable markers (content removed)
+  - `--markers=math,code` - Enable specific markers only
+
+- **Citation extraction**: New `--extract-citations` (`-C`) option for formatted bibliography output:
+  - Extracts author, title, and year from `{{cite book}}`, `{{cite web}}`, `{{Citation}}` templates
+  - Formats citations as "Author. \"Title\". Year."
+  - Useful for preserving bibliography content instead of removing it
+  - Available via CLI (`--extract-citations`) and Ruby API (`extract_citations: true`)
+
+- **Multilingual cleanup**: Automatic removal of MediaWiki artifacts:
+  - Magic words: `DEFAULTSORT:`, `DISPLAYTITLE:`, `__NOTOC__`, etc.
+  - Interwiki prefixes: `:en:Article` → `Article`
+  - Authority control: `Normdaten`, `Authority control`, `Persondata`
+  - Category lines in 15+ languages (preserves CATEGORIES summary)
+  - Wikimedia project markers: `Wikibooks`, `Commons`, `School:`, etc.
+
+- **Validation framework**: New rake tasks for validating Wikipedia dump processing:
+  - `testdata:prepare[lang,level]` - Download and cache test data
+  - `validate:run[lang,level]` - Run validation on cached data
+  - `validate:full[lang]` - Full dump validation
+  - Supports 6 languages: en, zh, ja, ru, ar, ko
+
+- **Multistream support**: New classes for efficient Wikipedia dump processing:
+  - `MultistreamIndex` - Parse multistream index files
+  - `MultistreamReader` - Extract articles from multistream dumps
+  - `DumpManager` - Download and cache dump files
+  - `TestDataManager` - Manage test data with auto-refresh
+  - `IssueDetector` - Comprehensive validation issue detection
+
+- **MediaWiki data auto-generation**: Magic words and namespace aliases are now fetched from all Wikipedia APIs
+  - New script `scripts/fetch_mediawiki_data.rb` queries all 350+ Wikipedia language editions
+  - Data stored in `lib/wp2txt/data/mediawiki_aliases.json`
+  - 176 redirect keywords, 231 category aliases, 313 file aliases from official MediaWiki sources
+  - Image parameters (thumb, left, right, center, etc.) now use 1000+ multilingual aliases
+  - All hardcoded language-specific patterns replaced with dynamically loaded data
+  - Run `ruby scripts/fetch_mediawiki_data.rb` to update data
+
+### Fixed
+
+- **Pipe trick support**: Links like `[[Wikipedia:Copyright|]]` now correctly display as "Copyright" (removes namespace prefix, disambiguation suffix, and comma-separated location)
+
+- **HTML entity decoding**: Named HTML entities like `&Oslash;` are now properly converted to their Unicode equivalents (Ø)
+
+- **Multi-line template content extraction**: Content following `}}` on the same line is now correctly extracted as a separate paragraph instead of being consumed by the template
+
 ## [2.0.0] - 2026-01-07
 
 ### Added

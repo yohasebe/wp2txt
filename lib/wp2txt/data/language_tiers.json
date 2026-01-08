@@ -1,0 +1,59 @@
+{
+  "meta": {
+    "description": "Language tier configuration for validation framework",
+    "version": "1.1.0",
+    "updated_at": "2026-01-08"
+  },
+  "tiers": {
+    "tier1": {
+      "name": "Primary",
+      "description": "Core quality assurance - English as reference language",
+      "languages": {
+        "en": 10000
+      }
+    },
+    "tier2": {
+      "name": "Multilingual Validation",
+      "description": "Keyword and namespace validation for major languages",
+      "languages": {
+        "ja": 5000,
+        "zh": 3000,
+        "ru": 3000,
+        "ar": 3000,
+        "ko": 3000
+      }
+    },
+    "tier3": {
+      "name": "Coverage",
+      "description": "Major language coverage testing",
+      "default_sample_size": 50,
+      "languages": [
+        "de", "fr", "es", "pt", "it", "nl", "pl", "sv", "vi", "uk",
+        "fa", "he", "id", "cs", "fi", "hu", "ro", "tr", "th", "da",
+        "no", "sk", "bg", "hr", "sr", "sl", "lt", "lv", "et", "el",
+        "ca", "ms", "hi", "bn", "ta", "te", "mr", "ml", "kn", "gu",
+        "pa", "ur", "az", "ka", "hy", "be", "kk", "uz", "tg", "ky"
+      ]
+    },
+    "tier4": {
+      "name": "Smoke Test",
+      "description": "Basic functionality verification for all other languages",
+      "default_sample_size": 10,
+      "languages": "_remaining"
+    }
+  },
+  "test_levels": {
+    "smoke": {
+      "description": "Quick smoke test - uses tier-defined sample sizes",
+      "multiplier": 1.0
+    },
+    "standard": {
+      "description": "Standard validation - uses tier-defined sample sizes",
+      "multiplier": 1.0
+    },
+    "thorough": {
+      "description": "Thorough validation - 2x tier-defined sample sizes",
+      "multiplier": 2.0
+    }
+  }
+}
