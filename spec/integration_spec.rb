@@ -163,6 +163,19 @@ RSpec.describe "Integration Tests" do
         expect(special_chr("&gt;")).to eq ">"
         expect(special_chr("&amp;")).to eq "&"
       end
+
+      it "converts Wikipedia-specific entities" do
+        expect(special_chr("&ratio;")).to eq "∶"
+        expect(special_chr("&dash;")).to eq "–"
+        expect(special_chr("&nbso;")).to eq " "  # Common typo for &nbsp;
+      end
+
+      it "converts mathematical entities" do
+        expect(special_chr("&alpha;")).to eq "α"
+        expect(special_chr("&beta;")).to eq "β"
+        expect(special_chr("&infin;")).to eq "∞"
+        expect(special_chr("&sum;")).to eq "∑"
+      end
     end
   end
 

@@ -99,7 +99,11 @@ module Wp2txt
     "&Phi;" => "Φ", "&phi;" => "φ",
     "&Chi;" => "Χ", "&chi;" => "χ",
     "&Psi;" => "Ψ", "&psi;" => "ψ",
-    "&Omega;" => "Ω", "&omega;" => "ω"
+    "&Omega;" => "Ω", "&omega;" => "ω",
+    # Wikipedia-specific entities
+    "&ratio;" => "∶",          # Ratio symbol
+    "&dash;" => "–",           # En-dash (Wikipedia custom)
+    "&nbso;" => " "            # Common typo for &nbsp;
   }.freeze
   MATH_ENTITIES_REGEX = Regexp.new("(" + MATH_ENTITIES.keys.map { |k| Regexp.escape(k) }.join("|") + ")")
   ML_TEMPLATE_ONSET_REGEX = Regexp.new('^\{\{[^\}]*$')
