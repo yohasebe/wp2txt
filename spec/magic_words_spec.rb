@@ -153,8 +153,14 @@ RSpec.describe Wp2txt::MagicWordExpander do
         expect(expander.expand("{{padright:7|3|0}}")).to eq("700")
       end
 
-      it "expands {{formatnum:...}}" do
-        expect(expander.expand("{{formatnum:12345}}")).to eq("12345")
+      it "expands {{formatnum:...}} with thousand separators" do
+        expect(expander.expand("{{formatnum:12345}}")).to eq("12,345")
+        expect(expander.expand("{{formatnum:1234567}}")).to eq("1,234,567")
+        expect(expander.expand("{{formatnum:1234.56}}")).to eq("1,234.56")
+      end
+
+      it "expands {{formatnum:...|R}} to remove formatting" do
+        expect(expander.expand("{{formatnum:1,234,567|R}}")).to eq("1234567")
       end
     end
 

@@ -220,8 +220,35 @@ module Wp2txt
       when "played years"
         expand_year_range(params)
 
+      # Coordinate template
+      when "coord", "coordinate", "coordinates"
+        expand_coord(params)
+
+      # Language templates
+      when "lang"
+        expand_lang(params)
+      when "transl"
+        expand_transl(params)
+      when "nihongo"
+        expand_nihongo(params)
+
+      # Formatting templates (pass through text)
+      when "nowrap", "nobr"
+        params[:positional][0] || ""
+      when "small", "smaller"
+        params[:positional][0] || ""
+      when "em", "bold", "strong"
+        params[:positional][0] || ""
+      when "abbr", "abbrlink"
+        params[:positional][0] || ""
+
       else
-        @preserve_unknown ? "{{#{content}}}" : ""
+        # Handle lang-xx templates (e.g., lang-fr, lang-de, lang-ja)
+        if template_name.start_with?("lang-")
+          expand_lang_xx(template_name, params)
+        else
+          @preserve_unknown ? "{{#{content}}}" : ""
+        end
       end
     end
 
@@ -555,6 +582,138 @@ module Wp2txt
       return "" if pos.length < 2
 
       "#{pos[0]}–#{pos[1]}"
+    end
+
+    # Coordinate template expansion
+    def expand_coord(params)
+      pos = params[:positional]
+      return "" if pos.empty?
+
+      # Handle different formats:
+      # {{coord|lat|lon}} - decimal
+      # {{coord|lat|N/S|lon|E/W}} - decimal with direction
+      # {{coord|d|m|s|N/S|d|m|s|E/W}} - DMS
+
+      case pos.length
+      when 2
+        # Simple lat/lon decimal
+        "#{pos[0]}°, #{pos[1]}°"
+      when 4
+        # lat|N/S|lon|E/W
+        if pos[1] =~ /[NS]/i && pos[3] =~ /[EW]/i
+          "#{pos[0]}° #{pos[1].upcase}, #{pos[2]}° #{pos[3].upcase}"
+        else
+          # d|m|N/S|d|m|E/W (no seconds)
+          "#{pos[0]}°#{pos[1]}′ #{pos[2].upcase}, #{pos[3]}°#{pos[4]}′ #{pos[5].upcase}" rescue pos.join(", ")
+        end
+      when 6
+        # d|m|N/S|d|m|E/W
+        "#{pos[0]}°#{pos[1]}′ #{pos[2].upcase}, #{pos[3]}°#{pos[4]}′ #{pos[5].upcase}"
+      when 8
+        # d|m|s|N/S|d|m|s|E/W (full DMS)
+        "#{pos[0]}°#{pos[1]}′#{pos[2]}″ #{pos[3].upcase}, #{pos[4]}°#{pos[5]}′#{pos[6]}″ #{pos[7].upcase}"
+      else
+        # Fallback: join with commas
+        pos.reject { |p| p =~ /display|format|type|name/i }.join(", ")
+      end
+    end
+
+    # Language code to name mapping
+    LANGUAGE_NAMES = {
+      "aa" => "Afar", "ab" => "Abkhazian", "af" => "Afrikaans", "am" => "Amharic",
+      "ar" => "Arabic", "as" => "Assamese", "az" => "Azerbaijani", "ba" => "Bashkir",
+      "be" => "Belarusian", "bg" => "Bulgarian", "bn" => "Bengali", "bo" => "Tibetan",
+      "br" => "Breton", "ca" => "Catalan", "cs" => "Czech", "cy" => "Welsh",
+      "da" => "Danish", "de" => "German", "dv" => "Divehi", "dz" => "Dzongkha",
+      "el" => "Greek", "en" => "English", "eo" => "Esperanto", "es" => "Spanish",
+      "et" => "Estonian", "eu" => "Basque", "fa" => "Persian", "fi" => "Finnish",
+      "fj" => "Fijian", "fo" => "Faroese", "fr" => "French", "fy" => "Frisian",
+      "ga" => "Irish", "gd" => "Scottish Gaelic", "gl" => "Galician", "gn" => "Guarani",
+      "gu" => "Gujarati", "ha" => "Hausa", "he" => "Hebrew", "hi" => "Hindi",
+      "hr" => "Croatian", "hu" => "Hungarian", "hy" => "Armenian", "id" => "Indonesian",
+      "is" => "Icelandic", "it" => "Italian", "ja" => "Japanese", "jv" => "Javanese",
+      "ka" => "Georgian", "kk" => "Kazakh", "km" => "Khmer", "kn" => "Kannada",
+      "ko" => "Korean", "ku" => "Kurdish", "ky" => "Kyrgyz", "la" => "Latin",
+      "lb" => "Luxembourgish", "lo" => "Lao", "lt" => "Lithuanian", "lv" => "Latvian",
+      "mg" => "Malagasy", "mi" => "Maori", "mk" => "Macedonian", "ml" => "Malayalam",
+      "mn" => "Mongolian", "mr" => "Marathi", "ms" => "Malay", "mt" => "Maltese",
+      "my" => "Burmese", "ne" => "Nepali", "nl" => "Dutch", "no" => "Norwegian",
+      "oc" => "Occitan", "or" => "Oriya", "pa" => "Punjabi", "pl" => "Polish",
+      "ps" => "Pashto", "pt" => "Portuguese", "qu" => "Quechua", "rm" => "Romansh",
+      "ro" => "Romanian", "ru" => "Russian", "rw" => "Kinyarwanda", "sa" => "Sanskrit",
+      "sc" => "Sardinian", "sd" => "Sindhi", "se" => "Northern Sami", "si" => "Sinhala",
+      "sk" => "Slovak", "sl" => "Slovenian", "sm" => "Samoan", "sn" => "Shona",
+      "so" => "Somali", "sq" => "Albanian", "sr" => "Serbian", "ss" => "Swati",
+      "st" => "Southern Sotho", "su" => "Sundanese", "sv" => "Swedish", "sw" => "Swahili",
+      "ta" => "Tamil", "te" => "Telugu", "tg" => "Tajik", "th" => "Thai",
+      "ti" => "Tigrinya", "tk" => "Turkmen", "tl" => "Tagalog", "tn" => "Tswana",
+      "to" => "Tongan", "tr" => "Turkish", "ts" => "Tsonga", "tt" => "Tatar",
+      "tw" => "Twi", "ug" => "Uyghur", "uk" => "Ukrainian", "ur" => "Urdu",
+      "uz" => "Uzbek", "ve" => "Venda", "vi" => "Vietnamese", "vo" => "Volapük",
+      "wa" => "Walloon", "wo" => "Wolof", "xh" => "Xhosa", "yi" => "Yiddish",
+      "yo" => "Yoruba", "za" => "Zhuang", "zh" => "Chinese", "zu" => "Zulu",
+      # Extended codes
+      "grc" => "Ancient Greek", "ang" => "Old English", "fro" => "Old French",
+      "gmh" => "Middle High German", "non" => "Old Norse", "peo" => "Old Persian",
+      "sga" => "Old Irish", "syc" => "Classical Syriac"
+    }.freeze
+
+    def expand_lang(params)
+      pos = params[:positional]
+      return "" if pos.length < 2
+
+      text = pos[1] || ""
+      lit = params["lit"]
+
+      if lit
+        "#{text} (lit. '#{lit}')"
+      else
+        text
+      end
+    end
+
+    def expand_lang_xx(template_name, params)
+      pos = params[:positional]
+      return "" if pos.empty?
+
+      lang_code = template_name.sub("lang-", "")
+      lang_name = LANGUAGE_NAMES[lang_code] || lang_code.upcase
+      text = pos[0] || ""
+      lit = params["lit"]
+
+      if lit
+        "#{lang_name}: #{text} (lit. '#{lit}')"
+      else
+        "#{lang_name}: #{text}"
+      end
+    end
+
+    def expand_transl(params)
+      pos = params[:positional]
+      return "" if pos.empty?
+
+      # {{transl|lang|text}} - just return the text
+      pos[1] || pos[0] || ""
+    end
+
+    def expand_nihongo(params)
+      pos = params[:positional]
+      return "" if pos.empty?
+
+      english = pos[0] || ""
+      kanji = pos[1] || ""
+      romaji = pos[2]
+
+      parts = [english]
+      parts << "(#{kanji}" if kanji && !kanji.empty?
+
+      if romaji && !romaji.empty?
+        parts[-1] += ", #{romaji})" if parts.length > 1
+      elsif parts.length > 1
+        parts[-1] += ")"
+      end
+
+      parts.join(" ")
     end
   end
 end

@@ -107,6 +107,8 @@ module Wp2txt
         evaluate_if(args)
       when "ifeq"
         evaluate_ifeq(args)
+      when "iferror"
+        evaluate_iferror(args)
       when "switch"
         evaluate_switch(args)
       when "ifexpr"
@@ -117,10 +119,24 @@ module Wp2txt
         evaluate_len(args)
       when "pos"
         evaluate_pos(args)
+      when "rpos"
+        evaluate_rpos(args)
+      when "count"
+        evaluate_count(args)
       when "sub"
         evaluate_sub(args)
       when "replace"
         evaluate_replace(args)
+      when "explode"
+        evaluate_explode(args)
+      when "urldecode"
+        evaluate_urldecode(args)
+      when "urlencode"
+        evaluate_urlencode(args)
+      when "padleft"
+        evaluate_padleft(args)
+      when "padright"
+        evaluate_padright(args)
       when "titleparts"
         evaluate_titleparts(args)
       when "time"
@@ -348,6 +364,97 @@ module Wp2txt
       str.gsub(search, replace)
     end
 
+    # #rpos: string | search (find last occurrence)
+    def evaluate_rpos(args)
+      str = args[0] || ""
+      search = args[1] || ""
+      pos = str.rindex(search)
+      pos.nil? ? "-1" : pos.to_s
+    end
+
+    # #count: string | search (count occurrences)
+    def evaluate_count(args)
+      str = args[0] || ""
+      search = args[1] || ""
+      return "0" if search.empty?
+      # Non-overlapping count
+      str.scan(search).length.to_s
+    end
+
+    # #explode: string | delimiter | index
+    def evaluate_explode(args)
+      str = args[0] || ""
+      delimiter = args[1] || ""
+      index = (args[2] || "0").to_i
+
+      parts = str.split(delimiter)
+      return "" if parts.empty?
+
+      # Handle negative index (from end)
+      if index.negative?
+        index = parts.length + index
+      end
+
+      return "" if index < 0 || index >= parts.length
+      parts[index] || ""
+    end
+
+    # #urldecode: string
+    def evaluate_urldecode(args)
+      str = args[0] || ""
+      require "cgi"
+      CGI.unescape(str)
+    end
+
+    # #urlencode: string
+    def evaluate_urlencode(args)
+      str = args[0] || ""
+      require "uri"
+      URI.encode_www_form_component(str).gsub("+", "%20")
+    end
+
+    # #padleft: string | length | padding
+    def evaluate_padleft(args)
+      str = args[0] || ""
+      length = (args[1] || "0").to_i
+      padding = args[2] || " "
+      padding = " " if padding.empty?
+
+      return str if str.length >= length
+      (padding * ((length - str.length) / padding.length + 1))[0, length - str.length] + str
+    end
+
+    # #padright: string | length | padding
+    def evaluate_padright(args)
+      str = args[0] || ""
+      length = (args[1] || "0").to_i
+      padding = args[2] || " "
+      padding = " " if padding.empty?
+
+      return str if str.length >= length
+      str + (padding * ((length - str.length) / padding.length + 1))[0, length - str.length]
+    end
+
+    # #iferror: input | then | else
+    def evaluate_iferror(args)
+      input = args[0] || ""
+      then_value = args[1]
+      else_value = args[2] || ""
+
+      # Check for error indicators
+      has_error = input.include?('class="error"') ||
+                  input.include?("class='error'") ||
+                  input.match?(/Expression error/i)
+
+      if has_error
+        then_value || ""
+      elsif then_value.nil?
+        input
+      else
+        else_value
+      end
+    end
+
     # #titleparts: title | parts | offset
     def evaluate_titleparts(args)
       title = args[0] || ""
@@ -404,27 +511,78 @@ module Wp2txt
       nil
     end
 
+    DAY_NAMES = %w[Sunday Monday Tuesday Wednesday Thursday Friday Saturday].freeze
+
     def format_time(time, format_str)
       result = +""
+      i = 0
 
-      format_str.each_char do |c|
+      while i < format_str.length
+        c = format_str[i]
+        next_c = format_str[i + 1]
+
+        # Handle two-character sequences
+        if c == "j" && next_c == "S"
+          result << time.day.to_s << ordinal_suffix(time.day)
+          i += 2
+          next
+        end
+
         result << case c
+                  # Year
                   when "Y" then time.year.to_s
                   when "y" then (time.year % 100).to_s.rjust(2, "0")
+                  # Month
                   when "m" then time.month.to_s.rjust(2, "0")
                   when "n" then time.month.to_s
-                  when "d" then time.day.to_s.rjust(2, "0")
-                  when "j" then time.day.to_s
                   when "F" then MONTH_NAMES[time.month - 1]
                   when "M" then MONTH_NAMES[time.month - 1][0, 3]
+                  # Day
+                  when "d" then time.day.to_s.rjust(2, "0")
+                  when "j" then time.day.to_s
+                  when "S" then ordinal_suffix(time.day)
+                  # Day of week
+                  when "l" then DAY_NAMES[time.wday]
+                  when "D" then DAY_NAMES[time.wday][0, 3]
+                  when "N" then (time.wday == 0 ? 7 : time.wday).to_s
+                  when "w" then time.wday.to_s
+                  # Week
+                  when "W" then time.strftime("%V")
+                  # Hour
                   when "H" then time.hour.to_s.rjust(2, "0")
+                  when "G" then time.hour.to_s
+                  when "g" then (time.hour % 12 == 0 ? 12 : time.hour % 12).to_s
+                  when "h" then (time.hour % 12 == 0 ? 12 : time.hour % 12).to_s.rjust(2, "0")
+                  # Minute/Second
                   when "i" then time.min.to_s.rjust(2, "0")
                   when "s" then time.sec.to_s.rjust(2, "0")
+                  # AM/PM
+                  when "a" then time.hour < 12 ? "am" : "pm"
+                  when "A" then time.hour < 12 ? "AM" : "PM"
+                  # Timezone
+                  when "T" then time.strftime("%Z")
+                  when "O" then time.strftime("%z")
+                  # Unix timestamp
+                  when "U" then time.to_i.to_s
                   else c
                   end
+        i += 1
       end
 
       result
+    end
+
+    def ordinal_suffix(day)
+      if (11..13).include?(day % 100)
+        "th"
+      else
+        case day % 10
+        when 1 then "st"
+        when 2 then "nd"
+        when 3 then "rd"
+        else "th"
+        end
+      end
     end
   end
 end

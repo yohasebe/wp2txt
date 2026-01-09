@@ -310,4 +310,146 @@ RSpec.describe Wp2txt::ParserFunctions do
       expect(parser.evaluate("Before {{#if:x|middle|}} after")).to eq("Before middle after")
     end
   end
+
+  # New parser functions for WikiExtractor parity
+  describe "#iferror" do
+    it "returns then-value when input contains error class" do
+      expect(parser.evaluate("{{#iferror:<span class=\"error\">Error</span>|error found|no error}}")).to eq("error found")
+    end
+
+    it "returns else-value when input is normal" do
+      expect(parser.evaluate("{{#iferror:normal text|error|no error}}")).to eq("no error")
+    end
+
+    it "returns empty when no else-value and no error" do
+      expect(parser.evaluate("{{#iferror:normal text|error}}")).to eq("")
+    end
+
+    it "returns input when no then-value and no error" do
+      expect(parser.evaluate("{{#iferror:normal text}}")).to eq("normal text")
+    end
+  end
+
+  describe "#rpos" do
+    it "returns position of last occurrence" do
+      expect(parser.evaluate("{{#rpos:abcabc|b}}")).to eq("4")
+    end
+
+    it "returns empty when not found" do
+      expect(parser.evaluate("{{#rpos:hello|x}}")).to eq("-1")
+    end
+
+    it "handles single occurrence same as #pos" do
+      expect(parser.evaluate("{{#rpos:hello|l}}")).to eq("3")
+    end
+  end
+
+  describe "#count" do
+    it "counts occurrences of substring" do
+      expect(parser.evaluate("{{#count:abcabc|a}}")).to eq("2")
+    end
+
+    it "returns 0 when not found" do
+      expect(parser.evaluate("{{#count:hello|x}}")).to eq("0")
+    end
+
+    it "counts overlapping occurrences" do
+      expect(parser.evaluate("{{#count:aaaa|aa}}")).to eq("2")
+    end
+  end
+
+  describe "#explode" do
+    it "splits and returns nth element" do
+      expect(parser.evaluate("{{#explode:a,b,c|,|1}}")).to eq("b")
+    end
+
+    it "returns first element by default" do
+      expect(parser.evaluate("{{#explode:a-b-c|-}}")).to eq("a")
+    end
+
+    it "handles negative index (from end)" do
+      expect(parser.evaluate("{{#explode:a,b,c|,|-1}}")).to eq("c")
+    end
+
+    it "returns empty for out of bounds" do
+      expect(parser.evaluate("{{#explode:a,b|,|5}}")).to eq("")
+    end
+  end
+
+  describe "#urldecode" do
+    it "decodes URL-encoded string" do
+      expect(parser.evaluate("{{#urldecode:Hello%20World}}")).to eq("Hello World")
+    end
+
+    it "decodes special characters" do
+      expect(parser.evaluate("{{#urldecode:%26%3D%3F}}")).to eq("&=?")
+    end
+
+    it "handles already decoded string" do
+      expect(parser.evaluate("{{#urldecode:hello}}")).to eq("hello")
+    end
+  end
+
+  describe "#urlencode" do
+    it "encodes string for URL" do
+      expect(parser.evaluate("{{#urlencode:Hello World}}")).to eq("Hello%20World")
+    end
+
+    it "encodes special characters" do
+      expect(parser.evaluate("{{#urlencode:a&b=c}}")).to eq("a%26b%3Dc")
+    end
+  end
+
+  describe "#padleft" do
+    it "pads string on left" do
+      expect(parser.evaluate("{{#padleft:7|3|0}}")).to eq("007")
+    end
+
+    it "does not truncate if already longer" do
+      expect(parser.evaluate("{{#padleft:hello|3|x}}")).to eq("hello")
+    end
+
+    it "uses space as default padding" do
+      expect(parser.evaluate("{{#padleft:a|3}}")).to eq("  a")
+    end
+  end
+
+  describe "#padright" do
+    it "pads string on right" do
+      expect(parser.evaluate("{{#padright:7|3|0}}")).to eq("700")
+    end
+
+    it "does not truncate if already longer" do
+      expect(parser.evaluate("{{#padright:hello|3|x}}")).to eq("hello")
+    end
+  end
+
+  describe "enhanced #time" do
+    let(:parser_with_date) { described_class.new(reference_date: Time.new(2024, 6, 15, 14, 30, 45)) }
+
+    it "formats 12-hour time" do
+      expect(parser_with_date.evaluate("{{#time:g:i a}}")).to eq("2:30 pm")
+    end
+
+    it "formats ISO week number" do
+      expect(parser_with_date.evaluate("{{#time:W}}")).to eq("24")
+    end
+
+    it "formats day of week" do
+      expect(parser_with_date.evaluate("{{#time:l}}")).to eq("Saturday")
+    end
+
+    it "formats short day of week" do
+      expect(parser_with_date.evaluate("{{#time:D}}")).to eq("Sat")
+    end
+
+    it "formats ordinal day suffix" do
+      expect(parser_with_date.evaluate("{{#time:jS}}")).to eq("15th")
+    end
+
+    it "formats timezone" do
+      result = parser_with_date.evaluate("{{#time:T}}")
+      expect(result).not_to be_empty
+    end
+  end
 end

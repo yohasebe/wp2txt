@@ -261,8 +261,19 @@ module Wp2txt
         str.ljust(len, pad)
       end
 
-      # formatnum - just return the number as-is (locale formatting would need more work)
-      result.gsub!(/\{\{\s*formatnum\s*:\s*([^}|]*?)(?:\s*\|[^}]*)?\}\}/i) { $1.strip }
+      # formatnum - format number with thousand separators
+      result.gsub!(/\{\{\s*formatnum\s*:\s*([^}|]*?)(?:\s*\|([^}]*))?\}\}/i) do
+        num_str = $1.strip
+        option = $2&.strip&.downcase
+
+        if option == "r"
+          # R option: remove formatting (return raw number)
+          num_str.gsub(/[,\s]/, "")
+        else
+          # Add thousand separators
+          format_number_with_commas(num_str)
+        end
+      end
 
       # plural, grammar, gender - just return first argument (proper handling would need language rules)
       result.gsub!(/\{\{\s*plural\s*:\s*[^}|]*\s*\|\s*([^}|]*)[^}]*\}\}/i) { $1 }
@@ -314,6 +325,25 @@ module Wp2txt
 
       str.gsub(" ", "_").gsub(/[^\w\-.]/) do |c|
         ".#{c.unpack1('H*').upcase}"
+      end
+    end
+
+    # Format number with thousand separators
+    def format_number_with_commas(num_str)
+      return num_str if num_str.nil? || num_str.empty?
+
+      # Split integer and decimal parts
+      parts = num_str.split(".")
+      integer_part = parts[0] || ""
+      decimal_part = parts[1]
+
+      # Add thousand separators to integer part
+      integer_part = integer_part.gsub(/(\d)(?=(\d{3})+(?!\d))/, '\\1,')
+
+      if decimal_part
+        "#{integer_part}.#{decimal_part}"
+      else
+        integer_part
       end
     end
   end

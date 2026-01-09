@@ -342,6 +342,117 @@ RSpec.describe Wp2txt::TemplateExpander do
     end
   end
 
+  describe "coordinate templates" do
+    describe "{{coord}}" do
+      it "expands decimal coordinates" do
+        result = expander.expand("{{coord|40.7128|N|74.0060|W}}")
+        expect(result).to match(/40\.7128°\s*N.*74\.0060°\s*W/i)
+      end
+
+      it "expands DMS coordinates" do
+        result = expander.expand("{{coord|40|42|46|N|74|0|22|W}}")
+        expect(result).to match(/40°42['′]46["″]?\s*N.*74°0['′]22["″]?\s*W/i)
+      end
+
+      it "expands coordinates with display parameter" do
+        result = expander.expand("{{coord|51.5074|N|0.1278|W|display=title}}")
+        expect(result).to include("51.5074")
+      end
+
+      it "handles simple lat/lon format" do
+        result = expander.expand("{{coord|35.6762|139.6503}}")
+        expect(result).to include("35.6762")
+        expect(result).to include("139.6503")
+      end
+    end
+  end
+
+  describe "language templates" do
+    describe "{{lang}}" do
+      it "expands basic lang template" do
+        expect(expander.expand("{{lang|fr|Bonjour}}")).to eq("Bonjour")
+      end
+
+      it "expands with literal translation" do
+        result = expander.expand("{{lang|la|Carpe diem|lit=seize the day}}")
+        expect(result).to include("Carpe diem")
+        expect(result).to include("seize the day")
+      end
+    end
+
+    describe "{{lang-xx}}" do
+      it "expands lang-fr template" do
+        result = expander.expand("{{lang-fr|Bonjour}}")
+        expect(result).to match(/French.*Bonjour/i)
+      end
+
+      it "expands lang-de template" do
+        result = expander.expand("{{lang-de|Guten Tag}}")
+        expect(result).to match(/German.*Guten Tag/i)
+      end
+
+      it "expands lang-ja template" do
+        result = expander.expand("{{lang-ja|こんにちは}}")
+        expect(result).to match(/Japanese.*こんにちは/i)
+      end
+
+      it "expands lang-la template with literal" do
+        result = expander.expand("{{lang-la|Veni, vidi, vici|lit=I came, I saw, I conquered}}")
+        expect(result).to include("Latin")
+        expect(result).to include("Veni, vidi, vici")
+        expect(result).to include("I came, I saw, I conquered")
+      end
+    end
+
+    describe "{{transl}}" do
+      it "expands transliteration template" do
+        result = expander.expand("{{transl|ru|Moskva}}")
+        expect(result).to eq("Moskva")
+      end
+    end
+
+    describe "{{nihongo}}" do
+      it "expands nihongo template" do
+        result = expander.expand("{{nihongo|Tokyo|東京|Tōkyō}}")
+        expect(result).to include("Tokyo")
+        expect(result).to include("東京")
+        expect(result).to include("Tōkyō")
+      end
+
+      it "handles nihongo without romaji" do
+        result = expander.expand("{{nihongo|Tokyo|東京}}")
+        expect(result).to include("Tokyo")
+        expect(result).to include("東京")
+      end
+    end
+  end
+
+  describe "formatting templates" do
+    describe "{{nowrap}}" do
+      it "preserves text" do
+        expect(expander.expand("{{nowrap|100 km}}")).to eq("100 km")
+      end
+    end
+
+    describe "{{small}}" do
+      it "preserves text" do
+        expect(expander.expand("{{small|tiny text}}")).to eq("tiny text")
+      end
+    end
+
+    describe "{{em}}" do
+      it "preserves text (emphasis)" do
+        expect(expander.expand("{{em|important}}")).to eq("important")
+      end
+    end
+
+    describe "{{abbr}}" do
+      it "returns abbreviation" do
+        expect(expander.expand("{{abbr|HTML|Hypertext Markup Language}}")).to eq("HTML")
+      end
+    end
+  end
+
   describe "integration with format_wiki" do
     include Wp2txt
 
