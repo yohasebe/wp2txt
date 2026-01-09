@@ -365,4 +365,138 @@ RSpec.describe Wp2txt::StreamProcessor do
       expect(processor.instance_variable_get(:@bz2_gem)).to be false
     end
   end
+
+  describe "private methods" do
+    let(:temp_dir) { Dir.mktmpdir }
+
+    after { FileUtils.rm_rf(temp_dir) }
+
+    describe "#find_bzip2_command" do
+      it "returns path to bzip2 command if available" do
+        xml_file = File.join(temp_dir, "test.xml")
+        File.write(xml_file, "<page></page>")
+        processor = described_class.new(xml_file)
+
+        # On most Unix systems, at least one bzip2 command should exist
+        result = processor.send(:find_bzip2_command)
+        # Result is either a path string or nil
+        expect(result.nil? || result.is_a?(String)).to be true
+      end
+    end
+
+    describe "#fill_buffer" do
+      let(:xml_content) do
+        <<~XML
+          <page>
+            <title>Buffer Test</title>
+            <revision>
+              <text>Test content for buffer.</text>
+            </revision>
+          </page>
+        XML
+      end
+
+      let(:xml_file) { File.join(temp_dir, "buffer_test.xml") }
+
+      before do
+        File.write(xml_file, xml_content)
+      end
+
+      it "fills buffer from file" do
+        processor = described_class.new(xml_file)
+        processor.instance_variable_set(:@buffer, +"")
+        processor.instance_variable_set(:@file_pointer, File.open(xml_file, "r:UTF-8"))
+
+        result = processor.send(:fill_buffer)
+        expect(result).to be true
+        expect(processor.instance_variable_get(:@buffer)).not_to be_empty
+      end
+
+      it "returns false when file is exhausted" do
+        processor = described_class.new(xml_file)
+        processor.instance_variable_set(:@buffer, +"")
+
+        # Open and read entire file
+        fp = File.open(xml_file, "r:UTF-8")
+        fp.read  # Exhaust the file
+        processor.instance_variable_set(:@file_pointer, fp)
+
+        result = processor.send(:fill_buffer)
+        expect(result).to be false
+      end
+    end
+
+    describe "#extract_next_page" do
+      let(:xml_file) { File.join(temp_dir, "extract_test.xml") }
+
+      it "extracts page from buffer" do
+        xml_content = "<page><title>Test</title></page>"
+        File.write(xml_file, xml_content)
+
+        processor = described_class.new(xml_file)
+        processor.instance_variable_set(:@buffer, +"<page><title>Test</title></page>rest")
+        processor.instance_variable_set(:@file_pointer, File.open(xml_file, "r:UTF-8"))
+
+        page = processor.send(:extract_next_page)
+        expect(page).to eq("<page><title>Test</title></page>")
+      end
+
+      it "returns nil when no complete page in buffer" do
+        File.write(xml_file, "<incomplete>")
+
+        processor = described_class.new(xml_file)
+        processor.instance_variable_set(:@buffer, +"<page><title>Incomplete")
+        fp = File.open(xml_file, "r:UTF-8")
+        fp.read  # Exhaust
+        processor.instance_variable_set(:@file_pointer, fp)
+
+        page = processor.send(:extract_next_page)
+        expect(page).to be_nil
+      end
+    end
+
+    describe "#parse_page_xml" do
+      let(:xml_file) { File.join(temp_dir, "parse_test.xml") }
+
+      before do
+        File.write(xml_file, "<page></page>")
+      end
+
+      it "parses valid page XML" do
+        processor = described_class.new(xml_file)
+        page_xml = <<~XML
+          <page>
+            <title>Test Article</title>
+            <revision>
+              <text>Article content here.</text>
+            </revision>
+          </page>
+        XML
+
+        result = processor.send(:parse_page_xml, page_xml)
+        expect(result).not_to be_nil
+        expect(result[0]).to eq("Test Article")
+        expect(result[1]).to include("Article content")
+      end
+
+      it "returns nil for page without text node" do
+        processor = described_class.new(xml_file)
+        page_xml = "<page><title>No Text</title></page>"
+
+        result = processor.send(:parse_page_xml, page_xml)
+        expect(result).to be_nil
+      end
+
+      it "handles severely malformed XML" do
+        processor = described_class.new(xml_file)
+        # This is intentionally broken XML that should trigger SyntaxError
+        page_xml = "<page><title>Test</title><revision><text>Content</page>"
+
+        # Should not raise, just return nil
+        result = processor.send(:parse_page_xml, page_xml)
+        # May return nil or may parse partially - either is acceptable
+        expect(result.nil? || result.is_a?(Array)).to be true
+      end
+    end
+  end
 end

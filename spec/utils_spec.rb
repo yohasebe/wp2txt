@@ -276,4 +276,90 @@ RSpec.describe "Wp2txt Utils" do
       expect(correct_inline_template("{{USA}}")).to eq ""
     end
   end
+
+  describe "parse_markers_config" do
+    it "returns default markers for true" do
+      result = parse_markers_config(true)
+      expect(result).to be_an(Array)
+      expect(result).not_to be_empty
+    end
+
+    it "returns empty array for false" do
+      result = parse_markers_config(false)
+      expect(result).to eq([])
+    end
+
+    it "filters array to valid marker types" do
+      result = parse_markers_config([:math, :code, :invalid_type])
+      expect(result).to include(:math)
+      expect(result).to include(:code)
+      expect(result).not_to include(:invalid_type)
+    end
+
+    it "returns default markers for unexpected input" do
+      result = parse_markers_config("unexpected string")
+      expect(result).to be_an(Array)
+      expect(result).not_to be_empty
+    end
+
+    it "returns default markers for nil" do
+      result = parse_markers_config(nil)
+      expect(result).to be_an(Array)
+    end
+  end
+
+  describe "process_interwiki_links" do
+    it "removes category links" do
+      result = process_interwiki_links("[[Category:Test]]")
+      expect(result).to eq("")
+    end
+
+    it "removes category links in Japanese" do
+      result = process_interwiki_links("[[カテゴリ:テスト]]")
+      expect(result).to eq("")
+    end
+
+    it "extracts caption from file links" do
+      result = process_interwiki_links("[[File:Image.jpg|thumb|200px|A caption]]")
+      expect(result).to include("caption")
+    end
+
+    it "handles file links without caption" do
+      result = process_interwiki_links("[[File:Image.jpg]]")
+      expect(result).to eq("")
+    end
+
+    it "handles pipe trick" do
+      result = process_interwiki_links("[[Tokyo (city)|]]")
+      expect(result).to eq("Tokyo")
+    end
+
+    it "handles simple links" do
+      result = process_interwiki_links("[[Simple Link]]")
+      expect(result).to eq("Simple Link")
+    end
+
+    it "handles links with display text" do
+      result = process_interwiki_links("[[Target|Display Text]]")
+      expect(result).to eq("Display Text")
+    end
+  end
+
+  describe "marker_placeholder" do
+    it "creates placeholder with marker type" do
+      result = marker_placeholder(:math)
+      expect(result).to include("MATH")
+      expect(result).to include("««")
+      expect(result).to include("»»")
+    end
+  end
+
+  describe "finalize_markers" do
+    it "converts placeholders to final format" do
+      placeholder = marker_placeholder(:math)
+      result = finalize_markers("text #{placeholder} more")
+      expect(result).to include("[MATH]")
+      expect(result).not_to include("««")
+    end
+  end
 end

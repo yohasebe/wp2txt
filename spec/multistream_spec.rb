@@ -324,6 +324,55 @@ RSpec.describe "Wp2txt Multistream" do
         expect(fetcher.instance_variable_get(:@cache_dir)).to eq("/tmp/test_cache")
       end
     end
+
+    describe "cache operations" do
+      let(:temp_cache) { Dir.mktmpdir }
+      let(:fetcher_with_cache) do
+        f = described_class.new("en", "Test Category")
+        f.enable_cache(temp_cache)
+        f
+      end
+
+      after { FileUtils.rm_rf(temp_cache) if File.exist?(temp_cache) }
+
+      it "generates correct cache path" do
+        path = fetcher_with_cache.send(:cache_path, "Test_Category")
+        expect(path).to include("category_en_Test_Category.json")
+      end
+
+      it "returns nil for cache_path when cache disabled" do
+        fetcher_no_cache = described_class.new("en", "Test")
+        path = fetcher_no_cache.send(:cache_path, "Test")
+        expect(path).to be_nil
+      end
+
+      it "handles special characters in category name" do
+        path = fetcher_with_cache.send(:cache_path, "Test/Category:With<Special>Chars")
+        expect(path).to include("category_en_")
+        filename = File.basename(path)
+        # Filename should not contain special chars (they're replaced with _)
+        expect(filename).not_to include("/")
+        expect(filename).not_to include(":")
+        expect(filename).not_to include("<")
+        expect(filename).not_to include(">")
+      end
+
+      it "saves and loads from cache" do
+        category = "Cache_Test"
+        members = { pages: ["Article1", "Article2"], subcats: ["SubCat1"] }
+
+        fetcher_with_cache.send(:save_to_cache, category, members)
+        loaded = fetcher_with_cache.send(:load_from_cache, category)
+
+        expect(loaded[:pages]).to eq(["Article1", "Article2"])
+        expect(loaded[:subcats]).to eq(["SubCat1"])
+      end
+
+      it "returns nil for non-existent cache" do
+        result = fetcher_with_cache.send(:load_from_cache, "NonExistent")
+        expect(result).to be_nil
+      end
+    end
   end
 
   describe Wp2txt::MultistreamReader do
