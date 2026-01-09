@@ -13,12 +13,17 @@ module Wp2txt
 
     # Format article based on configuration and output format
     def format_article(article, config)
+      # Store original title for magic word expansion in content
+      original_title = article.title.dup
       article.title = format_wiki(article.title, config)
 
+      # Add title to config for magic word expansion in content processing
+      config_with_title = config.merge(title: original_title)
+
       if config[:format] == :json
-        format_article_json(article, config)
+        format_article_json(article, config_with_title)
       else
-        format_article_text(article, config)
+        format_article_text(article, config_with_title)
       end
     end
 

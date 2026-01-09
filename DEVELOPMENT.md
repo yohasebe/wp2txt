@@ -77,7 +77,24 @@ MARKER_TYPES = %i[math code chem table score timeline graph ipa].freeze
 # Processing flow:
 # 1. Content detected → Replace with placeholder («« MATH »»)
 # 2. Text processing continues (placeholders protected from cleanup)
-# 3. finalize_markers() converts placeholders to [MATH] format
+# 3. finalize_markers() converts placeholders to [MARKER] format
+```
+
+### Magic Word Expansion
+
+The `MagicWordExpander` class (`lib/wp2txt/magic_words.rb`) expands MediaWiki magic words to their actual values:
+
+| Category | Magic Words | Example |
+|----------|-------------|---------|
+| Page context | `PAGENAME`, `FULLPAGENAME`, `BASEPAGENAME`, `ROOTPAGENAME`, `SUBPAGENAME`, `NAMESPACE`, `TALKPAGENAME` | `{{PAGENAME}}` → "Article Title" |
+| Date/time | `CURRENTYEAR`, `CURRENTMONTH`, `CURRENTDAY`, `CURRENTDAYNAME`, `CURRENTTIME`, `CURRENTTIMESTAMP` | `{{CURRENTYEAR}}` → "2024" |
+| String functions | `lc`, `uc`, `lcfirst`, `ucfirst`, `urlencode`, `anchorencode`, `padleft`, `padright` | `{{uc:hello}}` → "HELLO" |
+| Parser functions | `#titleparts` | `{{#titleparts:A/B/C\|2}}` → "A/B" |
+
+Magic words are expanded early in the `format_wiki()` pipeline when a title is provided in the config:
+
+```ruby
+result = format_wiki(text, title: "Article Name", dump_date: Time.now)
 ```
 
 ## Test System

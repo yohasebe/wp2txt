@@ -77,7 +77,24 @@ MARKER_TYPES = %i[math code chem table score timeline graph ipa].freeze
 # 処理フロー:
 # 1. コンテンツ検出 → プレースホルダーに置換 («« MATH »»)
 # 2. テキスト処理続行（プレースホルダーはクリーンアップから保護）
-# 3. finalize_markers() がプレースホルダーを [MATH] 形式に変換
+# 3. finalize_markers() がプレースホルダーを [MARKER] 形式に変換
+```
+
+### マジックワード展開
+
+`MagicWordExpander`クラス（`lib/wp2txt/magic_words.rb`）はMediaWikiマジックワードを実際の値に展開します：
+
+| カテゴリ | マジックワード | 例 |
+|----------|----------------|-----|
+| ページ文脈 | `PAGENAME`, `FULLPAGENAME`, `BASEPAGENAME`, `ROOTPAGENAME`, `SUBPAGENAME`, `NAMESPACE`, `TALKPAGENAME` | `{{PAGENAME}}` → "記事タイトル" |
+| 日時 | `CURRENTYEAR`, `CURRENTMONTH`, `CURRENTDAY`, `CURRENTDAYNAME`, `CURRENTTIME`, `CURRENTTIMESTAMP` | `{{CURRENTYEAR}}` → "2024" |
+| 文字列関数 | `lc`, `uc`, `lcfirst`, `ucfirst`, `urlencode`, `anchorencode`, `padleft`, `padright` | `{{uc:hello}}` → "HELLO" |
+| パーサー関数 | `#titleparts` | `{{#titleparts:A/B/C\|2}}` → "A/B" |
+
+マジックワードは`format_wiki()`パイプラインの早い段階で、configにtitleが指定されている場合に展開されます：
+
+```ruby
+result = format_wiki(text, title: "記事名", dump_date: Time.now)
 ```
 
 ## テストシステム
