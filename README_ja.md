@@ -58,18 +58,6 @@ wp2txtは[公式Wikipediaダンプファイル](https://meta.wikimedia.org/wiki/
 - 包括的なテストスイート（775以上のテスト、78%カバレッジ）
 - 非推奨: `--convert`と`--del-interfile`オプション（不要になった）
 
-## スクリーンショット
-
-<img src='https://raw.githubusercontent.com/yohasebe/wp2txt/master/image/screenshot.png' width="800" />
-
-**環境**
-
-- WP2TXT 1.0.1
-- MacBook Pro (2021 Apple M1 Pro)
-- enwiki-20220720-pages-articles.xml.bz2 (19.98 GB)
-
-上記の環境で、英語Wikipediaのプレーンテキストデータを取得するプロセス（解凍、分割、抽出、変換）は1.5時間未満で完了します。
-
 ## 機能
 
 - 各言語のWikipediaダンプファイルを変換

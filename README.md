@@ -84,18 +84,6 @@ See [CHANGELOG.md](CHANGELOG.md) for detailed release notes.
 - A new option `--summary-only` has been added. If this option is enabled, only the title, category information, and opening paragraphs of the article will be extracted.
 - Text conversion with the current version of WP2TXT is *more than 2x times faster* than the previous version due to parallel processing of multiple files (the rate of speedup depends on the CPU cores used for processing).
 
-## Screenshot
-
-<img src='https://raw.githubusercontent.com/yohasebe/wp2txt/master/image/screenshot.png' width="800" />
-
-**Environment**
-
-- WP2TXT 1.0.1
-- MacBook Pro (2021 Apple M1 Pro)
-- enwiki-20220720-pages-articles.xml.bz2 (19.98 GB)
-
-In the above environment, the process (decompression, splitting, extraction, and conversion) to obtain the plain text data of the English Wikipedia takes less than 1.5 hours.
-
 ## Features
 
 - Converts Wikipedia dump files in various languages
