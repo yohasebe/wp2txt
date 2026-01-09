@@ -10,7 +10,9 @@ There are several tools for extracting plain text from Wikipedia dumps. [WikiExt
 |---------|--------|---------------|
 | Plain text extraction | ✅ | ✅ |
 | **Category metadata extraction** | ✅ | ❌ |
+| **Category-based article extraction** | ✅ | ❌ |
 | Category-only output (`-g`) | ✅ | ❌ |
+| **Specific article extraction by title** | ✅ | ❌ |
 | Section headings | `==Title==` (customizable) | `Title.` (fixed format) |
 | Multilingual categories | ✅ (350+ languages) | — |
 | Processing speed | Slower | ~10x faster |
@@ -18,6 +20,8 @@ There are several tools for extracting plain text from Wikipedia dumps. [WikiExt
 ### When to use wp2txt
 
 - You need **article category information** for classification or knowledge graphs
+- You want to **extract articles from specific categories** (e.g., all articles in "Japanese cities")
+- You want to **extract specific articles by title** without downloading the full dump
 - You want to preserve or customize section heading format
 - You're building topic classifiers using categories as labels
 - Processing time is not your primary constraint
@@ -27,6 +31,27 @@ There are several tools for extracting plain text from Wikipedia dumps. [WikiExt
 - You only need plain text content (no metadata)
 - Processing speed is critical
 - Working with full Wikipedia dumps (20GB+)
+
+## Responsible Data Access
+
+**wp2txt uses official Wikipedia dump files**, which is the [recommended approach by Wikimedia Foundation](https://meta.wikimedia.org/wiki/Data_dumps) for bulk data access.
+
+### Why dump files instead of API scraping?
+
+The Wikimedia Foundation has expressed concerns about large-scale API scraping, particularly for AI/ML purposes:
+
+- **Server load**: Mass API requests burden Wikipedia's infrastructure
+- **Official recommendation**: Dump files are specifically provided for bulk data access
+- **Terms of service**: Excessive bot requests may be blocked
+
+wp2txt's design aligns with these guidelines:
+
+| Approach | Server Impact | Wikimedia Stance |
+|----------|---------------|------------------|
+| API scraping (mass) | High | ⚠️ Discouraged |
+| **Dump files (wp2txt)** | None | ✅ Recommended |
+
+By using dump files, wp2txt enables large-scale Wikipedia data extraction while respecting Wikimedia's infrastructure and policies.
 
 ## About
 
@@ -38,12 +63,17 @@ See [CHANGELOG.md](CHANGELOG.md) for detailed release notes.
 
 **January 2026 (v2.0.0)**
 
+- **NEW: Category-based extraction** (`--from-category`) - extract all articles from a Wikipedia category
+  - Supports subcategory recursion with `--depth` option
+  - Preview mode with `--dry-run` to see article counts before extraction
+  - Confirmation prompt with `--yes` option for automation
 - **NEW: Auto-download mode** (`--lang=ja`) - automatically downloads Wikipedia dumps
 - **NEW: Article extraction** (`--articles`) - extract specific articles by title
 - **NEW: JSON/JSONL output format** (`--format json`) for machine-readable output
 - **NEW: Content type markers** (`--markers`) - mark MATH, CODE, CHEM, TABLE, etc.
 - **NEW: Streaming processing** - no intermediate XML files, reduced disk I/O
 - **NEW: Cache management** - manage downloaded dumps with `--cache-status` and `--cache-clear`
+- **NEW: Configuration file** (`--config-init`) - customize cache expiry, default format, etc.
 - Full Ruby 4.0 compatibility
 - Multilingual support for category extraction (350+ Wikipedia languages, auto-generated from MediaWiki API)
 - Multilingual support for redirect detection (350+ Wikipedia languages)
@@ -51,7 +81,7 @@ See [CHANGELOG.md](CHANGELOG.md) for detailed release notes.
 - Fixed encoding error handling (no longer crashes on invalid UTF-8)
 - Improved handling of File/Image links in article output
 - Performance optimizations (reduced memory allocations, regex caching)
-- Comprehensive test suite (320+ tests, 74%+ coverage)
+- Comprehensive test suite (450+ tests, 78% coverage)
 - Deprecated: `--convert` and `--del-interfile` options (no longer needed)
 
 **May 2023**
@@ -97,11 +127,13 @@ In the above environment, the process (decompression, splitting, extraction, and
 - Converts Wikipedia dump files in various languages
 - **Auto-download mode** - automatically download and process dumps by language code
 - **Extract specific articles** - extract individual articles by title without downloading the full dump
+- **Category-based extraction** - extract all articles belonging to a Wikipedia category (with subcategory support)
 - **Extracts category information of the article** (unique feature)
 - **JSON/JSONL output format** for machine-readable data pipelines
 - **Content type markers** - mark mathematical formulas, code blocks, chemical formulas, tables, etc.
 - **Streaming processing** - processes bz2 files directly without intermediate files
 - **Cache management** - downloaded dumps are cached for reuse
+- **Configuration file** - customize cache expiry, default output format, and more
 - Creates output files of specified size
 - Allows specifying elements (page titles, section headers, paragraphs, list items) to be extracted
 - Allows extracting opening paragraphs of the article
@@ -165,6 +197,10 @@ The dump will be downloaded to `~/.wp2txt/cache/` and cached for future use. You
     $ wp2txt --cache-clear            # Clear all cache
     $ wp2txt --cache-clear --lang=ja  # Clear cache for Japanese only
 
+When cache is older than the configured expiry period (default: 30 days), wp2txt will display a warning but still allow you to use the cached data. Use `--update-cache` to force a fresh download:
+
+    $ wp2txt --lang=ja --from-category="日本の都市" --update-cache -o ./cities
+
 ### Option 2: Manual Download
 
 Download the latest Wikipedia dump file for the desired language at a URL such as
@@ -192,6 +228,22 @@ This automatically downloads the Japanese Wikipedia dump and extracts plain text
     $ wp2txt --lang=ja --articles="認知言語学,生成文法" -o ./articles
 
 This extracts only the specified articles. Only the index file and necessary data streams are downloaded, making it much faster than processing the full dump.
+
+### Extract articles from a category
+
+    $ wp2txt --lang=ja --from-category="日本の都市" -o ./cities
+
+This extracts all articles belonging to the specified Wikipedia category. You can include subcategories with `--depth`:
+
+    $ wp2txt --lang=ja --from-category="日本の都市" --depth=2 -o ./cities
+
+Preview the category without downloading (shows article counts):
+
+    $ wp2txt --lang=ja --from-category="日本の都市" --dry-run
+
+Skip confirmation prompt for automation:
+
+    $ wp2txt --lang=ja --from-category="日本の都市" --yes -o ./cities
 
 ### Extract plain text from local dump file
 
@@ -256,16 +308,24 @@ For redirect articles:
 
 By default, special content is replaced with marker placeholders to indicate content type:
 
+**Inline markers** (appear within sentences):
+
 | Marker | Content Type | Example MediaWiki |
 |--------|--------------|-------------------|
 | `[MATH]` | Mathematical formulas | `<math>E=mc^2</math>` |
-| `[CODE]` | Source code blocks | `<source>`, `<syntaxhighlight>`, `<code>` |
+| `[CODE]` | Inline code | `<code>variable</code>` |
 | `[CHEM]` | Chemical formulas | `<chem>H2O</chem>` |
+| `[IPA]` | IPA phonetic notation | `{{IPA|...}}` |
+
+**Block markers** (standalone content):
+
+| Marker | Content Type | Example MediaWiki |
+|--------|--------------|-------------------|
+| `[CODEBLOCK]` | Source code blocks | `<syntaxhighlight>`, `<source>`, `<pre>` |
 | `[TABLE]` | Wiki tables | `{| ... |}` |
 | `[SCORE]` | Musical scores | `<score>...</score>` |
 | `[TIMELINE]` | Timeline graphics | `<timeline>...</timeline>` |
 | `[GRAPH]` | Graphs/charts | `<graph>...</graph>` |
-| `[IPA]` | IPA phonetic notation | `{{IPA|...}}` |
 | `[INFOBOX]` | Information boxes | `{{Infobox ...}}` |
 | `[NAVBOX]` | Navigation boxes | `{{Navbox ...}}` |
 | `[GALLERY]` | Image galleries | `<gallery>...</gallery>` |
@@ -276,9 +336,10 @@ By default, special content is replaced with marker placeholders to indicate con
 
 Configure markers with `--markers`:
 
-    $ wp2txt --lang=en --markers=all -o ./text      # All markers (default)
-    $ wp2txt --lang=en --markers=none -o ./text     # No markers (content removed)
+    $ wp2txt --lang=en --markers=all -o ./text        # All markers (default)
     $ wp2txt --lang=en --markers=math,code -o ./text  # Only MATH and CODE markers
+
+**Note**: The `--markers=none` option is deprecated. Complete removal of special content can make surrounding text nonsensical (e.g., "Einstein discovered ." instead of "Einstein discovered [MATH].").
 
 ### Citation Extraction (v2.0+)
 
@@ -321,6 +382,10 @@ Command line options are as follows:
       -i, --input=<s>                  Path to compressed file (bz2) or XML file
       -L, --lang=<s>                   Wikipedia language code (e.g., ja, en, de) for auto-download
       -A, --articles=<s>               Specific article titles to extract (comma-separated, requires --lang)
+      -G, --from-category=<s>          Extract articles from Wikipedia category (requires --lang)
+      -D, --depth=<i>                  Subcategory recursion depth for --from-category (default: 0)
+      -y, --yes                        Skip confirmation prompt for category extraction
+      --dry-run                        Preview category extraction without downloading
 
     Output options:
       -o, --output-dir=<s>             Path to output directory (default: current directory)
@@ -330,6 +395,11 @@ Command line options are as follows:
       --cache-dir=<s>                  Cache directory for downloaded dumps (default: ~/.wp2txt/cache)
       --cache-status                   Show cache status and exit
       --cache-clear                    Clear cache and exit (use with --lang to clear specific language)
+      -U, --update-cache               Force refresh of cached dump files (ignore staleness)
+
+    Configuration:
+      --config-init                    Create default configuration file (~/.wp2txt/config.yml)
+      --config-path=<s>                Path to configuration file
 
     Processing options:
       -a, --category, --no-category    Show article category information (default: true)
@@ -343,15 +413,41 @@ Command line options are as follows:
       -r, --ref                        Keep reference notations in the format [ref]...[/ref]
       -e, --redirect                   Show redirect destination
       -m, --marker, --no-marker        Show symbols prefixed to list items, definitions, etc. (default: true)
-      -k, --markers=<s>                Content type markers: math,code,chem,table,score,timeline,graph,ipa or 'all'/'none' (default: all)
+      -k, --markers=<s>                Content type markers: math,code,chem,table,score,timeline,graph,ipa or 'all' (default: all)
       -C, --extract-citations          Extract formatted citations instead of removing them
       -b, --bz2-gem                    Use Ruby's bzip2-ruby gem instead of a system command
       -v, --version                    Print version and exit
       -h, --help                       Show this message
 
+## Configuration File
+
+wp2txt supports a YAML configuration file for persistent settings. Create the default configuration:
+
+    $ wp2txt --config-init
+
+This creates `~/.wp2txt/config.yml`:
+
+```yaml
+cache:
+  # Days before dump files are considered stale (1-365)
+  dump_expiry_days: 30
+  # Days before category cache expires (1-90)
+  category_expiry_days: 7
+  # Cache directory
+  directory: ~/.wp2txt/cache
+
+defaults:
+  # Default output format: text or json
+  format: text
+  # Default subcategory recursion depth (0-10)
+  depth: 0
+```
+
+Command-line options override configuration file settings.
+
 ## Caveats
 
-* Special content like mathematical formulas, code blocks, and chemical formulas are marked with placeholders (e.g., `[MATH]`, `[CODE]`, `[CHEM]`) by default. Use `--markers=none` to disable markers.
+* Special content like mathematical formulas, code blocks, and chemical formulas are marked with placeholders (e.g., `[MATH]`, `[CODE]`, `[CHEM]`) by default. Use `--markers=math,code` to show only specific markers.
 * Some text data may not be extracted correctly for various reasons (incorrect matching of begin/end tags, language-specific formatting rules, etc.).
 * The conversion process can take longer than expected. When dealing with a huge data set such as the English Wikipedia on a low-spec environment, it can take several hours or more.
 

@@ -5,6 +5,28 @@ require_relative "spec_helper"
 RSpec.describe "Wp2txt Markers" do
   include Wp2txt
 
+  describe "marker classification constants" do
+    it "defines INLINE_MARKERS" do
+      expect(Wp2txt::INLINE_MARKERS).to be_a(Array)
+      expect(Wp2txt::INLINE_MARKERS).to include(:math, :chem, :ipa, :code)
+    end
+
+    it "defines BLOCK_MARKERS" do
+      expect(Wp2txt::BLOCK_MARKERS).to be_a(Array)
+      expect(Wp2txt::BLOCK_MARKERS).to include(:table, :infobox, :navbox, :codeblock)
+    end
+
+    it "has no overlap between inline and block markers" do
+      overlap = Wp2txt::INLINE_MARKERS & Wp2txt::BLOCK_MARKERS
+      expect(overlap).to be_empty
+    end
+
+    it "includes all marker types in either inline or block" do
+      all_classified = Wp2txt::INLINE_MARKERS + Wp2txt::BLOCK_MARKERS
+      expect(all_classified.sort).to eq(Wp2txt::MARKER_TYPES.sort)
+    end
+  end
+
   # Default behavior: markers are ON
   describe "marker replacement (default: enabled)" do
     describe "MATH marker" do
@@ -30,7 +52,7 @@ RSpec.describe "Wp2txt Markers" do
       end
     end
 
-    describe "CODE marker" do
+    describe "CODE marker (inline)" do
       it "replaces <code> tags with [CODE]" do
         input = "Use <code>printf()</code> to print."
         result = format_wiki(input)
@@ -38,25 +60,43 @@ RSpec.describe "Wp2txt Markers" do
         expect(result).not_to include("<code>")
       end
 
-      it "replaces <syntaxhighlight> tags with [CODE]" do
+      it "handles inline code in sentence" do
+        input = "The variable <code>x</code> and <code>y</code> are integers."
+        result = format_wiki(input)
+        expect(result).to include("[CODE]")
+        expect(result).to include("are integers")
+      end
+    end
+
+    describe "CODEBLOCK marker (block)" do
+      it "replaces <syntaxhighlight> tags with [CODEBLOCK]" do
         input = "<syntaxhighlight lang=\"python\">def hello():\n    print('Hello')</syntaxhighlight>"
         result = format_wiki(input)
-        expect(result).to include("[CODE]")
+        expect(result).to include("[CODEBLOCK]")
         expect(result).not_to include("<syntaxhighlight")
+        expect(result).not_to include("[CODE]")
       end
 
-      it "replaces <source> tags with [CODE]" do
+      it "replaces <source> tags with [CODEBLOCK]" do
         input = "<source lang=\"ruby\">puts 'hello'</source>"
         result = format_wiki(input)
-        expect(result).to include("[CODE]")
+        expect(result).to include("[CODEBLOCK]")
         expect(result).not_to include("<source")
+        expect(result).not_to include("[CODE]")
       end
 
-      it "replaces <pre> tags with [CODE]" do
+      it "replaces <pre> tags with [CODEBLOCK]" do
         input = "<pre>some preformatted code</pre>"
         result = format_wiki(input)
-        expect(result).to include("[CODE]")
+        expect(result).to include("[CODEBLOCK]")
         expect(result).not_to include("<pre>")
+        expect(result).not_to include("[CODE]")
+      end
+
+      it "handles multiple codeblocks" do
+        input = "<syntaxhighlight>code1</syntaxhighlight>\n\n<source>code2</source>"
+        result = format_wiki(input)
+        expect(result.scan("[CODEBLOCK]").count).to eq(2)
       end
     end
 
@@ -344,6 +384,13 @@ RSpec.describe "Wp2txt Markers" do
       expect(result).not_to include("[SCORE]")
     end
 
+    it "removes codeblock when disabled" do
+      input = "<syntaxhighlight lang=\"python\">print('hello')</syntaxhighlight>"
+      result = format_wiki(input, markers: false)
+      expect(result).not_to include("[CODEBLOCK]")
+      expect(result).not_to include("<syntaxhighlight")
+    end
+
     it "removes infobox when markers disabled" do
       input = "{{Infobox person\n|name = John\n}}\nText."
       result = format_wiki(input, markers: false)
@@ -390,6 +437,22 @@ RSpec.describe "Wp2txt Markers" do
       expect(result).to include("[MATH]")
       expect(result).to include("[CODE]")
       expect(result).not_to include("[CHEM]")
+    end
+
+    it "distinguishes code and codeblock markers" do
+      input = "<code>inline</code>\n<syntaxhighlight>block</syntaxhighlight>"
+      result = format_wiki(input, markers: [:code])
+      expect(result).to include("[CODE]")
+      expect(result).not_to include("[CODEBLOCK]")
+      expect(result).not_to include("block")
+    end
+
+    it "enables codeblock independently from code" do
+      input = "<code>inline</code>\n<syntaxhighlight>block</syntaxhighlight>"
+      result = format_wiki(input, markers: [:codeblock])
+      expect(result).to include("[CODEBLOCK]")
+      expect(result).not_to include("[CODE]")
+      expect(result).not_to include("inline")
     end
   end
 

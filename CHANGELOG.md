@@ -7,6 +7,37 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- **Cache staleness warnings**: Cache status now shows age and staleness information:
+  - Displays cache date and age (e.g., "2025-01-05 - 4 days ago")
+  - Warns when cache exceeds configured `dump_expiry_days` (default: 30 days)
+  - New `--update-cache` (`-U`) option to force refresh of cached dump files
+  - Users can choose to use stale cache or force update
+
+- **Category-based extraction**: New `--from-category` option extracts all articles from a Wikipedia category:
+  - `wp2txt --lang=ja --from-category="日本の都市" -o ./output` extracts all articles in the category
+  - `--depth` option for subcategory recursion (e.g., `--depth=2` includes 2 levels of subcategories)
+  - `--dry-run` for preview mode (shows article counts without downloading)
+  - `--yes` to skip confirmation prompt for automation
+  - Circular reference prevention for category hierarchies
+  - Rate limiting for Wikipedia API requests
+
+- **Configuration file**: New `--config-init` option creates persistent configuration:
+  - Settings stored in `~/.wp2txt/config.yml`
+  - Configurable: `dump_expiry_days`, `category_expiry_days`, `cache.directory`
+  - Default output format and subcategory depth
+  - CLI options override config file settings
+
+- **Deprecated `--markers=none`**: Complete removal of special content is now deprecated
+  - Removing inline content (e.g., math formulas) makes surrounding text nonsensical
+  - `--markers=none` now shows a warning and behaves like `--markers=all`
+  - Use `--markers=math,code` to show only specific marker types
+
+- **Marker classification**: Markers now categorized as inline or block
+  - **Inline markers** (`[MATH]`, `[CODE]`, `[CHEM]`, `[IPA]`): Content that appears mid-sentence; removal would break grammar
+  - **Block markers** (`[TABLE]`, `[CODEBLOCK]`, `[INFOBOX]`, etc.): Standalone content that can be safely removed
+  - New `[CODEBLOCK]` marker for `<syntaxhighlight>`, `<source>`, `<pre>` tags (block-level code)
+  - `[CODE]` marker now only applies to inline `<code>` tags
+
 ## [2.0.0] - 2026-01-08
 
 ### Added

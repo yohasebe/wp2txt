@@ -3,31 +3,48 @@
 require "optimist"
 require_relative "version"
 require_relative "multistream"
+require_relative "config"
 
 module Wp2txt
   # CLI option parsing and validation
   module CLI
-    # Default cache directory
-    DEFAULT_CACHE_DIR = File.expand_path("~/.wp2txt/cache")
-
     # Maximum number of processors for parallel processing
     MAX_PROCESSORS = 8
 
     class << self
+      # Load configuration
+      # @return [Config] Configuration object
+      def load_config(config_path = nil)
+        path = config_path || Config.default_path
+        @config = Config.load(path)
+      end
+
+      # Get current config (lazy load)
+      # @return [Config] Configuration object
+      def config
+        @config ||= load_config
+      end
+
       # Parse command line options
       # @param args [Array<String>] Command line arguments
       # @return [Hash] Parsed options
       def parse_options(args)
+        # Pre-load config for defaults
+        cfg = config
+
         opts = Optimist.options(args) do
           version Wp2txt::VERSION
           banner <<~BANNER
             WP2TXT extracts plain text data from Wikipedia dump files.
 
             Usage:
-              wp2txt --lang=ja [options]           # Auto-download and process
-              wp2txt --input=FILE [options]        # Process local file
-              wp2txt --cache-status                # Show cache status
-              wp2txt --cache-clear [--lang=CODE]   # Clear cache
+              wp2txt --lang=ja [options]                    # Auto-download and process
+              wp2txt --input=FILE [options]                 # Process local file
+              wp2txt --lang=en --from-category="Cities" -o ./output  # Extract category
+              wp2txt --lang=en --from-category="Cities" --dry-run    # Preview only
+              wp2txt --cache-status                         # Show cache status
+              wp2txt --cache-clear [--lang=CODE]            # Clear cache
+              wp2txt --config-init                          # Create default config file
 
             Options:
           BANNER
@@ -39,20 +56,34 @@ module Wp2txt
               type: String, short: "-L"
           opt :articles, "Specific article titles to extract (comma-separated, requires --lang)",
               type: String, short: "-A"
+          opt :from_category, "Extract articles from Wikipedia category (requires --lang)",
+              type: String, short: "-G"
+          opt :depth, "Subcategory recursion depth for --from-category (0 = no recursion)",
+              default: cfg.default_depth, type: Integer, short: "-D"
+          opt :yes, "Skip confirmation prompt for category extraction",
+              default: false, short: "-y"
+          opt :dry_run, "Preview category extraction without downloading",
+              default: false
+          opt :update_cache, "Force refresh of cached dump files",
+              default: false, short: "-U"
 
           # Output options
           opt :output_dir, "Path to output directory",
               default: Dir.pwd, type: String, short: "-o"
           opt :format, "Output format: text or json (JSONL)",
-              default: "text", short: "-j"
+              default: cfg.default_format, short: "-j"
 
           # Cache management
           opt :cache_dir, "Cache directory for downloaded dumps",
-              default: DEFAULT_CACHE_DIR, type: String
+              default: cfg.cache_directory, type: String
           opt :cache_status, "Show cache status and exit",
               default: false
           opt :cache_clear, "Clear cache and exit",
               default: false
+          opt :config_init, "Create default configuration file (~/.wp2txt/config.yml)",
+              default: false
+          opt :config_path, "Path to configuration file",
+              type: String
 
           # Processing options
           opt :category, "Show article category information",
@@ -77,12 +108,18 @@ module Wp2txt
               default: false, short: "-e"
           opt :marker, "Show symbols prefixed to list items",
               default: true, short: "-m"
-          opt :markers, "Content type markers (math,code,chem,table,score,timeline,graph,ipa or 'all'/'none')",
+          opt :markers, "Content type markers (math,code,chem,table,score,timeline,graph,ipa or 'all')",
               default: "all", short: "-k"
           opt :extract_citations, "Extract formatted citations instead of removing them",
               default: false, short: "-C"
           opt :bz2_gem, "Use Ruby's bzip2-ruby gem instead of system command",
               default: false, short: "-b"
+
+          # Output control
+          opt :quiet, "Suppress progress output (only show errors and final result)",
+              default: false, short: "-q"
+          opt :no_color, "Disable colored output (also respects NO_COLOR env variable)",
+              default: false
 
           # Deprecated options
           opt :convert, "[DEPRECATED] No longer needed",
@@ -97,8 +134,8 @@ module Wp2txt
 
       # Validate parsed options
       def validate_options!(opts)
-        # Cache operations don't need input/lang
-        return if opts[:cache_status] || opts[:cache_clear]
+        # Cache and config operations don't need input/lang
+        return if opts[:cache_status] || opts[:cache_clear] || opts[:config_init]
 
         # Either --input or --lang is required
         if opts[:input].nil? && opts[:lang].nil?
@@ -118,6 +155,41 @@ module Wp2txt
         # --articles cannot be used with --input
         if opts[:articles] && opts[:input]
           Optimist.die "--articles cannot be used with --input"
+        end
+
+        # --from-category requires --lang
+        if opts[:from_category] && opts[:lang].nil?
+          Optimist.die "--from-category requires --lang"
+        end
+
+        # --from-category cannot be used with --input
+        if opts[:from_category] && opts[:input]
+          Optimist.die "--from-category cannot be used with --input"
+        end
+
+        # --from-category cannot be used with --articles
+        if opts[:from_category] && opts[:articles]
+          Optimist.die "--from-category cannot be used with --articles"
+        end
+
+        # --depth must be >= 0
+        if opts[:depth] < 0
+          Optimist.die :depth, "must be 0 or greater"
+        end
+
+        # Warn if depth > 3 (can result in many articles)
+        if opts[:depth] > 3
+          warn "Warning: --depth > 3 may result in a very large number of articles"
+        end
+
+        # --dry-run only makes sense with --from-category
+        if opts[:dry_run] && opts[:from_category].nil?
+          Optimist.die "--dry-run requires --from-category"
+        end
+
+        # --yes only makes sense with --from-category
+        if opts[:yes] && opts[:from_category].nil?
+          Optimist.die "--yes requires --from-category"
         end
 
         # Validate --input exists
@@ -160,7 +232,7 @@ module Wp2txt
 
       # Get default cache directory
       def default_cache_dir
-        DEFAULT_CACHE_DIR
+        Config::DEFAULT_CACHE_DIR
       end
     end
   end

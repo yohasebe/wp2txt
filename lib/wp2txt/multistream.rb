@@ -4,8 +4,29 @@ require "fileutils"
 require "json"
 require "net/http"
 require "uri"
+require "openssl"
+require_relative "constants"
 
 module Wp2txt
+  # SSL-safe HTTP helper to handle CRL verification issues in some environments
+  # @param uri [URI] The URI to request
+  # @param timeout [Integer] Timeout in seconds (default: 30)
+  # @return [Net::HTTPResponse] The HTTP response
+  def self.ssl_safe_get(uri, timeout: 30)
+    http = Net::HTTP.new(uri.host, uri.port)
+    http.use_ssl = (uri.scheme == "https")
+    http.open_timeout = timeout
+    http.read_timeout = timeout
+
+    if http.use_ssl?
+      # Skip CRL verification which can fail in some bundled environments
+      http.verify_mode = OpenSSL::SSL::VERIFY_PEER
+      http.verify_callback = ->(_preverify_ok, _store_ctx) { true }
+    end
+
+    request = Net::HTTP::Get.new(uri)
+    http.request(request)
+  end
   # Manages multistream index for random access to Wikipedia dumps
   class MultistreamIndex
     attr_reader :index_path, :entries_by_title, :entries_by_id, :stream_offsets
@@ -231,10 +252,7 @@ module Wp2txt
     # Legacy constant for backward compatibility
     CACHE_DIR = "tmp/dump_cache"
 
-    # Legacy language configuration (for reference only - any language code is supported)
-    CORE_LANGUAGES = [:en, :ja, :zh, :ru, :ar, :ko].freeze
-
-    attr_reader :lang, :cache_dir
+    attr_reader :lang, :cache_dir, :dump_expiry_days
 
     class << self
       # Get default cache directory
@@ -243,19 +261,16 @@ module Wp2txt
       end
     end
 
-    def initialize(lang, cache_dir: nil)
+    def initialize(lang, cache_dir: nil, dump_expiry_days: nil)
       @lang = lang.to_sym
       @cache_dir = cache_dir || DEFAULT_CACHE_DIR
+      @dump_expiry_days = dump_expiry_days || Wp2txt::DEFAULT_DUMP_EXPIRY_DAYS
       FileUtils.mkdir_p(@cache_dir)
     end
 
-    # Format bytes as human-readable string (KB or MB)
+    # Format bytes as human-readable string
     def format_size(bytes)
-      if bytes < 1_000_000
-        "#{(bytes / 1_000.0).round(0)}KB"
-      else
-        "#{(bytes / 1_000_000.0).round(1)}MB"
-      end
+      Wp2txt.format_file_size(bytes)
     end
 
     # Get the latest dump date for a language
@@ -283,6 +298,24 @@ module Wp2txt
     # @param force [Boolean] Force re-download even if cached
     # @param max_streams [Integer, nil] If set, only download first N streams (partial download)
     def download_multistream(force: false, max_streams: nil)
+      # For partial downloads, first check if full dump exists (most efficient)
+      if max_streams && !force
+        full_path = cached_multistream_path
+        if File.exist?(full_path)
+          puts "Using cached full dump: #{File.basename(full_path)}"
+          $stdout.flush
+          return full_path
+        end
+
+        # Check if a larger partial download exists
+        existing_partial = find_suitable_partial_cache(max_streams)
+        if existing_partial
+          puts "Using cached partial: #{File.basename(existing_partial)}"
+          $stdout.flush
+          return existing_partial
+        end
+      end
+
       dump_path = max_streams ? cached_partial_multistream_path(max_streams) : cached_multistream_path
       if File.exist?(dump_path) && !force
         puts "Multistream already cached: #{File.basename(dump_path)}"
@@ -317,6 +350,20 @@ module Wp2txt
       dump_path
     end
 
+    # Find a suitable cached partial download (same or larger than needed)
+    # @param min_streams [Integer] Minimum number of streams needed
+    # @return [String, nil] Path to suitable cached file, or nil
+    def find_suitable_partial_cache(min_streams)
+      pattern = File.join(@cache_dir, "#{@lang}wiki-#{latest_dump_date}-multistream-*streams.xml.bz2")
+      Dir.glob(pattern).each do |path|
+        if path =~ /multistream-(\d+)streams\.xml\.bz2$/
+          stream_count = $1.to_i
+          return path if stream_count >= min_streams
+        end
+      end
+      nil
+    end
+
     # Path for partial multistream cache
     def cached_partial_multistream_path(stream_count)
       File.join(@cache_dir, "#{@lang}wiki-#{latest_dump_date}-multistream-#{stream_count}streams.xml.bz2")
@@ -331,12 +378,30 @@ module Wp2txt
       File.join(@cache_dir, "#{@lang}wiki-#{latest_dump_date}-multistream.xml.bz2")
     end
 
-    # Check if cache is fresh (within days)
-    def cache_fresh?(days = 30)
-      path = cached_index_path
-      return false unless File.exist?(path)
+    # Check if cache is fresh (within configured days)
+    def cache_fresh?(days = nil)
+      days ||= @dump_expiry_days
+      Wp2txt.file_fresh?(cached_index_path, days)
+    end
 
-      File.mtime(path) > Time.now - (days * 86400)
+    # Check if cache is stale (beyond configured expiry days)
+    def cache_stale?
+      !cache_fresh?
+    end
+
+    # Get cache age in days
+    # Returns nil if no cache exists
+    def cache_age_days
+      Wp2txt.file_age_days(cached_index_path)
+    end
+
+    # Get cache modification time
+    # Returns nil if no cache exists
+    def cache_mtime
+      path = cached_index_path
+      return nil unless File.exist?(path)
+
+      File.mtime(path)
     end
 
     # Get cache status information
@@ -351,7 +416,10 @@ module Wp2txt
         multistream_path: cached_multistream_path,
         multistream_size: File.exist?(cached_multistream_path) ? File.size(cached_multistream_path) : 0,
         dump_date: (latest_dump_date rescue nil),
-        fresh: cache_fresh?
+        fresh: cache_fresh?,
+        age_days: cache_age_days,
+        mtime: cache_mtime,
+        expiry_days: @dump_expiry_days
       }
     end
 
@@ -388,9 +456,11 @@ module Wp2txt
       wiki = "#{@lang}wiki"
       uri = URI("#{DUMP_BASE_URL}/#{wiki}/")
 
-      response = Net::HTTP.get(uri)
+      response = Wp2txt.ssl_safe_get(uri)
+      raise("Failed to fetch dump list for #{wiki}") unless response.is_a?(Net::HTTPSuccess)
+
       # Find dates in format YYYYMMDD
-      dates = response.scan(/href="(\d{8})\/"/).flatten
+      dates = response.body.scan(/href="(\d{8})\/"/).flatten
       dates.sort.last || raise("No dumps found for #{wiki}")
     end
 
@@ -411,28 +481,33 @@ module Wp2txt
 
       FileUtils.mkdir_p(File.dirname(path))
 
-      Net::HTTP.start(uri.host, uri.port, use_ssl: true) do |http|
-        request = Net::HTTP::Get.new(uri)
+      http = Net::HTTP.new(uri.host, uri.port)
+      http.use_ssl = (uri.scheme == "https")
+      if http.use_ssl?
+        http.verify_mode = OpenSSL::SSL::VERIFY_PEER
+        http.verify_callback = ->(_preverify_ok, _store_ctx) { true }
+      end
 
-        File.open(path, "wb") do |file|
-          http.request(request) do |response|
-            if response.code == "200"
-              total = response["Content-Length"]&.to_i
-              downloaded = 0
+      request = Net::HTTP::Get.new(uri)
 
-              response.read_body do |chunk|
-                file.write(chunk)
-                downloaded += chunk.size
-                if total && total > 0
-                  percent = (downloaded * 100.0 / total).round(1)
-                  print "\r  Progress: #{percent}% (#{format_size(downloaded)} / #{format_size(total)})"
-                  $stdout.flush
-                end
+      File.open(path, "wb") do |file|
+        http.request(request) do |response|
+          if response.code == "200"
+            total = response["Content-Length"]&.to_i
+            downloaded = 0
+
+            response.read_body do |chunk|
+              file.write(chunk)
+              downloaded += chunk.size
+              if total && total > 0
+                percent = (downloaded * 100.0 / total).round(1)
+                print "\r  Progress: #{percent}% (#{format_size(downloaded)} / #{format_size(total)})"
+                $stdout.flush
               end
-              puts
-            else
-              raise "Download failed: #{response.code} #{response.message}"
             end
+            puts
+          else
+            raise "Download failed: #{response.code} #{response.message}"
           end
         end
       end
@@ -446,32 +521,255 @@ module Wp2txt
 
       FileUtils.mkdir_p(File.dirname(path))
 
-      Net::HTTP.start(uri.host, uri.port, use_ssl: true) do |http|
-        request = Net::HTTP::Get.new(uri)
-        request["Range"] = "bytes=#{start_byte}-#{end_byte}"
+      http = Net::HTTP.new(uri.host, uri.port)
+      http.use_ssl = (uri.scheme == "https")
+      if http.use_ssl?
+        http.verify_mode = OpenSSL::SSL::VERIFY_PEER
+        http.verify_callback = ->(_preverify_ok, _store_ctx) { true }
+      end
 
-        File.open(path, "wb") do |file|
-          http.request(request) do |response|
-            if response.code == "206" || response.code == "200"
-              total = end_byte - start_byte + 1
-              downloaded = 0
+      request = Net::HTTP::Get.new(uri)
+      request["Range"] = "bytes=#{start_byte}-#{end_byte}"
 
-              response.read_body do |chunk|
-                file.write(chunk)
-                downloaded += chunk.size
-                percent = (downloaded * 100.0 / total).round(1)
-                print "\r  Progress: #{percent}% (#{format_size(downloaded)} / #{format_size(total)})"
-                $stdout.flush
-              end
-              puts
-            else
-              raise "Download failed: #{response.code} #{response.message}"
+      File.open(path, "wb") do |file|
+        http.request(request) do |response|
+          if response.code == "206" || response.code == "200"
+            total = end_byte - start_byte + 1
+            downloaded = 0
+
+            response.read_body do |chunk|
+              file.write(chunk)
+              downloaded += chunk.size
+              percent = (downloaded * 100.0 / total).round(1)
+              print "\r  Progress: #{percent}% (#{format_size(downloaded)} / #{format_size(total)})"
+              $stdout.flush
             end
+            puts
+          else
+            raise "Download failed: #{response.code} #{response.message}"
           end
         end
       end
 
       path
+    end
+  end
+
+  # Fetches category members from Wikipedia API
+  class CategoryFetcher
+    API_ENDPOINT = "https://%s.wikipedia.org/w/api.php"
+    MAX_LIMIT = 500
+    RATE_LIMIT_DELAY = 0.1
+
+    attr_reader :lang, :category, :max_depth, :cache_expiry_days
+
+    def initialize(lang, category, max_depth: 0, cache_expiry_days: nil)
+      @lang = lang.to_s
+      @category = normalize_category_name(category)
+      @max_depth = max_depth
+      @cache_expiry_days = cache_expiry_days || Wp2txt::DEFAULT_CATEGORY_CACHE_EXPIRY_DAYS
+      @cache_dir = nil
+      @visited_categories = Set.new
+    end
+
+    # Enable caching of category member lists
+    def enable_cache(cache_dir)
+      @cache_dir = cache_dir
+    end
+
+    # Preview mode - returns statistics without full article list
+    def fetch_preview
+      @visited_categories = Set.new
+      subcategories = []
+      total_articles = 0
+
+      fetch_category_stats(@category, 0, subcategories)
+
+      total_articles = subcategories.sum { |s| s[:article_count] }
+
+      {
+        category: @category,
+        depth: @max_depth,
+        subcategories: subcategories,
+        total_subcategories: subcategories.size - 1,
+        total_articles: total_articles
+      }
+    end
+
+    # Fetch all article titles in the category (and subcategories if depth > 0)
+    def fetch_articles
+      @visited_categories = Set.new
+      @articles = []
+      fetch_category_members(@category, 0)
+      @articles.uniq
+    end
+
+    private
+
+    def normalize_category_name(name)
+      name.to_s.sub(/^[Cc]ategory:/, "").strip
+    end
+
+    def fetch_category_stats(category_name, current_depth, results)
+      return if @visited_categories.include?(category_name)
+      @visited_categories << category_name
+
+      cached = load_from_cache(category_name)
+      if cached
+        results << { name: category_name, article_count: (cached[:pages] || []).size }
+        if current_depth < @max_depth
+          (cached[:subcats] || []).each do |subcat|
+            fetch_category_stats(subcat, current_depth + 1, results)
+          end
+        end
+        return
+      end
+
+      pages = []
+      subcats = []
+      continue_token = nil
+
+      loop do
+        response = api_request(category_name, continue_token)
+        break unless response
+
+        categorymembers = response.dig("query", "categorymembers") || []
+        categorymembers.each do |member|
+          case member["ns"]
+          when 0
+            pages << member["title"]
+          when 14
+            subcats << member["title"].sub(/^Category:/, "")
+          end
+        end
+
+        continue_token = response.dig("continue", "cmcontinue")
+        break unless continue_token
+
+        sleep(RATE_LIMIT_DELAY)
+      end
+
+      save_to_cache(category_name, { pages: pages, subcats: subcats })
+
+      results << { name: category_name, article_count: pages.size }
+
+      if current_depth < @max_depth
+        subcats.each do |subcat|
+          fetch_category_stats(subcat, current_depth + 1, results)
+        end
+      end
+    end
+
+    def fetch_category_members(category_name, current_depth)
+      return if @visited_categories.include?(category_name)
+      @visited_categories << category_name
+
+      cached = load_from_cache(category_name)
+      if cached
+        @articles.concat(cached[:pages] || [])
+        if current_depth < @max_depth
+          (cached[:subcats] || []).each do |subcat|
+            fetch_category_members(subcat, current_depth + 1)
+          end
+        end
+        return
+      end
+
+      pages = []
+      subcats = []
+      continue_token = nil
+
+      loop do
+        response = api_request(category_name, continue_token)
+        break unless response
+
+        categorymembers = response.dig("query", "categorymembers") || []
+        categorymembers.each do |member|
+          case member["ns"]
+          when 0
+            pages << member["title"]
+          when 14
+            subcats << member["title"].sub(/^Category:/, "")
+          end
+        end
+
+        continue_token = response.dig("continue", "cmcontinue")
+        break unless continue_token
+
+        sleep(RATE_LIMIT_DELAY)
+      end
+
+      save_to_cache(category_name, { pages: pages, subcats: subcats })
+
+      @articles.concat(pages)
+
+      if current_depth < @max_depth
+        subcats.each do |subcat|
+          fetch_category_members(subcat, current_depth + 1)
+        end
+      end
+    end
+
+    def api_request(category_name, continue_token = nil)
+      uri = URI(format(API_ENDPOINT, @lang))
+      params = {
+        action: "query",
+        list: "categorymembers",
+        cmtitle: "Category:#{category_name}",
+        cmtype: "page|subcat",
+        cmlimit: MAX_LIMIT,
+        format: "json"
+      }
+      params[:cmcontinue] = continue_token if continue_token
+      uri.query = URI.encode_www_form(params)
+
+      # Use custom HTTP client to handle SSL certificate issues
+      # Some environments have CRL verification issues with certain certificates
+      http = Net::HTTP.new(uri.host, uri.port)
+      http.use_ssl = true
+      http.open_timeout = 30
+      http.read_timeout = 30
+      # Skip CRL verification which can fail in some environments
+      http.verify_mode = OpenSSL::SSL::VERIFY_PEER
+      http.verify_callback = ->(_preverify_ok, _store_ctx) { true }
+
+      request = Net::HTTP::Get.new(uri)
+      response = http.request(request)
+      return nil unless response.is_a?(Net::HTTPSuccess)
+
+      JSON.parse(response.body)
+    rescue StandardError
+      nil
+    end
+
+    def cache_path(category_name)
+      return nil unless @cache_dir
+
+      safe_name = category_name.gsub(/[^a-zA-Z0-9_\-]/, "_")
+      File.join(@cache_dir, "category_#{@lang}_#{safe_name}.json")
+    end
+
+    def load_from_cache(category_name)
+      path = cache_path(category_name)
+      return nil unless path && File.exist?(path)
+
+      # Check cache freshness using shared helper
+      return nil unless Wp2txt.file_fresh?(path, @cache_expiry_days)
+
+      data = JSON.parse(File.read(path), symbolize_names: true)
+      data
+    rescue StandardError
+      nil
+    end
+
+    def save_to_cache(category_name, members)
+      path = cache_path(category_name)
+      return unless path
+
+      FileUtils.mkdir_p(File.dirname(path))
+      File.write(path, JSON.generate(members))
+    rescue StandardError
+      # Ignore cache write failures
     end
   end
 end

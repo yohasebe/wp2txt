@@ -44,6 +44,9 @@ RSpec.describe "Wp2txt Auto Download" do
         expect(status).to have_key(:cache_dir)
         expect(status).to have_key(:index_exists)
         expect(status).to have_key(:multistream_exists)
+        expect(status).to have_key(:age_days)
+        expect(status).to have_key(:mtime)
+        expect(status).to have_key(:expiry_days)
         expect(status[:lang]).to eq(:ja)
       end
 
@@ -54,6 +57,89 @@ RSpec.describe "Wp2txt Auto Download" do
         status = manager.cache_status
         expect(status[:index_exists]).to be false
         expect(status[:multistream_exists]).to be false
+      end
+    end
+
+    describe "#cache_age_days" do
+      it "returns nil when cache does not exist" do
+        manager = Wp2txt::DumpManager.new(:ja, cache_dir: cache_dir)
+        allow(manager).to receive(:latest_dump_date).and_return("20260101")
+
+        expect(manager.cache_age_days).to be_nil
+      end
+
+      it "returns age in days when cache exists" do
+        manager = Wp2txt::DumpManager.new(:ja, cache_dir: cache_dir)
+        allow(manager).to receive(:latest_dump_date).and_return("20260101")
+
+        # Create a fake index file
+        index_path = manager.cached_index_path
+        FileUtils.mkdir_p(File.dirname(index_path))
+        File.write(index_path, "test")
+
+        age = manager.cache_age_days
+        expect(age).to be_a(Float)
+        expect(age).to be >= 0
+        expect(age).to be < 1  # Just created
+      end
+    end
+
+    describe "#cache_mtime" do
+      it "returns nil when cache does not exist" do
+        manager = Wp2txt::DumpManager.new(:ja, cache_dir: cache_dir)
+        allow(manager).to receive(:latest_dump_date).and_return("20260101")
+
+        expect(manager.cache_mtime).to be_nil
+      end
+
+      it "returns modification time when cache exists" do
+        manager = Wp2txt::DumpManager.new(:ja, cache_dir: cache_dir)
+        allow(manager).to receive(:latest_dump_date).and_return("20260101")
+
+        # Create a fake index file
+        index_path = manager.cached_index_path
+        FileUtils.mkdir_p(File.dirname(index_path))
+        File.write(index_path, "test")
+
+        mtime = manager.cache_mtime
+        expect(mtime).to be_a(Time)
+      end
+    end
+
+    describe "#cache_stale?" do
+      it "returns true when cache does not exist" do
+        manager = Wp2txt::DumpManager.new(:ja, cache_dir: cache_dir)
+        allow(manager).to receive(:latest_dump_date).and_return("20260101")
+
+        expect(manager.cache_stale?).to be true
+      end
+
+      it "returns false when cache is fresh" do
+        manager = Wp2txt::DumpManager.new(:ja, cache_dir: cache_dir, dump_expiry_days: 30)
+        allow(manager).to receive(:latest_dump_date).and_return("20260101")
+
+        # Create a fake index file (just created = fresh)
+        index_path = manager.cached_index_path
+        FileUtils.mkdir_p(File.dirname(index_path))
+        File.write(index_path, "test")
+
+        expect(manager.cache_stale?).to be false
+      end
+
+      it "returns true when cache is older than expiry days" do
+        manager = Wp2txt::DumpManager.new(:ja, cache_dir: cache_dir, dump_expiry_days: 1)
+        allow(manager).to receive(:latest_dump_date).and_return("20260101")
+
+        # Create a fake index file
+        index_path = manager.cached_index_path
+        FileUtils.mkdir_p(File.dirname(index_path))
+        File.write(index_path, "test")
+
+        # Set modification time to 2 days ago
+        old_time = Time.now - (2 * 86400)
+        File.utime(old_time, old_time, index_path)
+
+        expect(manager.cache_stale?).to be true
       end
     end
 

@@ -97,10 +97,26 @@ RSpec.describe "Wp2txt Utils" do
   end
 
   describe "remove_directive" do
-    it "removes directive" do
-      str_before = "__abc__\n __def__"
+    it "removes MediaWiki magic words" do
+      # Use actual MediaWiki behavior switches (loaded from mediawiki_aliases.json)
+      str_before = "__NOTOC__\n __TOC__"
       str_after  = "\n "
       expect(remove_directive(str_before)).to eq str_after
+    end
+
+    it "removes multilingual magic words" do
+      # Japanese/German/other language magic words should also be removed
+      str_before = "__KEIN_INHALTSVERZEICHNIS__\n__目次非表示__"
+      str_after  = "\n"
+      expect(remove_directive(str_before)).to eq str_after
+    end
+
+    it "preserves non-magic-word patterns" do
+      # Arbitrary __something__ patterns that aren't valid magic words should be preserved
+      # (This is the expected behavior with data-driven approach)
+      str_before = "__custom_marker__"
+      # With data-driven approach, unknown patterns are NOT removed
+      expect(remove_directive(str_before)).to eq str_before
     end
   end
 

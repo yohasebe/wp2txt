@@ -2,6 +2,7 @@
 
 require "json"
 require "fileutils"
+require_relative "constants"
 require_relative "multistream"
 require_relative "regex"
 
@@ -9,14 +10,14 @@ module Wp2txt
   # Manages test data extraction and caching from Wikipedia dumps
   class TestDataManager
     CACHE_DIR = "tmp/test_cache"
-    CACHE_EXPIRY_DAYS = 30
 
     # Data file paths
     TIERS_PATH = File.join(__dir__, "data", "language_tiers.json")
     METADATA_PATH = File.join(__dir__, "data", "language_metadata.json")
 
     # Legacy test languages (for backward compatibility)
-    TEST_LANGUAGES = [:en, :zh, :ja, :ru, :ar, :ko].freeze
+    # Use CORE_LANGUAGES from constants.rb for consistency
+    TEST_LANGUAGES = Wp2txt::CORE_LANGUAGES.first(6).freeze
 
     # Test levels with article counts (legacy - tier system overrides these)
     TEST_LEVELS = {
@@ -143,9 +144,7 @@ module Wp2txt
 
     # Check if cache exists and is fresh
     def cache_fresh?
-      return false unless File.exist?(cache_path)
-
-      File.mtime(cache_path) > Time.now - (CACHE_EXPIRY_DAYS * 86400)
+      Wp2txt.file_fresh?(cache_path, Wp2txt::DEFAULT_TEST_DATA_EXPIRY_DAYS)
     end
 
     # Path to cached articles JSON

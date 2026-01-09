@@ -1,10 +1,224 @@
 # frozen_string_literal: true
 
 require_relative "spec_helper"
+require_relative "../lib/wp2txt/cli"
+require "tmpdir"
 
 # Load the CLI app class for testing
 require_relative "../lib/wp2txt"
 require_relative "../lib/wp2txt/utils"
+
+RSpec.describe Wp2txt::CLI do
+  describe ".parse_options" do
+    # Helper to suppress Optimist error output
+    def suppress_output
+      original_stderr = $stderr
+      $stderr = StringIO.new
+      yield
+    ensure
+      $stderr = original_stderr
+    end
+
+    context "with --from-category option" do
+      it "requires --lang" do
+        suppress_output do
+          expect do
+            described_class.parse_options(["--from-category=Test"])
+          end.to raise_error(SystemExit)
+        end
+      end
+
+      it "cannot be used with --input" do
+        Dir.mktmpdir do |dir|
+          # Create a dummy file
+          dummy_file = File.join(dir, "test.bz2")
+          File.write(dummy_file, "test")
+
+          suppress_output do
+            expect do
+              described_class.parse_options([
+                "--from-category=Test",
+                "--lang=en",
+                "--input=#{dummy_file}",
+                "-o", dir
+              ])
+            end.to raise_error(SystemExit)
+          end
+        end
+      end
+
+      it "cannot be used with --articles" do
+        Dir.mktmpdir do |dir|
+          suppress_output do
+            expect do
+              described_class.parse_options([
+                "--from-category=Test",
+                "--lang=en",
+                "--articles=Article1",
+                "-o", dir
+              ])
+            end.to raise_error(SystemExit)
+          end
+        end
+      end
+
+      it "accepts valid options" do
+        Dir.mktmpdir do |dir|
+          opts = described_class.parse_options([
+            "--from-category=Japanese cities",
+            "--lang=en",
+            "--depth=2",
+            "-o", dir
+          ])
+
+          expect(opts[:from_category]).to eq "Japanese cities"
+          expect(opts[:lang]).to eq "en"
+          expect(opts[:depth]).to eq 2
+        end
+      end
+    end
+
+    context "with --depth option" do
+      it "defaults to 0" do
+        Dir.mktmpdir do |dir|
+          opts = described_class.parse_options([
+            "--from-category=Test",
+            "--lang=en",
+            "-o", dir
+          ])
+
+          expect(opts[:depth]).to eq 0
+        end
+      end
+
+      it "rejects negative values" do
+        Dir.mktmpdir do |dir|
+          suppress_output do
+            expect do
+              described_class.parse_options([
+                "--from-category=Test",
+                "--lang=en",
+                "--depth=-1",
+                "-o", dir
+              ])
+            end.to raise_error(SystemExit)
+          end
+        end
+      end
+
+      it "warns when depth > 3" do
+        Dir.mktmpdir do |dir|
+          expect do
+            described_class.parse_options([
+              "--from-category=Test",
+              "--lang=en",
+              "--depth=4",
+              "-o", dir
+            ])
+          end.to output(/Warning.*depth.*3/i).to_stderr
+        end
+      end
+    end
+
+    context "with --dry-run option" do
+      it "requires --from-category" do
+        Dir.mktmpdir do |dir|
+          suppress_output do
+            expect do
+              described_class.parse_options([
+                "--lang=en",
+                "--dry-run",
+                "-o", dir
+              ])
+            end.to raise_error(SystemExit)
+          end
+        end
+      end
+
+      it "works with --from-category" do
+        Dir.mktmpdir do |dir|
+          opts = described_class.parse_options([
+            "--from-category=Test",
+            "--lang=en",
+            "--dry-run",
+            "-o", dir
+          ])
+
+          expect(opts[:dry_run]).to be true
+        end
+      end
+    end
+
+    context "with --yes option" do
+      it "requires --from-category" do
+        Dir.mktmpdir do |dir|
+          suppress_output do
+            expect do
+              described_class.parse_options([
+                "--lang=en",
+                "--yes",
+                "-o", dir
+              ])
+            end.to raise_error(SystemExit)
+          end
+        end
+      end
+
+      it "works with --from-category" do
+        Dir.mktmpdir do |dir|
+          opts = described_class.parse_options([
+            "--from-category=Test",
+            "--lang=en",
+            "--yes",
+            "-o", dir
+          ])
+
+          expect(opts[:yes]).to be true
+        end
+      end
+    end
+
+    context "with --update-cache option" do
+      it "defaults to false" do
+        Dir.mktmpdir do |dir|
+          opts = described_class.parse_options([
+            "--from-category=Test",
+            "--lang=en",
+            "-o", dir
+          ])
+
+          expect(opts[:update_cache]).to be false
+        end
+      end
+
+      it "can be set to true" do
+        Dir.mktmpdir do |dir|
+          opts = described_class.parse_options([
+            "--from-category=Test",
+            "--lang=en",
+            "--update-cache",
+            "-o", dir
+          ])
+
+          expect(opts[:update_cache]).to be true
+        end
+      end
+
+      it "accepts short form -U" do
+        Dir.mktmpdir do |dir|
+          opts = described_class.parse_options([
+            "--from-category=Test",
+            "--lang=en",
+            "-U",
+            "-o", dir
+          ])
+
+          expect(opts[:update_cache]).to be true
+        end
+      end
+    end
+  end
+end
 
 # Test the WpApp class methods
 class TestWpApp

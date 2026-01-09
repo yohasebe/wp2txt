@@ -2,6 +2,7 @@
 
 require "nokogiri"
 require "stringio"
+require_relative "constants"
 
 module Wp2txt
   # StreamProcessor handles streaming decompression and XML parsing
@@ -9,8 +10,8 @@ module Wp2txt
   class StreamProcessor
     include Wp2txt
 
-    # Buffer size for reading from stream (10 MB)
-    BUFFER_SIZE = 10_485_760
+    # Buffer size for reading from stream (uses shared constant)
+    BUFFER_SIZE = Wp2txt::DEFAULT_BUFFER_SIZE
 
     def initialize(input_path, bz2_gem: false)
       @input_path = input_path

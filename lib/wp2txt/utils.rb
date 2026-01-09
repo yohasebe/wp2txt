@@ -2,6 +2,7 @@
 
 require "strscan"
 require "find"
+require_relative "constants"
 require_relative "regex"
 
 module Wp2txt
@@ -12,7 +13,13 @@ module Wp2txt
   end
 
   # Marker types for special content
-  MARKER_TYPES = %i[math code chem table score timeline graph ipa infobox navbox gallery sidebar mapframe imagemap references].freeze
+  MARKER_TYPES = %i[math code chem table score timeline graph ipa infobox navbox gallery sidebar mapframe imagemap references codeblock].freeze
+
+  # Inline markers: removing these can break surrounding text
+  INLINE_MARKERS = %i[math chem ipa code].freeze
+
+  # Block markers: these are standalone and can be safely removed
+  BLOCK_MARKERS = %i[table score timeline graph infobox navbox gallery sidebar mapframe imagemap references codeblock].freeze
 
   # Default: all markers enabled
   DEFAULT_MARKERS = MARKER_TYPES.dup.freeze
@@ -24,10 +31,16 @@ module Wp2txt
       tags: [/<math[^>]*>.*?<\/math>/mi],
       templates: [/\{\{(?:math|mvar)\s*\|/i]
     },
-    # CODE: <code>...</code>, <syntaxhighlight>...</syntaxhighlight>, <source>...</source>, <pre>...</pre>
+    # CODE: <code>...</code> (inline only)
     code: {
       tags: [
-        /<code[^>]*>.*?<\/code>/mi,
+        /<code[^>]*>.*?<\/code>/mi
+      ],
+      templates: []
+    },
+    # CODEBLOCK: <syntaxhighlight>...</syntaxhighlight>, <source>...</source>, <pre>...</pre> (block)
+    codeblock: {
+      tags: [
         /<syntaxhighlight[^>]*>.*?<\/syntaxhighlight>/mi,
         /<source[^>]*>.*?<\/source>/mi,
         /<pre[^>]*>.*?<\/pre>/mi
@@ -335,8 +348,8 @@ module Wp2txt
     result.gsub!(/^\s*\|[^|]*$\n?/m, "") # Lines that are just pipe + content (table rows)
     # Lines with multiple pipe-separated key=value pairs (infobox remnants)
     result.gsub!(/^\s*\|?\w+=[\w\s-]+(?:\|\w+=[\w\s-]+)+\s*$/m, "")
-    # Template name remnants (standalone words like "Clearleft", "notelist2", "reflist")
-    result.gsub!(/^\s*(?:Clearleft|Clear|notelist\d*|reflist|Reflist|Notelist|Commons\s*cat?)\s*$/im, "")
+    # Template name remnants (data-driven from template_aliases.json)
+    result.gsub!(CLEANUP_REMNANTS_REGEX, "")
     # Imagemap/gallery remnants: lines like "Image:file.jpg|thumb|...|caption" without [[ brackets
     result.gsub!(CLEANUP_FILE_LINE_REGEX, "")
     # Incomplete File/Image links (opened but not closed on same logical unit)
@@ -359,6 +372,8 @@ module Wp2txt
     # =========================================================================
 
     # MediaWiki magic words: DEFAULTSORT:..., DISPLAYTITLE:...
+    # Handles both bare format (DEFAULTSORT:value) and template format ({{DEFAULTSORT:value}})
+    result.gsub!(MAGIC_WORD_TEMPLATE_REGEX, "")
     result.gsub!(MAGIC_WORD_LINE_REGEX, "")
 
     # Double-underscore magic words: __NOTOC__, __TOC__, __FORCETOC__, etc.
@@ -403,7 +418,7 @@ module Wp2txt
     result = +str
     left_len = left.length
     right_len = right.length
-    max_iterations = 50000  # Safety limit for deeply nested structures
+    max_iterations = MAX_NESTING_ITERATIONS
 
     iterations = 0
     loop do
@@ -481,7 +496,10 @@ module Wp2txt
       parts = contents.split("|", -1)
       first_part = parts.first || ""
 
-      if FILE_NAMESPACES_REGEX.match?(first_part)
+      # Category links should be removed entirely (categories are extracted separately)
+      if CATEGORY_NAMESPACE_REGEX.match?(first_part)
+        ""
+      elsif FILE_NAMESPACES_REGEX.match?(first_part)
         # For File/Image links, extract caption (last non-parameter part)
         # Normalize newlines to pipes (handles malformed markup with newlines instead of pipes)
         normalized = contents.gsub(/\n/, "|")
@@ -624,12 +642,30 @@ module Wp2txt
     str.gsub(FORMAT_REF_REGEX) { "" }
   end
 
+  # Extension tags to remove (block-level tags that should be stripped)
+  # Data source: mediawiki_aliases.json (extension_tags)
+  # These are MediaWiki extension tags like <gallery>, <timeline>, <imagemap>, etc.
+  EXTENSION_TAGS = Wp2txt.load_mediawiki_data["extension_tags"] || []
+
+  # Block-level extension tags to process in remove_html
+  # Not all extension tags should be removed here - some are handled by markers (math, chem, etc.)
+  # and some are inline (ref). We only remove block-level content containers.
+  BLOCK_EXTENSION_TAGS = %w[div gallery timeline noinclude imagemap poem hiero graph categorytree section].freeze
+
   def remove_html(str)
     res = +str.to_s
     # Remove HTML comments first (before other processing to avoid [ref] in comments issue)
     res.gsub!(HTML_COMMENT_REGEX, "")
     res.gsub!(SELF_CLOSING_TAG_REGEX, "")
-    ["div", "gallery", "timeline", "noinclude", "imagemap"].each do |tag|
+
+    # Use data-driven extension tags, filtered to block-level only
+    # Combine BLOCK_EXTENSION_TAGS with extension_tags from data for comprehensive coverage
+    tags_to_remove = (BLOCK_EXTENSION_TAGS + EXTENSION_TAGS.select { |t|
+      # Include additional block-level tags from data
+      %w[div gallery timeline noinclude imagemap poem hiero graph categorytree section abschnitt].include?(t)
+    }).uniq
+
+    tags_to_remove.each do |tag|
       # Early exit if tag not present
       next unless res.include?("<#{tag}")
       result = process_nested_single_pass(res, "<#{tag}", "#{tag}>") { "" }
@@ -662,10 +698,62 @@ module Wp2txt
   end
 
   # Citation templates that can be extracted
-  CITATION_TEMPLATE_REGEX = /\A\s*(?:cite\s*(?:web|book|news|journal|magazine|conference|press|av\s*media|episode|map|sign|video|thesis)|citation)\s*(?:\||$)/i
+  # Data source: template_aliases.json (citation_templates category)
+  CITATION_TEMPLATES = Wp2txt.load_template_data["citation_templates"] || []
+  CITATION_TEMPLATE_REGEX = if CITATION_TEMPLATES.empty?
+    # Fallback to basic pattern
+    /\A\s*(?:cite\s*(?:web|book|news|journal)|citation)\s*(?:\||$)/i
+  else
+    pattern = CITATION_TEMPLATES.map { |t| Regexp.escape(t) }.join("|")
+    Regexp.new('\A\s*(?:' + pattern + ')\s*(?:\||$)', Regexp::IGNORECASE)
+  end
 
   # Templates that should be completely removed (references, navigation, but NOT citations when extracting)
-  REMOVE_TEMPLATES_REGEX = /\A\s*(?:sfn|efn|refn|reflist|refbegin|refend|notelist|r\||rp|main|see\s*also|further|details|about|redirect|distinguish|other\s*(?:uses|people)|for\s*(?:other|more)|hatnote|self-?reference|portal|commons|wiktionary|wikiquote|flagicon|flag|flagcountry|fb|noflag|country\s*data|small|smaller|large|larger|nbsp|thin\s*space|nowrap|clear|break|col-?(?:begin|end|break)|div\s*col|end\s*div|anchor|visible\s*anchor|unicode)\s*(?:\||$)/i
+  # Data source: template_aliases.json (remove_templates category)
+  REMOVE_TEMPLATES = Wp2txt.load_template_data["remove_templates"] || []
+  REMOVE_TEMPLATES_REGEX = if REMOVE_TEMPLATES.empty?
+    # Fallback to basic pattern
+    /\A\s*(?:sfn|efn|refn|reflist|notelist|main|see\s*also|portal)\s*(?:\||$)/i
+  else
+    pattern = REMOVE_TEMPLATES.map { |t| Regexp.escape(t) }.join("|")
+    Regexp.new('\A\s*(?:' + pattern + ')\s*(?:\||$)', Regexp::IGNORECASE)
+  end
+
+  # Flag templates to remove
+  # Data source: template_aliases.json (flag_templates category)
+  FLAG_TEMPLATES = Wp2txt.load_template_data["flag_templates"] || []
+  FLAG_TEMPLATE_REGEX = if FLAG_TEMPLATES.empty?
+    /\A\s*(?:flag|flagicon|flagcountry)\s*(?:\||$)/i
+  else
+    pattern = FLAG_TEMPLATES.map { |t| Regexp.escape(t) }.join("|")
+    Regexp.new('\A\s*(?:' + pattern + ')\s*(?:\||$)', Regexp::IGNORECASE)
+  end
+
+  # Formatting templates (extract content)
+  # Data source: template_aliases.json (formatting_templates category)
+  FORMATTING_TEMPLATES = Wp2txt.load_template_data["formatting_templates"] || []
+  FORMATTING_TEMPLATE_REGEX = if FORMATTING_TEMPLATES.empty?
+    /\A\s*(?:small|smaller|large|larger|nowrap|nbsp)\s*(?:\||$)/i
+  else
+    pattern = FORMATTING_TEMPLATES.map { |t| Regexp.escape(t) }.join("|")
+    Regexp.new('\A\s*(?:' + pattern + ')\s*(?:\||$)', Regexp::IGNORECASE)
+  end
+
+  # Ruby text templates (読み仮名 equivalent across languages)
+  # Data source: template_aliases.json (ruby_text_templates category)
+  RUBY_TEXT_TEMPLATES = Wp2txt.load_template_data["ruby_text_templates"] || []
+
+  # Interwiki link templates (仮リンク equivalent across languages)
+  # Data source: template_aliases.json (interwiki_link_templates category)
+  INTERWIKI_LINK_TEMPLATES = Wp2txt.load_template_data["interwiki_link_templates"] || []
+
+  # Mixed script templates (nihongo equivalent across languages)
+  # Data source: template_aliases.json (mixed_script_templates category)
+  MIXED_SCRIPT_TEMPLATES = Wp2txt.load_template_data["mixed_script_templates"] || []
+
+  # Convert templates
+  # Data source: template_aliases.json (convert_templates category)
+  CONVERT_TEMPLATES = Wp2txt.load_template_data["convert_templates"] || []
 
   # Country code templates (2-3 letter codes that represent flags)
   COUNTRY_CODE_REGEX = /\A[A-Z]{2,3}\z/
@@ -704,83 +792,122 @@ module Wp2txt
     parts.empty? ? "" : parts.join(". ") + "."
   end
 
+  # Helper to check if template name matches any in a list (case-insensitive)
+  def template_matches?(name, template_list)
+    return false if template_list.nil? || template_list.empty?
+    normalized_name = name.to_s.strip.downcase
+    template_list.any? { |t| t.downcase == normalized_name }
+  end
+
   def correct_inline_template(str, enabled_markers = [], extract_citations = false)
     # Early exit if no templates present
     return str unless str.include?("{{")
 
     process_nested_single_pass(str, "{{", "}}") do |contents|
       parts = contents.split("|")
-      template_name = (parts[0] || "").strip.downcase
+      template_name = (parts[0] || "").strip
+      template_name_lower = template_name.downcase
 
-      # Handle citation templates
-      if CITATION_TEMPLATE_REGEX.match?(contents)
-        if extract_citations
-          format_citation(contents)
-        else
-          ""
-        end
-      # Remove other navigation templates entirely
-      elsif REMOVE_TEMPLATES_REGEX.match?(contents)
-        ""
+      # =========================================================================
+      # Specific template handlers (order matters - check before generic patterns)
+      # =========================================================================
+
       # {{IPA|...}} or {{IPA-xx|...}} or {{IPAc-xx|...}}
-      elsif template_name == "ipa" || template_name.start_with?("ipa-") || template_name.start_with?("ipac-")
+      # Must be checked BEFORE mixed_script_templates which also contains IPA
+      if template_name_lower == "ipa" || template_name_lower.start_with?("ipa-") || template_name_lower.start_with?("ipac-")
         if enabled_markers.include?(:ipa)
           marker_placeholder(:ipa)
         else
           (parts[1] || "").to_s.strip
         end
+      # Language templates: {{lang|code|text}} or {{lang-xx|text}}
+      # Must be checked BEFORE mixed_script_templates which also contains lang
+      elsif template_name_lower == "lang"
+        parts.size >= 3 ? parts[2].to_s.strip : (parts[1] || "").to_s.strip
+      elsif template_name_lower.start_with?("lang-")
+        (parts[1] || "").to_s.strip
+      elsif template_name_lower == "fontsize"
+        parts.size >= 3 ? parts[2].to_s.strip : (parts[1] || "").to_s.strip
+      # {{langwithname|code|name|text}} - extract the text (3rd param)
+      elsif template_name_lower == "langwithname"
+        parts.size >= 4 ? parts[3].to_s.strip : (parts.last || "").to_s.strip
       # {{math|...}} or {{mvar|...}} - mathematical notation
-      elsif template_name == "math" || template_name == "mvar"
+      elsif template_name_lower == "math" || template_name_lower == "mvar"
         if enabled_markers.include?(:math)
           marker_placeholder(:math)
         else
           (parts[1] || "").to_s.strip
         end
       # {{chem|...}} or {{ce|...}} - chemical formulas
-      elsif template_name == "chem" || template_name == "ce"
+      elsif template_name_lower == "chem" || template_name_lower == "ce"
         if enabled_markers.include?(:chem)
           marker_placeholder(:chem)
         else
           (parts[1] || "").to_s.strip
         end
-      # Remove country code flag templates (JPN, USA, GBR, etc.)
-      elsif COUNTRY_CODE_REGEX.match?(parts[0]&.strip || "")
-        ""
-      # Language templates: {{lang|code|text}} or {{lang-xx|text}}
-      elsif template_name == "lang" || template_name == "fontsize"
-        parts.size >= 3 ? parts[2].to_s.strip : (parts[1] || "").to_s.strip
-      elsif template_name.start_with?("lang-")
-        (parts[1] || "").to_s.strip
-      # {{langwithname|code|name|text}} - extract the text (3rd param)
-      elsif template_name == "langwithname"
-        parts.size >= 4 ? parts[3].to_s.strip : (parts.last || "").to_s.strip
-      # {{nihongo|text|kanji|romaji}} - format as "text (kanji, romaji)"
-      elsif template_name == "nihongo"
-        text = (parts[1] || "").strip
-        kanji = (parts[2] || "").strip
-        romaji = (parts[3] || "").strip
-        if kanji.empty? && romaji.empty?
-          text
-        elsif romaji.empty?
-          "#{text} (#{kanji})"
-        elsif kanji.empty?
-          "#{text} (#{romaji})"
+
+      # =========================================================================
+      # Data-driven template matching (generic patterns from template_aliases.json)
+      # =========================================================================
+
+      # Handle citation templates
+      elsif CITATION_TEMPLATE_REGEX.match?(contents)
+        if extract_citations
+          format_citation(contents)
         else
-          "#{text} (#{kanji}, #{romaji})"
+          ""
         end
-      # {{仮リンク|display|lang|article}} - Japanese interwiki, keep display
-      elsif template_name == "仮リンク"
-        (parts[1] || "").to_s.strip
-      # {{読み仮名|text|reading}} - format as "text（reading）"
-      elsif template_name == "読み仮名"
+      # Remove navigation/reference templates entirely
+      elsif REMOVE_TEMPLATES_REGEX.match?(contents)
+        ""
+      # Remove flag templates (data-driven)
+      elsif FLAG_TEMPLATE_REGEX.match?(contents) || COUNTRY_CODE_REGEX.match?(template_name)
+        ""
+      # Ruby text templates: 読み仮名, ruby, etc. (data-driven)
+      elsif template_matches?(template_name, RUBY_TEXT_TEMPLATES)
         text = (parts[1] || "").strip
         reading = (parts[2] || "").strip
         reading.empty? ? text : "#{text}（#{reading}）"
-      # {{convert|num|from|to}} - keep number and first unit
-      elsif template_name == "convert"
+      # Interwiki link templates: 仮リンク, ill, interlanguage link (data-driven)
+      elsif template_matches?(template_name, INTERWIKI_LINK_TEMPLATES)
+        # First parameter is display text
+        (parts[1] || "").to_s.strip
+      # Mixed script templates: nihongo, transl, etc. (data-driven)
+      elsif template_matches?(template_name, MIXED_SCRIPT_TEMPLATES)
+        # Format depends on template type
+        if template_name_lower == "nihongo" || template_name_lower.start_with?("nihongo")
+          text = (parts[1] || "").strip
+          kanji = (parts[2] || "").strip
+          romaji = (parts[3] || "").strip
+          if kanji.empty? && romaji.empty?
+            text
+          elsif romaji.empty?
+            "#{text} (#{kanji})"
+          elsif kanji.empty?
+            "#{text} (#{romaji})"
+          else
+            "#{text} (#{kanji}, #{romaji})"
+          end
+        elsif template_name_lower == "transl" || template_name_lower == "transliteration"
+          # {{transl|lang|text}} -> text
+          (parts[2] || parts[1] || "").to_s.strip
+        else
+          # Default: extract first content parameter
+          (parts[1] || "").to_s.strip
+        end
+      # Convert templates (data-driven)
+      elsif template_matches?(template_name, CONVERT_TEMPLATES)
         num = (parts[1] || "").strip
         unit = (parts[2] || "").strip
         unit.empty? ? num : "#{num} #{unit}"
+      # Formatting templates: small, nowrap, nbsp, etc. (data-driven)
+      elsif FORMATTING_TEMPLATE_REGEX.match?(contents)
+        if template_name_lower == "nbsp"
+          " "  # Non-breaking space
+        else
+          # Extract content from formatting template
+          (parts[1] || "").to_s.strip
+        end
       # Default handling for other templates
       else
         extract_template_content(parts)

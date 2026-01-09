@@ -1,0 +1,193 @@
+{
+  "meta": {
+    "generated_at": "2026-01-09T00:00:00Z",
+    "description": "Template aliases for Wikipedia text extraction",
+    "source": "Manual curation + MediaWiki documentation",
+    "update_notes": "Run scripts/fetch_template_data.rb to update from Wikipedia"
+  },
+  "remove_templates": [
+    "sfn", "efn", "refn", "reflist", "refbegin", "refend", "notelist",
+    "r", "rp", "harvnb", "harv", "harvtxt", "sfnp",
+    "main", "see also", "further", "details", "about",
+    "redirect", "distinguish", "other uses", "other people",
+    "for", "for other", "for more",
+    "hatnote", "self-reference", "selfref",
+    "portal", "portal bar",
+    "col-begin", "col-end", "col-break", "columns",
+    "div col", "div col end", "end div col", "colbegin", "colend",
+    "anchor", "visible anchor",
+    "audio", "listen",
+    "quote", "quotation", "cquote", "bquote",
+    "short description",
+    "good article", "featured article",
+    "use dmy dates", "use mdy dates", "use british english", "use american english",
+    "pp", "pp-semi", "pp-move", "pp-vandalism",
+    "stub", "asbox",
+    "脚注ヘルプ", "refnest",
+    "Seealso", "Seeaolso", "Mainarticle", "Mainlist",
+    "Ver también", "Artículo principal", "AP",
+    "Voir aussi", "Article principal", "Loupe",
+    "Siehe auch", "Hauptartikel",
+    "Vedi anche", "Voce principale",
+    "См. также", "Основная статья",
+    "انظر أيضا", "مقالة رئيسية",
+    "関連項目", "Main2"
+  ],
+  "authority_control": [
+    "authority control", "Authority control",
+    "normdaten", "Normdaten",
+    "persondata", "Persondata",
+    "taxonbar", "Taxonbar",
+    "speciesbox", "Speciesbox",
+    "coord", "Coord", "coord missing", "Coord missing",
+    "viaf", "VIAF",
+    "lccn", "LCCN",
+    "gnd", "GND",
+    "bnf", "BNF",
+    "nla", "NLA",
+    "ndl", "NDL",
+    "sudoc", "SUDOC",
+    "isni", "ISNI",
+    "orcid", "ORCID",
+    "worldcat", "Worldcat",
+    "Wikidata", "Wikidata link",
+    "defaultsort", "DEFAULTSORT",
+    "commonscat", "Commons category"
+  ],
+  "cleanup_remnants": [
+    "clear", "Clear", "clearleft", "Clearleft", "clearright", "Clearright",
+    "clr", "br", "break", "Break",
+    "center", "Center",
+    "left", "Left", "right", "Right",
+    "notelist", "Notelist", "notelist2", "notelist-ua",
+    "reflist", "Reflist",
+    "commons cat", "Commons cat"
+  ],
+  "citation_templates": [
+    "cite web", "Cite web", "cite book", "Cite book",
+    "cite news", "Cite news", "cite journal", "Cite journal",
+    "cite magazine", "Cite magazine", "cite conference", "Cite conference",
+    "cite press release", "cite press", "cite av media",
+    "cite episode", "cite map", "cite sign", "cite video",
+    "cite thesis", "cite encyclopedia", "cite report",
+    "citation", "Citation",
+    "Cite website", "Cite newspaper", "Cite patent",
+    "Lien web", "Ouvrage", "Article",
+    "Internetquelle", "Literatur",
+    "Cita web", "Cita libro", "Cita pubblicazione",
+    "Cita noticia", "Cita libro",
+    "Cite web", "Cite nieuws", "Cite boek",
+    "Книга", "Статья", "Cite web",
+    "استشهاد ويب", "استشهاد بكتاب", "استشهاد بخبر",
+    "Cite web", "Citeweb", "Cit"
+  ],
+  "ruby_text_templates": [
+    "読み仮名", "よみがな", "ふりがな",
+    "ruby", "Ruby", "ruby-ja", "Ruby-ja",
+    "ruby text", "ruby annotation",
+    "rubi", "rubytext",
+    "ルビ"
+  ],
+  "interwiki_link_templates": [
+    "仮リンク", "仮link",
+    "ill", "Ill", "ILL",
+    "interlanguage link", "Interlanguage link",
+    "interlanguage link multi", "Illm",
+    "link-interwiki",
+    "lien", "Lien",
+    "不存在条目链接", "Ill-WD"
+  ],
+  "mixed_script_templates": [
+    "nihongo", "Nihongo", "nihongo2", "nihongo3", "nihongo foot",
+    "transl", "Transl", "transliteration", "translit",
+    "lang", "Lang",
+    "IPA", "ipa", "IPAc-en", "IPAc-ja",
+    "script", "Script",
+    "rtl-lang", "ltr-lang",
+    "zh", "Zh", "zh-tw", "zh-cn",
+    "ko", "Ko", "ko-hhrm",
+    "ar", "Ar", "arab",
+    "he", "He", "hebrew",
+    "ru", "Ru", "russian",
+    "el", "El", "greek",
+    "polytonic", "Polytonic",
+    "unicode", "Unicode"
+  ],
+  "formatting_templates": [
+    "small", "Small", "smaller", "Smaller",
+    "large", "Large", "larger", "Larger", "big", "Big",
+    "nbsp", "Nbsp", "nowrap", "Nowrap", "nobr",
+    "spaces", "space", "indent",
+    "thinsp", "thin space",
+    "em", "strong",
+    "frac", "fraction", "Frac",
+    "sub", "sup", "sub2", "sup2",
+    "abbr", "Abbr", "tooltip",
+    "resize", "Resize",
+    "font", "Font", "fontsize", "Fontsize",
+    "color", "Color", "colour", "Colour",
+    "highlight", "Highlight"
+  ],
+  "flag_templates": [
+    "flag", "Flag", "flagicon", "Flagicon",
+    "flagcountry", "Flagcountry",
+    "fb", "FB", "noflag", "Noflag",
+    "flag+link", "flagdeco",
+    "country data", "country", "Country",
+    "国旗", "国旗リンク",
+    "flagg", "Flagg"
+  ],
+  "portal_templates": [
+    "portal", "Portal", "portal bar", "Portal bar",
+    "portal-inline",
+    "ウィキポータルリンク", "ポータル",
+    "Portal-inline",
+    "Portail", "portail",
+    "Portal-es", "Portal-de", "Portal-fr"
+  ],
+  "sister_project_templates": [
+    "commons", "Commons", "commons category", "Commons category",
+    "commonscat", "Commonscat", "commons-inline",
+    "wiktionary", "Wiktionary", "wikt", "Wikt",
+    "wikiquote", "Wikiquote",
+    "wikisource", "Wikisource", "wikisourcepar",
+    "wikibooks", "Wikibooks",
+    "wikinews", "Wikinews",
+    "wikiversity", "Wikiversity",
+    "wikivoyage", "Wikivoyage",
+    "wikispecies", "Wikispecies",
+    "wikidata", "Wikidata",
+    "wikimedia commons",
+    "sister project", "Sister project", "Sister project links",
+    "ウィキメディア・コモンズ", "コモンズ", "コモンズリンク",
+    "ウィキクォート", "ウィキソース", "ウィキブックス",
+    "Commons cat", "Commons-inline"
+  ],
+  "convert_templates": [
+    "convert", "Convert", "cvt",
+    "単位変換", "変換"
+  ],
+  "date_templates": [
+    "date", "Date", "dts", "sort date",
+    "birth date", "Birth date", "death date", "Death date",
+    "birth date and age", "death date and age",
+    "生年月日", "没年月日"
+  ],
+  "infobox_prefixes": [
+    "infobox", "Infobox", "info box",
+    "geobox", "Geobox",
+    "taxobox", "Taxobox",
+    "chembox", "Chembox",
+    "drugbox", "Drugbox",
+    "基礎情報", "Infobox"
+  ],
+  "navbox_prefixes": [
+    "navbox", "Navbox", "nav box",
+    "navbar", "Navbar",
+    "navigation", "Navigation",
+    "navframe", "Navframe"
+  ],
+  "sidebar_prefixes": [
+    "sidebar", "Sidebar", "side bar"
+  ]
+}
