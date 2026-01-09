@@ -2,6 +2,8 @@
 
 This document provides guidance for developers working on WP2TXT. For user documentation, see [README.md](README.md).
 
+English | [日本語](DEVELOPMENT_ja.md)
+
 ## Quick Start
 
 ```bash

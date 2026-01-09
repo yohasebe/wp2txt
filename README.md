@@ -2,6 +2,8 @@
 
 A command-line toolkit to extract text content and category data from Wikipedia dump files
 
+English | [日本語](README_ja.md)
+
 ## Why wp2txt?
 
 There are several tools for extracting plain text from Wikipedia dumps. [WikiExtractor](https://github.com/attardi/wikiextractor) is a popular Python-based tool known for its speed. However, **wp2txt offers unique features that WikiExtractor does not provide**:
