@@ -443,18 +443,37 @@ module Wp2txt
       extracted_count = 0
       extraction_start = Time.now
 
-      found_articles.each do |entry|
-        title = entry[:title]
-        page = reader.extract_article(title)
+      # Use parallel extraction for large batches (>50 articles across multiple streams)
+      streams_count = found_articles.map { |e| e[:offset] }.uniq.size
+      use_parallel = total_count > 50 && streams_count > 1
 
-        if page
+      if use_parallel
+        # Parallel extraction: process streams concurrently
+        num_procs = [streams_count, 4].min # Cap at 4 processes
+        pages = reader.each_article_parallel(found_articles, num_processes: num_procs).to_a
+
+        pages.each do |page|
           article = Article.new(page[:text], page[:title], !config[:marker])
           result = format_article(article, config)
           writer.write(result)
           extracted_count += 1
+          bar.advance
         end
+      else
+        # Sequential extraction for small batches
+        found_articles.each do |entry|
+          title = entry[:title]
+          page = reader.extract_article(title)
 
-        bar.advance
+          if page
+            article = Article.new(page[:text], page[:title], !config[:marker])
+            result = format_article(article, config)
+            writer.write(result)
+            extracted_count += 1
+          end
+
+          bar.advance
+        end
       end
 
       bar.finish

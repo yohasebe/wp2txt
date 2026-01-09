@@ -5,6 +5,7 @@ require "json"
 require "net/http"
 require "uri"
 require "openssl"
+require "parallel"
 require_relative "constants"
 
 module Wp2txt
@@ -142,7 +143,7 @@ module Wp2txt
       extract_page_from_xml(stream_content, title)
     end
 
-    # Extract multiple articles
+    # Extract multiple articles (sequential)
     def extract_articles(titles)
       # Group by stream offset for efficiency
       grouped = titles.group_by { |t| @index.stream_offset_for(t) }
@@ -158,6 +159,68 @@ module Wp2txt
         end
       end
       results
+    end
+
+    # Extract multiple articles in parallel (by stream)
+    # @param titles [Array<String>] Article titles to extract
+    # @param num_processes [Integer] Number of parallel processes (default: 4)
+    # @param progress_callback [Proc, nil] Optional callback for progress updates
+    # @return [Hash] Map of title => page data
+    def extract_articles_parallel(titles, num_processes: 4, &progress_callback)
+      # Group titles by stream offset
+      grouped = titles.group_by { |t| @index.stream_offset_for(t) }
+      grouped.delete(nil) # Remove titles not found in index
+
+      # Process streams in parallel
+      stream_results = Parallel.map(grouped.keys, in_processes: num_processes) do |offset|
+        titles_in_stream = grouped[offset]
+        stream_content = read_stream_at(offset)
+
+        stream_pages = {}
+        titles_in_stream.each do |title|
+          page = extract_page_from_xml(stream_content, title)
+          stream_pages[title] = page if page
+        end
+
+        stream_pages
+      end
+
+      # Merge results from all streams
+      results = {}
+      stream_results.each do |stream_pages|
+        results.merge!(stream_pages)
+      end
+
+      results
+    end
+
+    # Iterate through articles in parallel, yielding each page
+    # Groups articles by stream and processes streams in parallel
+    # @param entries [Array<Hash>] Array of index entries with :title and :offset
+    # @param num_processes [Integer] Number of parallel processes
+    # @yield [Hash] Page data for each article
+    def each_article_parallel(entries, num_processes: 4)
+      return enum_for(:each_article_parallel, entries, num_processes: num_processes) unless block_given?
+
+      # Group by stream offset
+      grouped = entries.group_by { |e| e[:offset] }
+
+      # Process streams in parallel, collecting all pages
+      all_pages = Parallel.flat_map(grouped.keys, in_processes: num_processes) do |offset|
+        entries_in_stream = grouped[offset]
+        stream_content = read_stream_at(offset)
+
+        pages = []
+        entries_in_stream.each do |entry|
+          page = extract_page_from_xml(stream_content, entry[:title])
+          pages << page if page
+        end
+
+        pages
+      end
+
+      # Yield each page (sequential, as yielding must happen in main process)
+      all_pages.each { |page| yield page }
     end
 
     # Iterate through all articles in a stream
@@ -363,6 +426,278 @@ module Wp2txt
       end
       nil
     end
+
+    # Find any existing partial dump (any date)
+    # @return [Hash, nil] Info about existing partial dump, or nil
+    def find_any_partial_cache
+      pattern = File.join(@cache_dir, "#{@lang}wiki-*-multistream-*streams.xml.bz2")
+      partials = []
+
+      Dir.glob(pattern).each do |path|
+        if path =~ /#{@lang}wiki-(\d{8})-multistream-(\d+)streams\.xml\.bz2$/
+          dump_date = $1
+          stream_count = $2.to_i
+          partials << {
+            path: path,
+            dump_date: dump_date,
+            stream_count: stream_count,
+            size: File.size(path),
+            mtime: File.mtime(path)
+          }
+        end
+      end
+
+      # Return the largest partial (by stream count)
+      partials.max_by { |p| p[:stream_count] }
+    end
+
+    # Check if incremental download is possible from existing partial
+    # @param partial_info [Hash] Info from find_any_partial_cache
+    # @return [Hash] Result with :possible, :reason, and details
+    def can_resume_from_partial?(partial_info)
+      return { possible: false, reason: :no_partial } unless partial_info
+
+      current_date = latest_dump_date
+
+      # Check if dump dates match
+      if partial_info[:dump_date] != current_date
+        return {
+          possible: false,
+          reason: :date_mismatch,
+          partial_date: partial_info[:dump_date],
+          latest_date: current_date
+        }
+      end
+
+      # Validate the partial file with Bz2Validator
+      require_relative "bz2_validator"
+      validation = Bz2Validator.validate_quick(partial_info[:path])
+      unless validation.valid?
+        return {
+          possible: false,
+          reason: :invalid_partial,
+          error: validation.message
+        }
+      end
+
+      # Verify file size matches expected offset
+      index_path = download_index
+      index = MultistreamIndex.new(index_path)
+
+      expected_size = if partial_info[:stream_count] < index.stream_offsets.size
+                        index.stream_offsets[partial_info[:stream_count]]
+                      else
+                        # Partial has all streams - no need to resume
+                        return { possible: false, reason: :already_complete }
+                      end
+
+      actual_size = partial_info[:size]
+      if actual_size != expected_size
+        return {
+          possible: false,
+          reason: :size_mismatch,
+          expected: expected_size,
+          actual: actual_size
+        }
+      end
+
+      {
+        possible: true,
+        partial_info: partial_info,
+        current_streams: partial_info[:stream_count],
+        total_streams: index.stream_offsets.size,
+        current_size: actual_size
+      }
+    end
+
+    # Download full dump with incremental support
+    # @param force [Boolean] Force re-download
+    # @param interactive [Boolean] Prompt user for choices (default: true)
+    # @return [String] Path to downloaded file
+    def download_multistream_full(force: false, interactive: true)
+      full_path = cached_multistream_path
+
+      # If full dump exists, use it
+      if File.exist?(full_path) && !force
+        puts "Using cached full dump: #{File.basename(full_path)}"
+        $stdout.flush
+        return full_path
+      end
+
+      # Check for existing partial dump
+      partial = find_any_partial_cache
+      if partial && interactive
+        resume_info = can_resume_from_partial?(partial)
+
+        if resume_info[:possible]
+          # Same date - can resume
+          return handle_resumable_partial(partial, resume_info, force)
+        elsif resume_info[:reason] == :date_mismatch
+          # Different date - ask user
+          return handle_outdated_partial(partial, resume_info, force)
+        elsif resume_info[:reason] == :size_mismatch || resume_info[:reason] == :invalid_partial
+          # Corrupted partial - inform and re-download
+          puts "Warning: Existing partial dump appears corrupted."
+          puts "  Reason: #{resume_info[:reason]}"
+          puts "  Will download fresh copy."
+          FileUtils.rm_f(partial[:path])
+        end
+      end
+
+      # Standard full download
+      download_multistream(force: force, max_streams: nil)
+    end
+
+    private
+
+    def handle_resumable_partial(partial, resume_info, force)
+      current = resume_info[:current_streams]
+      total = resume_info[:total_streams]
+      current_size = resume_info[:current_size]
+
+      # Calculate remaining download size
+      index_path = cached_index_path
+      index = MultistreamIndex.new(index_path)
+
+      # Get total file size from HTTP HEAD request
+      url = multistream_url
+      total_size = get_remote_file_size(url)
+      remaining_size = total_size - current_size
+
+      puts
+      puts "Found existing partial dump (same date):"
+      puts "  Current: #{current} streams (#{format_size(current_size)})"
+      puts "  Total:   #{total} streams (#{format_size(total_size)})"
+      puts "  Remaining: #{format_size(remaining_size)}"
+      puts
+
+      print "Download remaining data? [Y/n/f(ull fresh download)]: "
+      $stdout.flush
+      response = $stdin.gets&.strip&.downcase || "y"
+
+      case response
+      when "n", "no"
+        puts "Using existing partial dump."
+        partial[:path]
+      when "f", "full", "fresh"
+        puts "Downloading fresh full dump..."
+        FileUtils.rm_f(partial[:path])
+        download_multistream(force: true, max_streams: nil)
+      else
+        # Resume download
+        puts "Resuming download..."
+        download_incremental(partial[:path], current_size, total_size)
+      end
+    end
+
+    def handle_outdated_partial(partial, resume_info, force)
+      puts
+      puts "Found existing partial dump with different date:"
+      puts "  Partial dump: #{partial[:dump_date]} (#{partial[:stream_count]} streams, #{format_size(partial[:size])})"
+      puts "  Latest dump:  #{resume_info[:latest_date]}"
+      puts
+      puts "Options:"
+      puts "  [D] Delete old partial and download latest full dump (recommended)"
+      puts "  [K] Keep old partial, download latest full dump separately"
+      puts "  [U] Use old partial as-is (may have outdated content)"
+      puts
+
+      print "Choice [D/k/u]: "
+      $stdout.flush
+      response = $stdin.gets&.strip&.downcase || "d"
+
+      case response
+      when "k", "keep"
+        puts "Keeping old partial, downloading latest full dump..."
+        download_multistream(force: true, max_streams: nil)
+      when "u", "use"
+        puts "Using old partial dump (content may be outdated)."
+        partial[:path]
+      else
+        puts "Deleting old partial and downloading latest..."
+        FileUtils.rm_f(partial[:path])
+        download_multistream(force: true, max_streams: nil)
+      end
+    end
+
+    def download_incremental(partial_path, start_byte, total_size)
+      url = multistream_url
+      full_path = cached_multistream_path
+
+      uri = URI(url)
+      http = Net::HTTP.new(uri.host, uri.port)
+      http.use_ssl = (uri.scheme == "https")
+      if http.use_ssl?
+        http.verify_mode = OpenSSL::SSL::VERIFY_PEER
+        http.verify_callback = ->(_preverify_ok, _store_ctx) { true }
+      end
+
+      request = Net::HTTP::Get.new(uri)
+      request["Range"] = "bytes=#{start_byte}-"
+
+      # Copy partial to full path first, then append
+      FileUtils.cp(partial_path, full_path)
+
+      File.open(full_path, "ab") do |file|
+        http.request(request) do |response|
+          if response.code == "206"
+            remaining = total_size - start_byte
+            downloaded = 0
+
+            response.read_body do |chunk|
+              file.write(chunk)
+              downloaded += chunk.size
+              total_downloaded = start_byte + downloaded
+              percent = (total_downloaded * 100.0 / total_size).round(1)
+              print "\r  Progress: #{percent}% (#{format_size(total_downloaded)} / #{format_size(total_size)})"
+              $stdout.flush
+            end
+            puts
+          elsif response.code == "200"
+            # Server doesn't support Range - need full download
+            puts "\nServer doesn't support resume. Downloading full file..."
+            file.close
+            FileUtils.rm_f(full_path)
+            return download_multistream(force: true, max_streams: nil)
+          else
+            raise "Download failed: #{response.code} #{response.message}"
+          end
+        end
+      end
+
+      # Validate the combined file
+      require_relative "bz2_validator"
+      validation = Bz2Validator.validate_quick(full_path)
+      unless validation.valid?
+        puts "Warning: Combined file validation failed. Re-downloading..."
+        FileUtils.rm_f(full_path)
+        return download_multistream(force: true, max_streams: nil)
+      end
+
+      puts "Successfully resumed download!"
+
+      # Optionally remove the partial file
+      FileUtils.rm_f(partial_path) if partial_path != full_path
+
+      full_path
+    end
+
+    def get_remote_file_size(url)
+      uri = URI(url)
+      http = Net::HTTP.new(uri.host, uri.port)
+      http.use_ssl = (uri.scheme == "https")
+      if http.use_ssl?
+        http.verify_mode = OpenSSL::SSL::VERIFY_PEER
+        http.verify_callback = ->(_preverify_ok, _store_ctx) { true }
+      end
+
+      request = Net::HTTP::Head.new(uri)
+      response = http.request(request)
+
+      response["Content-Length"]&.to_i || 0
+    end
+
+    public
 
     # Path for partial multistream cache
     def cached_partial_multistream_path(stream_count)

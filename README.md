@@ -81,7 +81,7 @@ See [CHANGELOG.md](CHANGELOG.md) for detailed release notes.
 - Fixed encoding error handling (no longer crashes on invalid UTF-8)
 - Improved handling of File/Image links in article output
 - Performance optimizations (reduced memory allocations, regex caching)
-- Comprehensive test suite (450+ tests, 78% coverage)
+- Comprehensive test suite (775+ tests, 78% coverage)
 - Deprecated: `--convert` and `--del-interfile` options (no longer needed)
 
 **May 2023**

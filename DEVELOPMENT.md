@@ -34,12 +34,14 @@ Input (bz2/xml) → StreamProcessor → Article Parser → OutputWriter → Outp
 
 | Class | File | Purpose |
 |-------|------|---------|
-| `StreamProcessor` | `lib/wp2txt.rb` | Streams pages from compressed dumps |
+| `StreamProcessor` | `lib/wp2txt/stream_processor.rb` | Streams pages from compressed dumps with adaptive buffering |
 | `Article` | `lib/wp2txt/article.rb` | Parses MediaWiki markup |
 | `OutputWriter` | `lib/wp2txt.rb` | Manages output file rotation |
 | `DumpManager` | `lib/wp2txt/multistream.rb` | Downloads and caches dumps |
 | `MultistreamIndex` | `lib/wp2txt/multistream.rb` | Indexes articles for random access |
-| `MultistreamReader` | `lib/wp2txt/multistream.rb` | Extracts articles from multistream dumps |
+| `MultistreamReader` | `lib/wp2txt/multistream.rb` | Extracts articles (supports parallel extraction) |
+| `MemoryMonitor` | `lib/wp2txt/memory_monitor.rb` | Cross-platform memory monitoring |
+| `Bz2Validator` | `lib/wp2txt/bz2_validator.rb` | Validates bz2 file integrity |
 | `CLI` | `lib/wp2txt/cli.rb` | Command-line option parsing |
 
 ### Element Types
@@ -207,6 +209,24 @@ WP2TXT supports Wikipedia's multistream format for efficient article extraction.
 1. **Index file** (`-multistream-index.txt.bz2`): Maps article titles to byte offsets
 2. **Multistream file** (`-multistream.xml.bz2`): Concatenated bz2 streams
 
+### Parallel Extraction
+
+`MultistreamReader` supports parallel article extraction for improved performance:
+
+```ruby
+reader = MultistreamReader.new(multistream_path, index_path)
+
+# Extract multiple articles in parallel (4 processes by default)
+results = reader.extract_articles_parallel(["Tokyo", "Kyoto", "Osaka"], num_processes: 4)
+
+# Iterate with parallel processing
+reader.each_article_parallel(entries, num_processes: 4) do |page|
+  process(page)
+end
+```
+
+Articles are grouped by stream offset to minimize bz2 decompression overhead.
+
 ### Partial Downloads
 
 For specific article extraction, WP2TXT downloads only necessary data:
@@ -219,6 +239,41 @@ manager.download_multistream(max_streams: 10)
 download_file_range(url, path, start_byte, end_byte)
 ```
 
+### Incremental Downloads
+
+When a partial dump exists, `download_multistream_full` can resume the download:
+
+```ruby
+manager = DumpManager.new("ja")
+
+# Check for existing partial dump
+partial = manager.find_any_partial_cache
+# => { path: "...", dump_date: "20260101", stream_count: 100, size: 1000000, mtime: ... }
+
+# Check if incremental download is possible
+resume_info = manager.can_resume_from_partial?(partial)
+# => { possible: true, current_streams: 100, total_streams: 5000, current_size: 1000000 }
+# => { possible: false, reason: :date_mismatch, partial_date: "20250101", latest_date: "20260101" }
+
+# Download full dump with incremental support (interactive prompts)
+path = manager.download_multistream_full(interactive: true)
+
+# Non-interactive mode (skips user prompts, always downloads fresh if needed)
+path = manager.download_multistream_full(interactive: false)
+```
+
+User prompts for incremental downloads:
+
+1. **Same date partial exists:**
+   - `[Y]` Resume download (download only remaining data)
+   - `[n]` Use existing partial as-is
+   - `[f]` Download fresh full dump
+
+2. **Outdated partial exists:**
+   - `[D]` Delete old partial and download latest (recommended)
+   - `[k]` Keep old partial, download latest separately
+   - `[u]` Use old partial as-is (may have outdated content)
+
 ### Article Extraction Flow
 
 ```
@@ -228,6 +283,59 @@ download_file_range(url, path, start_byte, end_byte)
 4. Group by stream offset
 5. Download only needed streams
 6. Extract specific articles
+```
+
+## Memory Management
+
+WP2TXT includes adaptive memory management for processing large dumps:
+
+### MemoryMonitor
+
+Cross-platform memory monitoring in `lib/wp2txt/memory_monitor.rb`:
+
+```ruby
+# Check current memory usage
+stats = Wp2txt::MemoryMonitor.memory_stats
+# => { current: 256000000, available: 8000000000, ... }
+
+# Get optimal buffer size based on available memory
+buffer_size = Wp2txt::MemoryMonitor.optimal_buffer_size
+# => 10485760 (10 MB)
+
+# Check if memory is low and trigger GC if needed
+Wp2txt::MemoryMonitor.gc_if_needed
+```
+
+### StreamProcessor Adaptive Buffering
+
+`StreamProcessor` adjusts buffer size dynamically:
+
+```ruby
+processor = Wp2txt::StreamProcessor.new(input_path, adaptive_buffer: true)
+processor.each_page { |title, text| ... }
+
+# Monitor processing stats
+processor.stats
+# => { pages_processed: 1000, bytes_read: 50000000, buffer_size: 10485760, ... }
+```
+
+## bz2 Validation
+
+The `Bz2Validator` module validates bz2 files before processing:
+
+```ruby
+# Full validation (header + decompression test)
+result = Wp2txt::Bz2Validator.validate("/path/to/file.bz2")
+result.valid?      # => true/false
+result.error_type  # => :invalid_magic, :too_small, etc.
+result.message     # => "Invalid bz2 header..."
+
+# Quick validation (header only)
+result = Wp2txt::Bz2Validator.validate_quick("/path/to/file.bz2")
+
+# Get file info
+info = Wp2txt::Bz2Validator.file_info("/path/to/file.bz2")
+# => { path: "...", size: 1000000, valid_header: true, version: "h", block_size: 9, ... }
 ```
 
 ## Adding New Features

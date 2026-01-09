@@ -7,6 +7,35 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- **Incremental dump downloads**: Smart handling of partial dump files when downloading full dumps:
+  - Detects existing partial downloads and offers to resume (download only remaining data)
+  - Validates dump dates - if dates match, can resume; if outdated, offers choices
+  - User options: resume download, download fresh, keep old partial, or use old as-is
+  - Automatic bz2 validation before and after incremental download
+  - Falls back to full download if server doesn't support HTTP Range headers
+
+- **bz2 file validation**: New `Bz2Validator` module detects corrupt or invalid bz2 files before processing:
+  - Validates magic bytes (`BZ`), version byte (`h`), and block size (`1`-`9`)
+  - Optional decompression test to verify file integrity
+  - `StreamProcessor` validates bz2 files by default (configurable via `validate_bz2: false`)
+  - Detailed error types: `not_found`, `too_small`, `invalid_magic`, `invalid_version`, `invalid_block_size`, `decompression_failed`
+
+- **Memory monitoring**: New `MemoryMonitor` module for adaptive resource management:
+  - Cross-platform memory detection (Linux, macOS, Windows)
+  - Adaptive buffer sizing based on available memory
+  - Memory statistics: `current_memory_usage`, `available_memory`, `memory_usage_percent`
+  - Automatic garbage collection when memory is low
+
+- **Parallel article extraction**: `MultistreamReader` now supports parallel processing:
+  - `extract_articles_parallel(titles, num_processes: 4)` - Extract multiple articles in parallel
+  - `each_article_parallel(entries, num_processes: 4)` - Iterate with parallel processing
+  - Automatically groups articles by stream offset to minimize bz2 decompression overhead
+
+- **Performance optimizations**:
+  - Pre-compiled 14 additional regex patterns for text cleanup
+  - Consolidated gsub chains (3 fewer calls per cleanup operation)
+  - Adaptive buffer sizing in `StreamProcessor` based on system memory
+
 - **Cache staleness warnings**: Cache status now shows age and staleness information:
   - Displays cache date and age (e.g., "2025-01-05 - 4 days ago")
   - Warns when cache exceeds configured `dump_expiry_days` (default: 30 days)

@@ -230,6 +230,36 @@ module Wp2txt
   CLEANUP_REGEX_07 = Regexp.new('^.*\|\}')
   CLEANUP_REGEX_08 = Regexp.new('\n\n\n+', Regexp::MULTILINE)
 
+  # Additional cleanup patterns (pre-compiled for performance)
+  # Mixed whitespace between newlines: \n<spaces/tabs>\n<spaces/tabs>\n+ -> \n\n
+  CLEANUP_MIXED_WHITESPACE_REGEX = Regexp.new('\n[ \t]*\n[ \t]*\n+')
+  # Multiple consecutive spaces (not at line start) -> single space
+  CLEANUP_MULTIPLE_SPACES_REGEX = Regexp.new('([^\n]) {2,}')
+  # Empty parentheses (ASCII and Japanese) - combined for single-pass
+  CLEANUP_EMPTY_PARENS_REGEX = Regexp.new('\(\s*\)|（\s*）')
+  # Multiple pipes (table remnants)
+  CLEANUP_MULTIPLE_PIPES_REGEX = Regexp.new('\|\|+')
+  # Trailing pipe at end of line
+  CLEANUP_TRAILING_PIPE_REGEX = Regexp.new('\|\s*$')
+  # Lines that are just pipe + content (table rows)
+  CLEANUP_PIPE_LINE_REGEX = Regexp.new('^\s*\|[^|]*$\n?', Regexp::MULTILINE)
+  # Lines with multiple pipe-separated key=value pairs (infobox remnants)
+  CLEANUP_KEY_VALUE_LINE_REGEX = Regexp.new('^\s*\|?\w+=[\w\s-]+(?:\|\w+=[\w\s-]+)+\s*$', Regexp::MULTILINE)
+  # Orphaned closing brackets (]] at start of line or after whitespace)
+  CLEANUP_ORPHANED_CLOSE_REGEX = Regexp.new('(?:^|(?<=\s))([^|\[\]\n]+)\]\]')
+  # Orphaned opening wiki brackets not closed on same line
+  CLEANUP_ORPHANED_OPEN_REGEX = Regexp.new('\[\[[^\[\]\n]*$')
+  # Standalone ]] on its own line
+  CLEANUP_STANDALONE_CLOSE_REGEX = Regexp.new('^\s*\]\]\s*$', Regexp::MULTILINE)
+  # Combined pattern for orphaned brackets (both open and standalone close) - single pass removal
+  CLEANUP_ORPHANED_BRACKETS_REGEX = Regexp.new('\[\[[^\[\]\n]*$|^\s*\]\]\s*$', Regexp::MULTILINE)
+  # ]] preceded by pipe without matching [[ (orphaned from broken links)
+  CLEANUP_PIPE_CLOSE_REGEX = Regexp.new('([^|\[\]\n])\|([^|\[\]\n]+)\]\](?!\])')
+  # Multiple blank lines (final cleanup)
+  CLEANUP_MULTI_BLANK_REGEX = Regexp.new('\n{3,}')
+  # Imagemap coordinate remnants (rect, poly, circle, default with coordinates)
+  IMAGEMAP_COORD_REGEX = Regexp.new('^(?:rect|poly|circle|default)\s+[\d\s]+.*$', Regexp::IGNORECASE)
+
   # =========================================================================
   # Multilingual cleanup patterns (language-agnostic)
   # =========================================================================

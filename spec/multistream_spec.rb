@@ -407,6 +407,35 @@ RSpec.describe "Wp2txt Multistream" do
         expect { reader.extract_article("Non Existent") }.not_to raise_error
       end
     end
+
+    describe "#extract_articles_parallel" do
+      it "handles empty titles array" do
+        reader = described_class.new(multistream_path, index_path)
+        result = reader.extract_articles_parallel([], num_processes: 2)
+        expect(result).to eq({})
+      end
+
+      it "handles titles not in index" do
+        reader = described_class.new(multistream_path, index_path)
+        result = reader.extract_articles_parallel(["Non Existent"], num_processes: 2)
+        expect(result).to eq({})
+      end
+    end
+
+    describe "#each_article_parallel" do
+      it "returns an enumerator when no block given" do
+        reader = described_class.new(multistream_path, index_path)
+        result = reader.each_article_parallel([], num_processes: 2)
+        expect(result).to be_an(Enumerator)
+      end
+
+      it "handles empty entries array" do
+        reader = described_class.new(multistream_path, index_path)
+        pages = []
+        reader.each_article_parallel([], num_processes: 2) { |page| pages << page }
+        expect(pages).to eq([])
+      end
+    end
   end
 
   describe "Wp2txt.ssl_safe_get" do
@@ -466,6 +495,141 @@ RSpec.describe "Wp2txt Multistream" do
         path = manager.cached_partial_multistream_path(1000)
         expect(path).to include("1000streams")
         expect(path).to end_with(".xml.bz2")
+      end
+    end
+
+    describe "#find_any_partial_cache" do
+      let(:temp_dir) { Dir.mktmpdir }
+      let(:manager) { described_class.new("en", cache_dir: temp_dir) }
+
+      after { FileUtils.remove_entry(temp_dir) }
+
+      context "when no partial exists" do
+        it "returns nil" do
+          expect(manager.find_any_partial_cache).to be_nil
+        end
+      end
+
+      context "when partial dumps exist" do
+        before do
+          # Create fake partial dump files
+          File.write(File.join(temp_dir, "enwiki-20260101-multistream-100streams.xml.bz2"), "BZh9" + "x" * 100)
+          File.write(File.join(temp_dir, "enwiki-20260101-multistream-500streams.xml.bz2"), "BZh9" + "x" * 500)
+        end
+
+        it "returns the largest partial by stream count" do
+          result = manager.find_any_partial_cache
+          expect(result).not_to be_nil
+          expect(result[:stream_count]).to eq(500)
+          expect(result[:dump_date]).to eq("20260101")
+        end
+
+        it "includes file size and mtime" do
+          result = manager.find_any_partial_cache
+          expect(result[:size]).to be > 0
+          expect(result[:mtime]).to be_a(Time)
+        end
+      end
+
+      context "with partials from different dates" do
+        before do
+          File.write(File.join(temp_dir, "enwiki-20260101-multistream-100streams.xml.bz2"), "BZh9" + "x" * 100)
+          File.write(File.join(temp_dir, "enwiki-20260201-multistream-50streams.xml.bz2"), "BZh9" + "x" * 50)
+        end
+
+        it "returns the largest regardless of date" do
+          result = manager.find_any_partial_cache
+          expect(result[:stream_count]).to eq(100)
+          expect(result[:dump_date]).to eq("20260101")
+        end
+      end
+    end
+
+    describe "#can_resume_from_partial?" do
+      let(:temp_dir) { Dir.mktmpdir }
+      let(:manager) { described_class.new("en", cache_dir: temp_dir) }
+
+      after { FileUtils.remove_entry(temp_dir) }
+
+      context "when partial_info is nil" do
+        it "returns not possible with :no_partial reason" do
+          result = manager.can_resume_from_partial?(nil)
+          expect(result[:possible]).to be false
+          expect(result[:reason]).to eq(:no_partial)
+        end
+      end
+
+      context "when dump dates don't match" do
+        let(:partial_info) do
+          {
+            path: File.join(temp_dir, "enwiki-20250101-multistream-100streams.xml.bz2"),
+            dump_date: "20250101",
+            stream_count: 100,
+            size: 1000
+          }
+        end
+
+        before do
+          # Create the file
+          File.write(partial_info[:path], "BZh9" + "x" * 100)
+          # Stub the latest_dump_date to return a different date
+          allow(manager).to receive(:latest_dump_date).and_return("20260101")
+        end
+
+        it "returns not possible with :date_mismatch reason" do
+          result = manager.can_resume_from_partial?(partial_info)
+          expect(result[:possible]).to be false
+          expect(result[:reason]).to eq(:date_mismatch)
+          expect(result[:partial_date]).to eq("20250101")
+          expect(result[:latest_date]).to eq("20260101")
+        end
+      end
+
+      context "when partial file is invalid" do
+        let(:partial_info) do
+          {
+            path: File.join(temp_dir, "enwiki-20260101-multistream-100streams.xml.bz2"),
+            dump_date: "20260101",
+            stream_count: 100,
+            size: 1000
+          }
+        end
+
+        before do
+          # Create an invalid bz2 file (wrong magic bytes)
+          File.write(partial_info[:path], "XXXX" + "x" * 100)
+          allow(manager).to receive(:latest_dump_date).and_return("20260101")
+        end
+
+        it "returns not possible with :invalid_partial reason" do
+          result = manager.can_resume_from_partial?(partial_info)
+          expect(result[:possible]).to be false
+          expect(result[:reason]).to eq(:invalid_partial)
+        end
+      end
+    end
+
+    describe "#get_remote_file_size" do
+      let(:temp_dir) { Dir.mktmpdir }
+      let(:manager) { described_class.new("en", cache_dir: temp_dir) }
+
+      after { FileUtils.remove_entry(temp_dir) }
+
+      it "returns file size from Content-Length header" do
+        stub_request(:head, %r{dumps\.wikimedia\.org})
+          .to_return(status: 200, headers: { "Content-Length" => "12345678" })
+
+        allow(manager).to receive(:latest_dump_date).and_return("20260101")
+        size = manager.send(:get_remote_file_size, "https://dumps.wikimedia.org/enwiki/20260101/test.xml.bz2")
+        expect(size).to eq(12_345_678)
+      end
+
+      it "returns 0 when Content-Length is missing" do
+        stub_request(:head, %r{dumps\.wikimedia\.org})
+          .to_return(status: 200, headers: {})
+
+        size = manager.send(:get_remote_file_size, "https://dumps.wikimedia.org/test.xml.bz2")
+        expect(size).to eq(0)
       end
     end
   end

@@ -149,21 +149,20 @@ module Wp2txt
     # Reduce 3+ consecutive newlines to 2
     result.gsub!(CLEANUP_REGEX_08, "\n\n")
     # Also handle mixed whitespace patterns (spaces/tabs between newlines)
-    result.gsub!(/\n[ \t]*\n[ \t]*\n+/, "\n\n")
+    result.gsub!(CLEANUP_MIXED_WHITESPACE_REGEX, "\n\n")
 
     # Fix 1: Multiple consecutive spaces → single space (but preserve indentation at line start)
-    result.gsub!(/([^\n]) {2,}/, '\1 ')
+    result.gsub!(CLEANUP_MULTIPLE_SPACES_REGEX, '\1 ')
 
     # Fix 2: Empty parentheses → remove (both ASCII and Japanese)
-    result.gsub!(/\(\s*\)/, "")
-    result.gsub!(/（\s*）/, "")
+    result.gsub!(CLEANUP_EMPTY_PARENS_REGEX, "")
 
     # Fix 3: Leftover pipe characters (table/infobox remnants)
-    result.gsub!(/\|\|+/, "")           # Multiple pipes
-    result.gsub!(/\|\s*$/, "")          # Trailing pipe at end of line
-    result.gsub!(/^\s*\|[^|]*$\n?/m, "") # Lines that are just pipe + content (table rows)
+    result.gsub!(CLEANUP_MULTIPLE_PIPES_REGEX, "")
+    result.gsub!(CLEANUP_TRAILING_PIPE_REGEX, "")
+    result.gsub!(CLEANUP_PIPE_LINE_REGEX, "")
     # Lines with multiple pipe-separated key=value pairs (infobox remnants)
-    result.gsub!(/^\s*\|?\w+=[\w\s-]+(?:\|\w+=[\w\s-]+)+\s*$/m, "")
+    result.gsub!(CLEANUP_KEY_VALUE_LINE_REGEX, "")
     # Template name remnants (data-driven from template_aliases.json)
     result.gsub!(CLEANUP_REMNANTS_REGEX, "")
     # Imagemap/gallery remnants: lines like "Image:file.jpg|thumb|...|caption" without [[ brackets
@@ -171,17 +170,11 @@ module Wp2txt
     # Incomplete File/Image links (opened but not closed on same logical unit)
     result.gsub!(CLEANUP_FILE_INCOMPLETE_REGEX, "")
     # Orphaned closing brackets from split File links (e.g., "caption]] rest of text")
-    # Only match ]] at start of line or preceded by whitespace (not part of [[...]])
-    result.gsub!(/(?:^|(?<=\s))([^|\[\]\n]+)\]\]/, '\1')
-    # Orphaned opening wiki brackets not closed on same line
-    # Only match [[ followed by non-bracket, non-newline chars until end of line
-    result.gsub!(/\[\[[^\[\]\n]*$/, "")
-    # Standalone ]] on its own line (broken/incomplete links from Wikipedia source)
-    result.gsub!(/^\s*\]\]\s*$/m, "")
+    result.gsub!(CLEANUP_ORPHANED_CLOSE_REGEX, '\1')
+    # Orphaned opening brackets and standalone ]] lines (combined for single pass)
+    result.gsub!(CLEANUP_ORPHANED_BRACKETS_REGEX, "")
     # ]] preceded by pipe without matching [[ (orphaned from broken links)
-    # Only match if NOT immediately preceded by [[  (to protect valid links)
-    # Pattern: non-bracket char + pipe + text + ]] (where the preceding char proves no [[ nearby)
-    result.gsub!(/([^|\[\]\n])\|([^|\[\]\n]+)\]\](?!\])/) { "#{$1}#{$2}" }
+    result.gsub!(CLEANUP_PIPE_CLOSE_REGEX) { "#{$1}#{$2}" }
 
     # =========================================================================
     # Multilingual cleanup (language-agnostic patterns)
@@ -211,7 +204,7 @@ module Wp2txt
     result.gsub!(LONE_ASTERISK_REGEX, "")
 
     # Final cleanup: reduce multiple blank lines again after all removals
-    result.gsub!(/\n{3,}/, "\n\n")
+    result.gsub!(CLEANUP_MULTI_BLANK_REGEX, "\n\n")
 
     result.strip!
     result << "\n\n"
@@ -247,7 +240,7 @@ module Wp2txt
       res.replace(result)
     end
     # Remove imagemap coordinate remnants (rect, poly, circle, default with coordinates)
-    res.gsub!(/^(?:rect|poly|circle|default)\s+[\d\s]+.*$/i, "")
+    res.gsub!(IMAGEMAP_COORD_REGEX, "")
     res
   end
 

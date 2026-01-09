@@ -58,6 +58,12 @@ module Wp2txt
   # Optimized for Wikipedia dump processing
   DEFAULT_BUFFER_SIZE = 10_485_760
 
+  # Minimum buffer size (1 MB) - don't go below this
+  MIN_BUFFER_SIZE = 1_048_576
+
+  # Maximum buffer size (100 MB) - don't exceed this
+  MAX_BUFFER_SIZE = 104_857_600
+
   # ---------------------------------------------------------------------------
   # File Size Units (Binary - for accurate file sizes)
   # ---------------------------------------------------------------------------
