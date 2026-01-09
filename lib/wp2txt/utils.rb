@@ -7,6 +7,7 @@ require_relative "text_processing"
 require_relative "file_utils"
 require_relative "magic_words"
 require_relative "template_expander"
+require_relative "parser_functions"
 
 module Wp2txt
   # Main wiki formatting utilities: format_wiki, markers, templates, links
@@ -130,6 +131,15 @@ module Wp2txt
         dump_date: config[:dump_date]
       )
       result = magic_expander.expand(result)
+    end
+
+    # Expand parser functions if enabled
+    # This evaluates {{#if:...}}, {{#switch:...}}, {{#expr:...}}, etc.
+    if config[:expand_templates]
+      parser_functions = ParserFunctions.new(
+        reference_date: config[:dump_date]
+      )
+      result = parser_functions.evaluate(result)
     end
 
     # Expand common templates if enabled
