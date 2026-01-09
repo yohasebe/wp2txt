@@ -20,7 +20,7 @@ module Wp2txt
     File.open(file_path, "r") do |fr|
       str = fr.read
       newstr = yield(str)
-      str = newstr if nil? newstr
+      str = newstr unless newstr.nil?
       File.open("temp", "w") do |tf|
         tf.write(str)
       end

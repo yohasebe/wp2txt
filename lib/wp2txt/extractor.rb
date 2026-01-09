@@ -289,7 +289,7 @@ module Wp2txt
       begin
         preview = fetcher.fetch_preview
         spinner.success(pastel.green("Done!"))
-      rescue StandardError => e
+      rescue Net::OpenTimeout, Net::ReadTimeout, SocketError, Errno::ECONNREFUSED, OpenSSL::SSL::SSLError, JSON::ParserError, IOError => e
         spinner.error(pastel.red("Failed!"))
         print_error("Error fetching category: #{e.message}")
         return EXIT_ERROR
@@ -364,7 +364,7 @@ module Wp2txt
       begin
         article_titles = fetcher.fetch_articles
         spinner.success(pastel.green("#{article_titles.size} articles"))
-      rescue StandardError => e
+      rescue Net::OpenTimeout, Net::ReadTimeout, SocketError, Errno::ECONNREFUSED, OpenSSL::SSL::SSLError, JSON::ParserError, IOError => e
         spinner.error(pastel.red("Failed!"))
         print_error("Error fetching articles: #{e.message}")
         return EXIT_ERROR

@@ -31,19 +31,16 @@
 - [ ] `lib/wp2txt/commands/extract.rb` - 抽出処理
 - [ ] `lib/wp2txt/commands/category.rb` - カテゴリ抽出
 
-### 1.3 multistream.rb の分割 (775行)
-- [ ] `lib/wp2txt/multistream/index.rb` - MultistreamIndex
-- [ ] `lib/wp2txt/multistream/reader.rb` - MultistreamReader
-- [ ] `lib/wp2txt/multistream/dump_manager.rb` - DumpManager
-- [ ] `lib/wp2txt/multistream/category_fetcher.rb` - CategoryFetcher
+### 1.3 multistream.rb (775行)
+- [x] スキップ: 4クラス平均190行で適切、分割不要
 
 ---
 
 ## Phase 2: 安定性
 
 ### 2.1 例外処理の改善
-- [ ] 9箇所の `rescue StandardError` を具体的な例外クラスに置換
-- [ ] カスタム例外クラスの定義 (`Wp2txt::ParseError`, `Wp2txt::NetworkError`, etc.)
+- [x] 14箇所の `rescue StandardError` を具体的な例外クラスに置換
+- [x] カスタム例外クラスの定義 (`Wp2txt::Error`, `Wp2txt::ParseError`, `Wp2txt::NetworkError`, etc.)
 
 ### 2.2 テストカバレッジ向上 (77% → 90%)
 - [ ] bin/wp2txt のユニットテスト追加
@@ -79,3 +76,5 @@
 |------|-------|------|------|
 | 2026-01-09 | 1.1 | utils.rb を3ファイルに分割 (1024行→656行) | 完了 |
 | 2026-01-09 | 1.2 | bin/wp2txt を3ファイルに分割 (1011行→360行) | 完了 |
+| 2026-01-09 | 2.2 | テストカバレッジ向上 (77.38%→83.81%, 562→690テスト) | 進行中 |
+| 2026-01-09 | 2.1 | 例外処理の改善 (14箇所のrescue StandardError→具体的な例外) | 完了 |

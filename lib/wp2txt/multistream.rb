@@ -443,7 +443,7 @@ module Wp2txt
         lang = File.basename(lang_dir).sub(/wiki$/, "").to_sym
         manager = new(lang, cache_dir: cache_dir)
         status[lang] = manager.cache_status
-      rescue StandardError => e
+      rescue IOError, Errno::ENOENT, Errno::EACCES, JSON::ParserError => e
         status[lang] = { error: e.message }
       end
       status
@@ -738,7 +738,7 @@ module Wp2txt
       return nil unless response.is_a?(Net::HTTPSuccess)
 
       JSON.parse(response.body)
-    rescue StandardError
+    rescue Net::OpenTimeout, Net::ReadTimeout, SocketError, Errno::ECONNREFUSED, JSON::ParserError, OpenSSL::SSL::SSLError
       nil
     end
 
@@ -758,7 +758,7 @@ module Wp2txt
 
       data = JSON.parse(File.read(path), symbolize_names: true)
       data
-    rescue StandardError
+    rescue IOError, Errno::ENOENT, Errno::EACCES, JSON::ParserError
       nil
     end
 
@@ -768,8 +768,8 @@ module Wp2txt
 
       FileUtils.mkdir_p(File.dirname(path))
       File.write(path, JSON.generate(members))
-    rescue StandardError
-      # Ignore cache write failures
+    rescue IOError, Errno::ENOENT, Errno::EACCES, Errno::ENOSPC
+      # Ignore cache write failures (disk full, permission denied, etc.)
     end
   end
 end

@@ -28,7 +28,7 @@ module Wp2txt
       loop do
         begin
           a = file.read(unit)
-        rescue StandardError
+        rescue IOError, Errno::EIO, Errno::ENOENT
           a = nil
         end
         break unless a
@@ -63,7 +63,7 @@ module Wp2txt
           puts "detected [#{path}]"
           path
         end
-      rescue StandardError
+      rescue Errno::ENOENT, Errno::EPIPE, IOError
         puts "#{basename} not found"
         false
       end
@@ -105,7 +105,7 @@ module Wp2txt
       loop do
         begin
           new_lines = @file_pointer.read(10_485_760)
-        rescue StandardError
+        rescue IOError, Errno::EIO, Errno::ENOENT, Errno::EPIPE
           return nil
         end
         return nil unless new_lines
@@ -199,7 +199,7 @@ module Wp2txt
       loop do
         begin
           new_lines = @file_pointer.read(10_485_760)
-        rescue StandardError
+        rescue IOError, Errno::EIO, Errno::ENOENT, Errno::EPIPE
           return nil
         end
         return nil unless new_lines
@@ -253,7 +253,7 @@ module Wp2txt
       else
         page.force_encoding("utf-8")
       end
-    rescue StandardError
+    rescue ::Encoding::InvalidByteSequenceError, ::Encoding::UndefinedConversionError
       page
     end
 

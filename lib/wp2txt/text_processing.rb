@@ -18,7 +18,7 @@ module Wp2txt
     text = chrref_to_utf(text)
     text = special_chr(text)
     text.encode("UTF-8", "UTF-8", invalid: :replace, replace: "")
-  rescue StandardError
+  rescue ::Encoding::InvalidByteSequenceError, ::Encoding::UndefinedConversionError, ArgumentError
     # If any encoding error persists, scrub again and return
     text.to_s.scrub("")
   end
@@ -40,7 +40,8 @@ module Wp2txt
         ""
       end
     end
-  rescue StandardError
+  rescue RangeError, ArgumentError
+    # RangeError: invalid codepoint, ArgumentError: pack error
     num_str
   end
 
@@ -104,7 +105,9 @@ module Wp2txt
     end
 
     result
-  rescue StandardError
+  rescue RegexpError, ArgumentError, SystemStackError
+    # RegexpError: malformed pattern, ArgumentError: invalid argument
+    # SystemStackError: stack overflow from deeply nested content
     str
   end
 

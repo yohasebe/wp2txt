@@ -194,5 +194,175 @@ RSpec.describe Wp2txt::StreamProcessor do
         expect(result.to_a.size).to eq(1)
       end
     end
+
+    context "with unsupported format" do
+      let(:unsupported_file) { File.join(temp_dir, "test.txt") }
+
+      before do
+        File.write(unsupported_file, "plain text content")
+      end
+
+      it "raises ArgumentError for unsupported format" do
+        processor = described_class.new(unsupported_file)
+        expect { processor.each_page.to_a }.to raise_error(ArgumentError, /Unsupported input format/)
+      end
+    end
+
+    context "with malformed XML" do
+      let(:xml_content) do
+        <<~XML
+          <page>
+            <title>Test Article</title>
+            <revision>
+              <text>Content with unclosed tag <b>
+            </revision>
+          </page>
+        XML
+      end
+
+      let(:xml_file) { File.join(temp_dir, "malformed.xml") }
+
+      before do
+        File.write(xml_file, xml_content)
+      end
+
+      it "skips malformed XML gracefully" do
+        processor = described_class.new(xml_file)
+        pages = processor.each_page.to_a
+        # Should not raise error, just skip malformed page
+        expect(pages).to be_an(Array)
+      end
+    end
+
+    context "with empty text node" do
+      let(:xml_content) do
+        <<~XML
+          <page>
+            <title>Empty Article</title>
+            <revision>
+              <text></text>
+            </revision>
+          </page>
+        XML
+      end
+
+      let(:xml_file) { File.join(temp_dir, "empty.xml") }
+
+      before do
+        File.write(xml_file, xml_content)
+      end
+
+      it "handles empty text" do
+        processor = described_class.new(xml_file)
+        pages = processor.each_page.to_a
+        expect(pages.size).to eq(1)
+        expect(pages[0][1]).to eq("")
+      end
+    end
+
+    context "with missing title" do
+      let(:xml_content) do
+        <<~XML
+          <page>
+            <revision>
+              <text>Content without title.</text>
+            </revision>
+          </page>
+        XML
+      end
+
+      let(:xml_file) { File.join(temp_dir, "no_title.xml") }
+
+      before do
+        File.write(xml_file, xml_content)
+      end
+
+      it "skips pages without title" do
+        processor = described_class.new(xml_file)
+        pages = processor.each_page.to_a
+        expect(pages).to be_empty
+      end
+    end
+
+    context "with multi-line HTML comments" do
+      let(:xml_content) do
+        <<~XML
+          <page>
+            <title>Multi Comment Article</title>
+            <revision>
+              <text>Before
+          <!--
+          Multi-line
+          comment
+          here
+          -->
+          After</text>
+            </revision>
+          </page>
+        XML
+      end
+
+      let(:xml_file) { File.join(temp_dir, "multiline_comment.xml") }
+
+      before do
+        File.write(xml_file, xml_content)
+      end
+
+      it "preserves newline count from multi-line comments" do
+        processor = described_class.new(xml_file)
+        pages = processor.each_page.to_a
+        expect(pages.size).to eq(1)
+        text = pages[0][1]
+        expect(text).not_to include("Multi-line")
+        expect(text).not_to include("comment")
+        # Check that newlines are preserved (original content has newlines)
+        expect(text.count("\n")).to be >= 1
+      end
+    end
+
+    context "with multiple pages in buffer" do
+      let(:xml_content) do
+        (1..10).map do |i|
+          <<~XML
+            <page>
+              <title>Article #{i}</title>
+              <revision>
+                <text>Content for article #{i}.</text>
+              </revision>
+            </page>
+          XML
+        end.join("\n")
+      end
+
+      let(:xml_file) { File.join(temp_dir, "many_pages.xml") }
+
+      before do
+        File.write(xml_file, xml_content)
+      end
+
+      it "processes all pages correctly" do
+        processor = described_class.new(xml_file)
+        pages = processor.each_page.to_a
+        expect(pages.size).to eq(10)
+        expect(pages.map(&:first)).to eq((1..10).map { |i| "Article #{i}" })
+      end
+    end
+  end
+
+  describe "#initialize" do
+    it "accepts input path" do
+      processor = described_class.new("/path/to/file.xml")
+      expect(processor.instance_variable_get(:@input_path)).to eq("/path/to/file.xml")
+    end
+
+    it "accepts bz2_gem option" do
+      processor = described_class.new("/path/to/file.bz2", bz2_gem: true)
+      expect(processor.instance_variable_get(:@bz2_gem)).to be true
+    end
+
+    it "defaults bz2_gem to false" do
+      processor = described_class.new("/path/to/file.bz2")
+      expect(processor.instance_variable_get(:@bz2_gem)).to be false
+    end
   end
 end

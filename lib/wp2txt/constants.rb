@@ -2,6 +2,27 @@
 
 module Wp2txt
   # =========================================================================
+  # Custom Exception Classes
+  # =========================================================================
+  # Base error class for all Wp2txt errors
+  class Error < StandardError; end
+
+  # Raised when text parsing or conversion fails
+  class ParseError < Error; end
+
+  # Raised when network operations fail
+  class NetworkError < Error; end
+
+  # Raised when file I/O operations fail
+  class FileIOError < Error; end
+
+  # Raised when encoding conversion fails
+  class EncodingError < Error; end
+
+  # Raised when cache operations fail
+  class CacheError < Error; end
+
+  # =========================================================================
   # Shared Constants
   # =========================================================================
   # Centralized constants to avoid magic numbers and duplication across files.
