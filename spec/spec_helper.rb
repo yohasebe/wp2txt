@@ -17,6 +17,7 @@ require_relative "../lib/wp2txt/utils"
 require_relative "../lib/wp2txt/regex"
 require_relative "../lib/wp2txt/multistream"
 require_relative "../lib/wp2txt/config"
+require_relative "../lib/wp2txt/template_expander"
 
 RSpec.configure do |config|
   config.expect_with :rspec do |expectations|

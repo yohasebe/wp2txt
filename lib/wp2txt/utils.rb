@@ -6,6 +6,7 @@ require_relative "regex"
 require_relative "text_processing"
 require_relative "file_utils"
 require_relative "magic_words"
+require_relative "template_expander"
 
 module Wp2txt
   # Main wiki formatting utilities: format_wiki, markers, templates, links
@@ -123,12 +124,21 @@ module Wp2txt
     # Expand magic words if title is provided
     # This converts {{PAGENAME}}, {{CURRENTYEAR}}, {{lc:...}}, etc. to actual values
     if config[:title]
-      expander = MagicWordExpander.new(
+      magic_expander = MagicWordExpander.new(
         config[:title],
         namespace: config[:namespace] || "",
         dump_date: config[:dump_date]
       )
-      result = expander.expand(result)
+      result = magic_expander.expand(result)
+    end
+
+    # Expand common templates if enabled
+    # This converts {{birth date|...}}, {{convert|...}}, etc. to readable text
+    if config[:expand_templates]
+      template_expander = TemplateExpander.new(
+        reference_date: config[:dump_date]
+      )
+      result = template_expander.expand(result)
     end
 
     # Determine which markers are enabled
