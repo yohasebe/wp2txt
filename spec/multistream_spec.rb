@@ -8,6 +8,8 @@ require "webmock/rspec"
 
 RSpec.describe "Wp2txt Multistream" do
   before do
+    # Ensure WebMock is enabled (may be disabled by other specs)
+    WebMock.enable!
     # Allow localhost connections, stub external
     WebMock.disable_net_connect!(allow_localhost: true)
 
