@@ -4,60 +4,32 @@ A command-line toolkit to extract text content and category data from Wikipedia 
 
 English | [日本語](README_ja.md)
 
-## Why wp2txt?
-
-There are several tools for extracting plain text from Wikipedia dumps. [WikiExtractor](https://github.com/attardi/wikiextractor) is a popular Python-based tool known for its speed. However, **wp2txt offers unique features that WikiExtractor does not provide**:
-
-| Feature | wp2txt | WikiExtractor |
-|---------|--------|---------------|
-| Plain text extraction | ✅ | ✅ |
-| **Category metadata extraction** | ✅ | ❌ |
-| **Category-based article extraction** | ✅ | ❌ |
-| Category-only output (`-g`) | ✅ | ❌ |
-| **Specific article extraction by title** | ✅ | ❌ |
-| Section headings | `==Title==` (customizable) | `Title.` (fixed format) |
-| Multilingual categories | ✅ (350+ languages) | — |
-| Processing speed | Slower | ~10x faster |
-
-### When to use wp2txt
-
-- You need **article category information** for classification or knowledge graphs
-- You want to **extract articles from specific categories** (e.g., all articles in "Japanese cities")
-- You want to **extract specific articles by title** without downloading the full dump
-- You want to preserve or customize section heading format
-- You're building topic classifiers using categories as labels
-- Processing time is not your primary constraint
-
-### When to use WikiExtractor
-
-- You only need plain text content (no metadata)
-- Processing speed is critical
-- Working with full Wikipedia dumps (20GB+)
-
-## Responsible Data Access
-
-**wp2txt uses official Wikipedia dump files**, which is the [recommended approach by Wikimedia Foundation](https://meta.wikimedia.org/wiki/Data_dumps) for bulk data access.
-
-### Why dump files instead of API scraping?
-
-The Wikimedia Foundation has expressed concerns about large-scale API scraping, particularly for AI/ML purposes:
-
-- **Server load**: Mass API requests burden Wikipedia's infrastructure
-- **Official recommendation**: Dump files are specifically provided for bulk data access
-- **Terms of service**: Excessive bot requests may be blocked
-
-wp2txt's design aligns with these guidelines:
-
-| Approach | Server Impact | Wikimedia Stance |
-|----------|---------------|------------------|
-| API scraping (mass) | High | ⚠️ Discouraged |
-| **Dump files (wp2txt)** | None | ✅ Recommended |
-
-By using dump files, wp2txt enables large-scale Wikipedia data extraction while respecting Wikimedia's infrastructure and policies.
-
 ## About
 
-WP2TXT extracts text and category data from Wikipedia dump files (encoded in XML / compressed with Bzip2), removing MediaWiki markup and other metadata.
+WP2TXT extracts plain text and category information from Wikipedia dump files. It processes XML dumps (compressed with bzip2), removes MediaWiki markup, and outputs clean text suitable for corpus linguistics, text mining, and other research purposes.
+
+## Key Features
+
+- **Category metadata extraction** - Preserves article category information in output
+- **Category-based extraction** - Extract all articles from a specific Wikipedia category
+- **Article extraction by title** - Extract specific articles without downloading full dumps
+- **Auto-download** - Automatically download dumps by language code
+- **Multilingual support** - Category and redirect detection for 350+ Wikipedia languages
+- **Streaming processing** - Process large dumps without intermediate files
+- **JSON output** - Machine-readable JSONL format for data pipelines
+
+## Use Cases
+
+wp2txt is particularly suited for:
+
+- Building domain-specific corpora using category information
+- Comparative linguistic research across topic areas
+- Extracting Wikipedia text with metadata for NLP tasks
+- Cross-linguistic studies using parallel category structures
+
+## Data Access
+
+wp2txt uses [official Wikipedia dump files](https://meta.wikimedia.org/wiki/Data_dumps), the recommended method for bulk data access. This approach respects Wikimedia's infrastructure guidelines.
 
 ## Changelog
 
