@@ -7,6 +7,44 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- **Ractor parallel processing (Ruby 4.0+)**: New `--ractor` option for thread-based parallelism:
+  - Requires Ruby 4.0 or later for stable operation
+  - Uses map-join-value pattern for reliable Ractor orchestration
+  - ~2x speedup compared to sequential processing
+  - Lower memory footprint than process-based parallelism (Parallel gem)
+  - Automatic fallback to sequential processing on Ruby 3.x
+  - Performance: Parallel gem (~3x) remains faster, Ractor (~2x) uses less memory
+
+- **Template expansion**: New `--expand-templates` (`-E`) option expands common templates to readable text:
+  - Date templates: `{{birth date|1990|5|15}}` → "May 15, 1990"
+  - Convert templates: `{{convert|100|km|mi}}` → "100 km (62 mi)"
+  - Coordinate templates: `{{coord|35|41|N|139|41|E}}` → "35°41′N 139°41′E"
+  - Language templates: `{{lang|ja|日本語}}` → "日本語"
+  - Quote templates: `{{blockquote|text}}` → "text"
+  - And 20+ more template types
+  - **Enabled by default** - use `--no-expand-templates` to disable
+  - Parser functions support: `{{#if:}}`, `{{#switch:}}`, `{{#ifeq:}}`, `{{#expr:}}`
+  - Magic words support: `{{PAGENAME}}`, `{{CURRENTYEAR}}`, `{{NAMESPACE}}`
+
+- **Live article testing**: New test infrastructure fetches real Wikipedia articles:
+  - `spec/support/live_articles.rb` - Fetches and caches articles from Wikipedia API
+  - `spec/live_article_spec.rb` - Integration tests using live articles
+  - Supports known articles for deterministic tests and random sampling for broader coverage
+  - Cache with 7-day expiry to minimize API calls
+  - Skip with `OFFLINE=1` environment variable
+
+- **Benchmark infrastructure**: New tools for measuring template expansion accuracy:
+  - `lib/wp2txt/article_sampler.rb` - Fetches random articles with MediaWiki-rendered text
+  - `scripts/benchmark_template_expansion.rb` - Compares wp2txt output against MediaWiki
+  - Jaccard similarity scoring for objective comparison
+  - Results: 84.5% similarity with template expansion (vs 81.0% without)
+
+- **Removed legacy test data**: Deleted obsolete static test files:
+  - `data/testdata_en.bz2` (2.8MB, from 2022)
+  - `data/testdata_ja.bz2` (2.6MB, from 2022)
+  - `data/output_samples/` directory (~20MB)
+  - Tests now use live Wikipedia data with caching
+
 - **Incremental dump downloads**: Smart handling of partial dump files when downloading full dumps:
   - Detects existing partial downloads and offers to resume (download only remaining data)
   - Validates dump dates - if dates match, can resume; if outdated, offers choices
