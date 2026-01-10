@@ -2,6 +2,9 @@
 
 # frozen_string_literal: true
 
+# Enable YJIT for better performance (Ruby 3.3+)
+RubyVM::YJIT.enable if defined?(RubyVM::YJIT) && RubyVM::YJIT.respond_to?(:enable)
+
 require_relative "../lib/wp2txt"
 require_relative "../lib/wp2txt/utils"
 require_relative "../lib/wp2txt/version"
@@ -10,6 +13,7 @@ require_relative "../lib/wp2txt/multistream"
 require_relative "../lib/wp2txt/cli_ui"
 require_relative "../lib/wp2txt/formatter"
 require_relative "../lib/wp2txt/extractor"
+require_relative "../lib/wp2txt/ractor_worker"
 
 require "etc"
 require "json"
@@ -25,8 +29,6 @@ class WpApp
   include Wp2txt::Formatter
   include Wp2txt::Extractor
 
-  # Maximum number of processors that can be used for parallel processing
-  MAX_PROCESSORS = 8
   # Debug mode flag
   DEBUG_MODE = false
 
@@ -37,13 +39,17 @@ class WpApp
   private
 
   # Calculate the number of processes to be used for parallel processing
+  # Uses MemoryMonitor to determine optimal parallelism based on CPU and memory
   def calculate_num_processes(opts)
-    num_processors = Etc.nprocessors
-    if opts[:num_procs] && opts[:num_procs].to_i <= num_processors && opts[:num_procs].to_i <= MAX_PROCESSORS
-      opts[:num_procs]
+    optimal = Wp2txt::MemoryMonitor.optimal_processes
+
+    if opts[:num_procs]
+      # User specified a value - use it if reasonable
+      requested = opts[:num_procs].to_i
+      max_allowed = Etc.nprocessors
+      [requested, max_allowed, 1].max == requested ? requested : optimal
     else
-      minus2 = num_processors - 2
-      minus2 < MAX_PROCESSORS ? minus2 : MAX_PROCESSORS
+      optimal
     end.tap { |n| n = 1 if n < 1 }
   end
 
@@ -73,39 +79,112 @@ class WpApp
     pages = []
     page_count = 0
 
+    # Determine parallelism mode
+    use_ractor = config[:use_ractor] && Wp2txt::RactorWorker.available?
+    parallel_mode = use_ractor ? "Ractor (experimental)" : "Parallel (processes)"
+
+    # Show warning for experimental Ractor mode
+    if config[:use_ractor]
+      if use_ractor
+        print_warning("Ractor mode is experimental and may be unstable.")
+        puts pastel.yellow("  If processing hangs, restart without --ractor option.") unless quiet?
+      else
+        print_warning("Ractor not available on this Ruby version. Using Parallel gem.")
+      end
+    end
+
+    # Get input file size for progress estimation
+    input_size = File.size(input_path) rescue 0
+    input_size_str = input_size > 0 ? format_size(input_size) : "unknown"
+
+    # Estimate total articles for ETA calculation
+    estimated_total = estimate_total_articles(input_path)
+    estimated_total_str = estimated_total ? "~#{(estimated_total / 1_000_000.0).round(1)}M" : "unknown"
+
     print_mode_banner("Full Dump Processing", {
       "Input" => File.basename(input_path),
+      "Size" => input_size_str,
+      "Articles (est.)" => estimated_total_str,
       "Format" => format.to_s,
-      "CPU cores" => num_processes.to_s
+      "CPU cores" => num_processes.to_s,
+      "Parallel" => parallel_mode
     })
 
-    # Initialize progress spinner
-    spinner = create_spinner("Processing articles...")
-    spinner.auto_spin
+    # Ensure output is not buffered (important for piped output)
+    $stdout.sync = true
 
     time_start = Time.now
-    last_update_time = Time.now
+    last_progress_time = time_start
+    last_progress_count = 0
+    batch_count = 0
+
+    # Progress reporting interval (seconds)
+    progress_interval = 10
 
     # Process in batches for memory efficiency
     batch_size = num_processes * 100
     strip_tmarker = !config[:marker]
 
+    # Show initial progress message
+    puts pastel.cyan("Processing started at #{time_start.strftime('%H:%M:%S')}")
+    if estimated_total
+      puts pastel.dim("Progress updates every #{progress_interval} seconds (with ETA)...")
+    else
+      puts pastel.dim("Progress updates every #{progress_interval} seconds...")
+    end
+    puts
+
     stream.each_page do |title, text|
       pages << [title, text]
       page_count += 1
-
-      # Throttle spinner updates to prevent flickering (update at most every 100ms)
-      now = Time.now
-      if now - last_update_time >= 0.1
-        spinner.update(title: "(#{page_count} articles)")
-        last_update_time = now
-      end
 
       # Process batch when full
       next unless pages.size >= batch_size
 
       process_batch(pages, writer, config, strip_tmarker, num_processes)
       pages.clear
+      batch_count += 1
+
+      # Show progress every N seconds
+      now = Time.now
+      elapsed_since_update = now - last_progress_time
+      if elapsed_since_update >= progress_interval
+        elapsed_total = now - time_start
+        articles_per_sec = (page_count - last_progress_count) / elapsed_since_update
+        output_count = writer.file_count rescue batch_count
+
+        # Calculate ETA
+        eta_seconds = calculate_eta(page_count, estimated_total, elapsed_total)
+        eta_str = format_eta(eta_seconds)
+
+        # Calculate progress percentage if total is known
+        if estimated_total && estimated_total > 0
+          percent = (page_count.to_f / estimated_total * 100).round(1)
+          progress_line = format(
+            "  [%s] %s articles (%s%%) | %s/sec | %s files | Elapsed: %s | ETA: %s",
+            now.strftime("%H:%M:%S"),
+            page_count.to_s.rjust(8),
+            percent.to_s.rjust(5),
+            articles_per_sec.round(1).to_s.rjust(6),
+            output_count.to_s.rjust(4),
+            format_duration(elapsed_total),
+            eta_str
+          )
+        else
+          progress_line = format(
+            "  [%s] %s articles | %s/sec | %s files | Elapsed: %s",
+            now.strftime("%H:%M:%S"),
+            page_count.to_s.rjust(8),
+            articles_per_sec.round(1).to_s.rjust(6),
+            output_count.to_s.rjust(4),
+            format_duration(elapsed_total)
+          )
+        end
+        puts pastel.dim(progress_line)
+
+        last_progress_time = now
+        last_progress_count = page_count
+      end
     end
 
     # Process remaining pages
@@ -115,7 +194,8 @@ class WpApp
     output_files = writer.close
 
     time_elapsed = Time.now - time_start
-    spinner.success(pastel.green("Done!"))
+    puts
+    puts pastel.green("#{ICONS[:success]} Processing complete!")
 
     # Summary
     print_summary("Processing Complete", {
@@ -130,14 +210,26 @@ class WpApp
   end
 
   # Process a batch of pages in parallel
+  # Uses Ractor for true parallelism when enabled, otherwise falls back to Parallel gem
   def process_batch(pages, writer, config, strip_tmarker, num_processes)
-    results = Parallel.map(pages, in_processes: num_processes) do |title, text|
-      article = Article.new(text, title, strip_tmarker)
-      format_article(article, config)
-    end
+    results = if config[:use_ractor] && Wp2txt::RactorWorker.available?
+                # Use Ractor-based parallel processing (true parallelism)
+                Wp2txt::RactorWorker.process_articles(
+                  pages,
+                  config: config,
+                  strip_tmarker: strip_tmarker,
+                  num_workers: num_processes
+                )
+              else
+                # Fall back to Parallel gem (process-based parallelism)
+                Parallel.map(pages, in_processes: num_processes) do |title, text|
+                  article = Article.new(text, title, strip_tmarker)
+                  format_article(article, config)
+                end
+              end
 
     results.each do |result|
-      writer.write(result)
+      writer.write(result) if result
     end
   end
 
@@ -227,12 +319,19 @@ class WpApp
       format: format,
       num_procs: num_processes,
       file_size: opts[:file_size],
-      bz2_gem: opts[:bz2_gem]
+      bz2_gem: opts[:bz2_gem],
+      use_ractor: opts[:ractor]
     }
 
     %i[title list heading table redirect multiline category category_only
-       summary_only marker extract_citations].each do |opt|
+       summary_only metadata_only marker extract_citations expand_templates
+       section_output min_section_length skip_empty].each do |opt|
       config[opt] = opts[opt]
+    end
+
+    # Parse sections option (comma-separated string to array)
+    if opts[:sections]
+      config[:sections] = opts[:sections].split(",").map(&:strip).reject(&:empty?)
     end
 
     # Parse markers option

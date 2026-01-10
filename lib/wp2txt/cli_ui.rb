@@ -210,6 +210,122 @@ module Wp2txt
       Wp2txt.format_file_size(bytes)
     end
 
+    # Format ETA (Estimated Time of Arrival) in HH:MM:SS format
+    # @param seconds [Numeric] Remaining seconds
+    # @return [String] Formatted ETA or "--:--:--" if nil/invalid
+    def format_eta(seconds)
+      return "--:--:--" if seconds.nil? || seconds.negative? || !seconds.finite?
+
+      seconds = seconds.to_i
+      hours = seconds / 3600
+      mins = (seconds % 3600) / 60
+      secs = seconds % 60
+
+      if hours > 99
+        ">99h"
+      elsif hours > 0
+        format("%02d:%02d:%02d", hours, mins, secs)
+      else
+        format("%02d:%02d", mins, secs)
+      end
+    end
+
+    # Calculate ETA based on current progress
+    # @param processed [Integer] Items processed so far
+    # @param total [Integer] Total items to process
+    # @param elapsed_seconds [Numeric] Time elapsed in seconds
+    # @return [Float, nil] Estimated seconds remaining, or nil if cannot calculate
+    def calculate_eta(processed, total, elapsed_seconds)
+      return nil if processed.zero? || total.nil? || total.zero?
+      return nil if processed > total
+
+      rate = processed.to_f / elapsed_seconds
+      return nil if rate.zero?
+
+      remaining = total - processed
+      remaining / rate
+    end
+
+    # Estimate total article count from multistream index or file size
+    # @param input_path [String] Path to input file
+    # @return [Integer, nil] Estimated total articles, or nil if cannot estimate
+    def estimate_total_articles(input_path)
+      return nil unless input_path
+
+      # Check for multistream index file
+      index_path = find_multistream_index(input_path)
+      if index_path && File.exist?(index_path)
+        count = count_articles_from_index(index_path)
+        return count if count && count > 0
+      end
+
+      # Fallback: estimate from file size
+      # English Wikipedia: ~25GB compressed → ~7M articles ≈ 280 articles/MB
+      # Other languages vary, but this gives a reasonable estimate
+      estimate_from_file_size(input_path)
+    end
+
+    # Find multistream index file for a given input file
+    # @param input_path [String] Path to multistream file
+    # @return [String, nil] Path to index file, or nil if not found
+    def find_multistream_index(input_path)
+      return nil unless input_path.include?("multistream")
+
+      # Pattern: *-multistream.xml.bz2 → *-multistream-index.txt.bz2
+      base = input_path.sub(/multistream\.xml\.bz2$/, "multistream-index.txt.bz2")
+      return base if File.exist?(base)
+
+      # Try alternate patterns
+      dir = File.dirname(input_path)
+      basename = File.basename(input_path)
+
+      # Extract language and date from filename
+      if basename =~ /^(\w+wiki)-(\d+)-/
+        lang = $1
+        date = $2
+        alt_path = File.join(dir, "#{lang}-#{date}-pages-articles-multistream-index.txt.bz2")
+        return alt_path if File.exist?(alt_path)
+      end
+
+      nil
+    end
+
+    # Count articles from multistream index file (quick count, not full load)
+    # @param index_path [String] Path to index file
+    # @return [Integer, nil] Article count, or nil if cannot count
+    def count_articles_from_index(index_path)
+      count = 0
+
+      begin
+        if index_path.end_with?(".bz2")
+          IO.popen(["bzcat", index_path], "r") do |io|
+            io.each_line { count += 1 }
+          end
+        else
+          File.foreach(index_path) { count += 1 }
+        end
+        count
+      rescue StandardError
+        nil
+      end
+    end
+
+    # Estimate article count from file size
+    # @param input_path [String] Path to input file
+    # @return [Integer, nil] Estimated article count
+    def estimate_from_file_size(input_path)
+      return nil unless File.exist?(input_path)
+
+      size_mb = File.size(input_path) / (1024.0 * 1024)
+
+      # Empirical estimates (articles per MB of compressed bz2):
+      # - English Wikipedia: ~280 articles/MB
+      # - Japanese Wikipedia: ~100 articles/MB (longer articles on average)
+      # - Other languages: ~200 articles/MB (rough average)
+      # Using conservative estimate of 200 articles/MB
+      (size_mb * 200).to_i
+    end
+
     # Create a spinner with consistent styling
     # @param message [String] Spinner message
     # @return [TTY::Spinner, NullSpinner] Configured spinner or null spinner in quiet mode
