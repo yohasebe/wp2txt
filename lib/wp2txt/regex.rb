@@ -3,6 +3,23 @@
 require "htmlentities"
 require "json"
 
+# Make HTMLEntities gem Ractor-shareable
+# This must be done before any Ractor tries to use HTMLEntities
+if defined?(Ractor) && Ractor.respond_to?(:make_shareable)
+  begin
+    HTMLEntities.constants.each do |const_name|
+      const = HTMLEntities.const_get(const_name)
+      next if Ractor.shareable?(const)
+
+      Ractor.make_shareable(const)
+    rescue Ractor::IsolationError, FrozenError, TypeError
+      # Skip if can't be made shareable
+    end
+  rescue StandardError
+    # Ignore errors during shareable setup
+  end
+end
+
 module Wp2txt
   # Data file paths
   MEDIAWIKI_DATA_PATH = File.join(__dir__, "data", "mediawiki_aliases.json")
@@ -392,4 +409,35 @@ module Wp2txt
     return true if title.nil? || title.empty?
     !(title =~ NON_ARTICLE_NAMESPACE_REGEX)
   end
+
+  # =========================================================================
+  # Make constants Ractor-shareable for parallel processing
+  # =========================================================================
+  # This allows Ractor workers to access these constants without isolation errors.
+  # All Regexp and frozen String/Array constants are made shareable.
+
+  # Constants that should NOT be made Ractor-shareable
+  # (they require mutable state or are already shareable)
+  RACTOR_SHAREABLE_EXCLUDES = %i[HTML_DECODER RACTOR_SHAREABLE_EXCLUDES].freeze
+
+  def self.make_constants_ractor_shareable!
+    return unless defined?(Ractor) && Ractor.respond_to?(:make_shareable)
+
+    constants(false).each do |const_name|
+      next if RACTOR_SHAREABLE_EXCLUDES.include?(const_name)
+
+      const = const_get(const_name)
+      next if Ractor.shareable?(const)
+
+      begin
+        Ractor.make_shareable(const)
+      rescue Ractor::IsolationError, FrozenError, TypeError
+        # Some constants can't be made shareable, skip them
+      end
+    end
+  end
+
+  # Make constants shareable when this module is loaded
+  # Excludes constants that require mutable state (like HTML_DECODER)
+  make_constants_ractor_shareable!
 end

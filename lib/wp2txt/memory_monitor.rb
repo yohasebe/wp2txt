@@ -1,5 +1,7 @@
 # frozen_string_literal: true
 
+require "etc"
+
 module Wp2txt
   # Memory monitoring and adaptive buffer sizing for streaming operations
   # Provides utilities to track memory usage and dynamically adjust buffer sizes
@@ -183,6 +185,52 @@ module Wp2txt
       else
         false
       end
+    end
+
+    # Memory required per parallel process (estimated)
+    MEMORY_PER_PROCESS_MB = 300
+
+    # Calculate optimal number of parallel processes based on CPU and memory
+    # @param memory_per_process_mb [Integer] Estimated memory per process in MB
+    # @return [Integer] Recommended number of parallel processes
+    def optimal_processes(memory_per_process_mb: MEMORY_PER_PROCESS_MB)
+      cores = Etc.nprocessors
+
+      # CPU-based calculation (scale based on core count)
+      cpu_based = case cores
+                  when 1..4
+                    [cores - 1, 1].max
+                  when 5..8
+                    cores - 2
+                  else
+                    # Large systems: use 75% of cores
+                    (cores * 0.75).to_i
+                  end
+
+      # Memory-based limit
+      available_mb = available_memory / (1024 * 1024)
+      memory_based = (available_mb / memory_per_process_mb).to_i
+
+      # Use the smaller of CPU and memory limits, minimum 1
+      result = [cpu_based, memory_based].min
+      [result, 1].max
+    end
+
+    # Get system info for parallel processing decisions
+    # @return [Hash] System information
+    def parallel_processing_info
+      cores = Etc.nprocessors
+      available_mb = (available_memory / 1_048_576.0).round(0)
+      optimal = optimal_processes
+
+      {
+        cpu_cores: cores,
+        available_memory_mb: available_mb,
+        memory_per_process_mb: MEMORY_PER_PROCESS_MB,
+        optimal_processes: optimal,
+        max_by_cpu: cores,
+        max_by_memory: (available_mb / MEMORY_PER_PROCESS_MB).to_i
+      }
     end
   end
 end

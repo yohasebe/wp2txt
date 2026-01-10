@@ -23,8 +23,13 @@ module Wp2txt
     text.to_s.scrub("")
   end
 
+  # Get HTML decoder instance (thread-local for Ractor compatibility)
+  def html_decoder
+    Thread.current[:wp2txt_html_decoder] ||= HTMLEntities.new
+  end
+
   def special_chr(str)
-    result = HTML_DECODER.decode(str)
+    result = html_decoder.decode(str)
     # Decode additional mathematical entities not covered by HTMLEntities gem
     result.gsub!(MATH_ENTITIES_REGEX) { MATH_ENTITIES[$1] }
     result
@@ -296,4 +301,26 @@ module Wp2txt
     result.gsub!(MAKE_REFERENCE_REGEX_D, "[/ref]")
     result
   end
+
+  # =========================================================================
+  # Make constants Ractor-shareable for parallel processing
+  # =========================================================================
+  module_function
+
+  def self.make_constants_ractor_shareable!
+    return unless defined?(Ractor) && Ractor.respond_to?(:make_shareable)
+
+    constants(false).each do |const_name|
+      const = const_get(const_name)
+      next if Ractor.shareable?(const)
+
+      begin
+        Ractor.make_shareable(const)
+      rescue Ractor::IsolationError, FrozenError, TypeError
+        # Some constants can't be made shareable, skip them
+      end
+    end
+  end
+
+  make_constants_ractor_shareable!
 end

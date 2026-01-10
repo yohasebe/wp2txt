@@ -10,6 +10,7 @@ WP2TXTはWikipediaダンプファイルからプレーンテキストとカテ�
 
 ## 主な機能
 
+- **テンプレート展開** - 日付・単位・座標などの一般的なテンプレートを可読テキストに変換
 - **カテゴリメタデータ抽出** - 記事のカテゴリ情報を出力に保持
 - **カテゴリベース抽出** - 特定のWikipediaカテゴリから全記事を抽出
 - **タイトル指定抽出** - フルダンプをダウンロードせずに特定記事を抽出
@@ -201,26 +202,17 @@ WP2TXTはWikipediaダンプを自動的にダウンロードできます。言�
 
 ## 出力サンプル
 
-タイトル、カテゴリ情報、段落を含む出力
+タイトル、カテゴリ情報、段落を含む出力：
 
     $ wp2txt -i ./input -o /output
 
-- [英語Wikipedia](https://raw.githubusercontent.com/yohasebe/wp2txt/master/data/output_samples/testdata_en.txt)
-- [日本語Wikipedia](https://raw.githubusercontent.com/yohasebe/wp2txt/master/data/output_samples/testdata_ja.txt)
-
-タイトルとカテゴリのみを含む出力
+タイトルとカテゴリのみを含む出力：
 
     $ wp2txt -g -i ./input -o /output
 
-- [英語Wikipedia](https://raw.githubusercontent.com/yohasebe/wp2txt/master/data/output_samples/testdata_en_category.txt)
-- [日本語Wikipedia](https://raw.githubusercontent.com/yohasebe/wp2txt/master/data/output_samples/testdata_ja_category.txt)
-
-タイトル、カテゴリ、サマリーを含む出力
+タイトル、カテゴリ、サマリーを含む出力：
 
     $ wp2txt -s -i ./input -o /output
-
-- [英語Wikipedia](https://raw.githubusercontent.com/yohasebe/wp2txt/master/data/output_samples/testdata_en_summary.txt)
-- [日本語Wikipedia](https://raw.githubusercontent.com/yohasebe/wp2txt/master/data/output_samples/testdata_ja_summary.txt)
 
 ### JSON/JSONL出力 (v2.0+)
 
@@ -308,6 +300,38 @@ format_wiki(bibliography, extract_citations: true)
 - `{{cite book}}`, `{{cite web}}`, `{{cite news}}`, `{{cite journal}}`
 - `{{cite magazine}}`, `{{cite conference}}`, `{{Citation}}`
 
+### テンプレート展開 (v2.0+)
+
+wp2txtは一般的なWikipediaテンプレートを可読テキストに展開します。この機能はデフォルトで有効です：
+
+```bash
+# テンプレート展開付き（デフォルト）
+wp2txt --lang=en -o ./text
+
+# テンプレート展開を無効化
+wp2txt --lang=en --no-expand-templates -o ./text
+```
+
+**サポートされるテンプレートタイプ：**
+
+| テンプレート | 入力例 | 出力 |
+|--------------|--------|------|
+| 生年月日 | `{{birth date|1990|5|15}}` | "May 15, 1990" |
+| 単位変換 | `{{convert|100|km|mi}}` | "100 km (62 mi)" |
+| 座標 | `{{coord|35|41|N|139|41|E}}` | "35°41′N 139°41′E" |
+| 言語 | `{{lang|ja|日本語}}` | "日本語" |
+| 引用 | `{{blockquote|text}}` | "text" |
+| 略語 | `{{abbr|HTML|HyperText Markup Language}}` | "HTML" |
+| 仮名 | `{{nihongo|Tokyo|東京|Tōkyō}}` | "Tokyo (東京, Tōkyō)" |
+
+**パーサー関数サポート：**
+- 条件分岐: `{{#if:}}`, `{{#ifeq:}}`, `{{#switch:}}`
+- 式評価: `{{#expr:}}`
+- テキスト操作: `{{lc:}}`, `{{uc:}}`, `{{ucfirst:}}`
+
+**マジックワードサポート：**
+- `{{PAGENAME}}`, `{{CURRENTYEAR}}`, `{{NAMESPACE}}`
+
 ## コマンドラインオプション
 
 コマンドラインオプションは以下の通りです：
@@ -351,6 +375,7 @@ format_wiki(bibliography, extract_citations: true)
       -m, --marker, --no-marker        リスト項目や定義などのプレフィックス記号を表示（デフォルト: true）
       -k, --markers=<s>                コンテンツタイプマーカー: math,code,chem,table,score,timeline,graph,ipa または 'all'（デフォルト: all）
       -C, --extract-citations          引用を削除せずにフォーマットして抽出
+      -E, --expand-templates           一般的なテンプレートを可読テキストに展開（デフォルト: true）
       -b, --bz2-gem                    システムコマンドの代わりにRubyのbzip2-ruby gemを使用
       -v, --version                    バージョンを表示して終了
       -h, --help                       このメッセージを表示

@@ -10,6 +10,7 @@ WP2TXT extracts plain text and category information from Wikipedia dump files. I
 
 ## Key Features
 
+- **Template expansion** - Expands common templates (dates, units, coordinates) to readable text
 - **Category metadata extraction** - Preserves article category information in output
 - **Category-based extraction** - Extract all articles from a specific Wikipedia category
 - **Article extraction by title** - Extract specific articles without downloading full dumps
@@ -227,26 +228,33 @@ This will stream the compressed dump file directly, extracting plain text withou
 
 ## Sample Output
 
-Output contains title, category info, paragraphs
+### Text Output
 
-    $ wp2txt -i ./input -o /output
+    $ wp2txt --lang=en -o ./output
 
-- [English Wikipedia](https://raw.githubusercontent.com/yohasebe/wp2txt/master/data/output_samples/testdata_en.txt)
-- [Japanese Wikipedia](https://raw.githubusercontent.com/yohasebe/wp2txt/master/data/output_samples/testdata_ja.txt)
+Each output file contains article title, category info, and paragraphs:
 
-Output containing title and category only
+```
+[[Article Title]]
 
-    $ wp2txt -g -i ./input -o /output
+Article content goes here with sections and paragraphs...
 
-- [English Wikipedia](https://raw.githubusercontent.com/yohasebe/wp2txt/master/data/output_samples/testdata_en_category.txt)
-- [Japanese Wikipedia](https://raw.githubusercontent.com/yohasebe/wp2txt/master/data/output_samples/testdata_ja_category.txt)
+CATEGORIES: Category1, Category2, Category3
+```
 
-Output containing title, category, and summary
+### Category Only Output
 
-    $ wp2txt -s -i ./input -o /output
+    $ wp2txt -g --lang=en -o ./output
 
-- [English Wikipedia](https://raw.githubusercontent.com/yohasebe/wp2txt/master/data/output_samples/testdata_en_summary.txt)
-- [Japanese Wikipedia](https://raw.githubusercontent.com/yohasebe/wp2txt/master/data/output_samples/testdata_ja_summary.txt)
+```
+Article Title	Category1, Category2, Category3
+```
+
+### Summary Output
+
+    $ wp2txt -s --lang=en -o ./output
+
+Extracts only the title, categories, and opening paragraphs (before the first heading).
 
 ### JSON/JSONL Output (v2.0+)
 
@@ -334,6 +342,43 @@ Supported citation templates:
 - `{{cite book}}`, `{{cite web}}`, `{{cite news}}`, `{{cite journal}}`
 - `{{cite magazine}}`, `{{cite conference}}`, `{{Citation}}`
 
+### Template Expansion (v2.0+)
+
+wp2txt automatically expands common MediaWiki templates to readable text. This is enabled by default and can be disabled with `--no-expand-templates`.
+
+**Examples of template expansion:**
+
+| Template | Output |
+|----------|--------|
+| `{{birth date\|1990\|5\|15}}` | May 15, 1990 |
+| `{{convert\|100\|km\|mi}}` | 100 km (62 mi) |
+| `{{coord\|35\|41\|N\|139\|41\|E}}` | 35°41′N 139°41′E |
+| `{{lang\|ja\|日本語}}` | 日本語 |
+| `{{frac\|1\|2}}` | 1/2 |
+| `{{circa\|1900}}` | c. 1900 |
+
+**Supported template categories:**
+
+- **Date templates**: `{{birth date}}`, `{{death date}}`, `{{start date}}`, `{{end date}}`
+- **Age templates**: `{{age}}`, `{{birth date and age}}`, `{{death date and age}}`
+- **Convert template**: `{{convert}}` with units (km, mi, m, ft, kg, lb, °C, °F, etc.)
+- **Coordinate templates**: `{{coord}}`, `{{coordinates}}`
+- **Language templates**: `{{lang}}`, `{{transl}}`, `{{nihongo}}`
+- **Quote templates**: `{{blockquote}}`, `{{quote}}`, `{{cquote}}`
+- **Fraction template**: `{{frac}}`, `{{fraction}}`
+- **Other**: `{{circa}}`, `{{floruit}}`, `{{reign}}`, `{{marriage}}`, `{{as of}}`
+
+**Parser functions** are also supported:
+- `{{#if:}}`, `{{#ifeq:}}`, `{{#switch:}}`, `{{#expr:}}`
+- `{{#ifexist:}}`, `{{#time:}}`, `{{#titleparts:}}`
+
+**Magic words** are expanded:
+- `{{PAGENAME}}`, `{{NAMESPACE}}`, `{{CURRENTYEAR}}`, `{{CURRENTMONTH}}`
+
+To disable template expansion:
+
+    $ wp2txt --lang=en --no-expand-templates -o ./text
+
 ## Command Line Options
 
 Command line options are as follows:
@@ -377,6 +422,8 @@ Command line options are as follows:
       -m, --marker, --no-marker        Show symbols prefixed to list items, definitions, etc. (default: true)
       -k, --markers=<s>                Content type markers: math,code,chem,table,score,timeline,graph,ipa or 'all' (default: all)
       -C, --extract-citations          Extract formatted citations instead of removing them
+      -E, --expand-templates           Expand common templates to readable text (default: true)
+          --no-expand-templates        Disable template expansion
       -b, --bz2-gem                    Use Ruby's bzip2-ruby gem instead of a system command
       -v, --version                    Print version and exit
       -h, --help                       Show this message

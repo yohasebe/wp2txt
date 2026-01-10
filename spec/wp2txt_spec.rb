@@ -50,13 +50,13 @@ RSpec.describe Wp2txt do
 
       it "returns path for existing command" do
         # 'ls' should exist on all Unix systems
-        result = splitter.command_exist?("ls")
+        result = suppress_stdout { splitter.command_exist?("ls") }
         expect(result).to be_truthy
         expect(result).to include("ls")
       end
 
       it "returns false for non-existing command" do
-        result = splitter.command_exist?("nonexistent_command_xyz123")
+        result = suppress_stdout { splitter.command_exist?("nonexistent_command_xyz123") }
         expect(result).to be false
       end
     end

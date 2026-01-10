@@ -244,7 +244,9 @@ RSpec.describe "Wp2txt Auto Download" do
 
       context "input source validation" do
         it "requires either --input or --lang for normal operation" do
-          expect { Wp2txt::CLI.parse_options(["--output-dir=#{cache_dir}"]) }.to raise_error(SystemExit)
+          suppress_stderr do
+            expect { Wp2txt::CLI.parse_options(["--output-dir=#{cache_dir}"]) }.to raise_error(SystemExit)
+          end
         end
 
         it "rejects both --input and --lang together" do
@@ -252,7 +254,9 @@ RSpec.describe "Wp2txt Auto Download" do
           input_file = File.join(cache_dir, "test.xml")
           File.write(input_file, "<test/>")
 
-          expect { Wp2txt::CLI.parse_options(["--input=#{input_file}", "--lang=ja"]) }.to raise_error(SystemExit)
+          suppress_stderr do
+            expect { Wp2txt::CLI.parse_options(["--input=#{input_file}", "--lang=ja"]) }.to raise_error(SystemExit)
+          end
         end
       end
 
@@ -268,13 +272,17 @@ RSpec.describe "Wp2txt Auto Download" do
         end
 
         it "requires --lang when --articles is specified" do
-          expect { Wp2txt::CLI.parse_options(["--articles=Test"]) }.to raise_error(SystemExit)
+          suppress_stderr do
+            expect { Wp2txt::CLI.parse_options(["--articles=Test"]) }.to raise_error(SystemExit)
+          end
         end
 
         it "rejects --articles with --input" do
           input_file = File.join(cache_dir, "test.xml")
           File.write(input_file, "<test/>")
-          expect { Wp2txt::CLI.parse_options(["--input=#{input_file}", "--articles=Test"]) }.to raise_error(SystemExit)
+          suppress_stderr do
+            expect { Wp2txt::CLI.parse_options(["--input=#{input_file}", "--articles=Test"]) }.to raise_error(SystemExit)
+          end
         end
       end
     end

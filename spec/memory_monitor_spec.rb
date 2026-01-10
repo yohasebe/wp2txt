@@ -131,5 +131,62 @@ RSpec.describe Wp2txt::MemoryMonitor do
       expect(described_class::DEFAULT_BUFFER_SIZE).to be >= described_class::MIN_BUFFER_SIZE
       expect(described_class::DEFAULT_BUFFER_SIZE).to be <= described_class::MAX_BUFFER_SIZE
     end
+
+    it "has reasonable memory per process value" do
+      expect(described_class::MEMORY_PER_PROCESS_MB).to be_between(100, 1000)
+    end
+  end
+
+  describe ".optimal_processes" do
+    it "returns a positive integer" do
+      result = described_class.optimal_processes
+      expect(result).to be_a(Integer)
+      expect(result).to be >= 1
+    end
+
+    it "returns a value less than or equal to CPU cores" do
+      result = described_class.optimal_processes
+      cores = Etc.nprocessors
+      expect(result).to be <= cores
+    end
+
+    it "accepts custom memory_per_process_mb parameter" do
+      # With very high memory requirement, should return fewer processes
+      high_mem = described_class.optimal_processes(memory_per_process_mb: 10_000)
+      low_mem = described_class.optimal_processes(memory_per_process_mb: 100)
+      expect(high_mem).to be <= low_mem
+    end
+
+    it "returns at least 1 even with extreme memory constraints" do
+      result = described_class.optimal_processes(memory_per_process_mb: 1_000_000)
+      expect(result).to be >= 1
+    end
+  end
+
+  describe ".parallel_processing_info" do
+    it "returns a hash with expected keys" do
+      info = described_class.parallel_processing_info
+      expect(info).to be_a(Hash)
+      expect(info).to have_key(:cpu_cores)
+      expect(info).to have_key(:available_memory_mb)
+      expect(info).to have_key(:memory_per_process_mb)
+      expect(info).to have_key(:optimal_processes)
+      expect(info).to have_key(:max_by_cpu)
+      expect(info).to have_key(:max_by_memory)
+    end
+
+    it "returns consistent values" do
+      info = described_class.parallel_processing_info
+      expect(info[:cpu_cores]).to eq(Etc.nprocessors)
+      expect(info[:memory_per_process_mb]).to eq(described_class::MEMORY_PER_PROCESS_MB)
+      expect(info[:optimal_processes]).to eq(described_class.optimal_processes)
+    end
+
+    it "returns positive values for all numeric fields" do
+      info = described_class.parallel_processing_info
+      expect(info[:cpu_cores]).to be > 0
+      expect(info[:available_memory_mb]).to be > 0
+      expect(info[:optimal_processes]).to be > 0
+    end
   end
 end

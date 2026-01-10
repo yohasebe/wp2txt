@@ -55,6 +55,12 @@ module Wp2txt
     # Get list of output files created
     attr_reader :output_files
 
+    # Get count of output files created so far
+    # @return [Integer] Number of output files
+    def file_count
+      @output_files.size
+    end
+
     private
 
     def ensure_file_open

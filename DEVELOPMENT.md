@@ -80,6 +80,20 @@ MARKER_TYPES = %i[math code chem table score timeline graph ipa].freeze
 # 3. finalize_markers() converts placeholders to [MARKER] format
 ```
 
+### Template Expansion
+
+The `TemplateExpander` class (`lib/wp2txt/template_expander.rb`) expands common Wikipedia templates to readable text:
+
+| Template Type | Example | Output |
+|---------------|---------|--------|
+| Birth/death dates | `{{birth date|1990|5|15}}` | "May 15, 1990" |
+| Unit conversion | `{{convert|100|km|mi}}` | "100 km (62 mi)" |
+| Coordinates | `{{coord|35|41|N|139|41|E}}` | "35°41′N 139°41′E" |
+| Language tags | `{{lang|ja|日本語}}` | "日本語" |
+| Nihongo | `{{nihongo|Tokyo|東京|Tōkyō}}` | "Tokyo (東京, Tōkyō)" |
+
+Template expansion is enabled by default. Disable with `--no-expand-templates` or `expand_templates: false`.
+
 ### Magic Word Expansion
 
 The `MagicWordExpander` class (`lib/wp2txt/magic_words.rb`) expands MediaWiki magic words to their actual values:
@@ -110,6 +124,9 @@ spec/
 ├── auto_download_spec.rb   # CLI and download tests
 ├── multilingual_spec.rb    # Language-specific tests
 ├── streaming_spec.rb       # Streaming architecture tests
+├── live_article_spec.rb    # Live Wikipedia article tests
+├── support/
+│   └── live_articles.rb    # Live article fetching and caching
 └── testdata/               # Static test data
 ```
 
@@ -127,6 +144,51 @@ bundle exec rspec --format documentation
 
 # Run specific test by line number
 bundle exec rspec spec/utils_spec.rb:42
+
+# Skip live tests (for offline development)
+OFFLINE=1 bundle exec rspec
+```
+
+## Live Article Testing
+
+WP2TXT includes integration tests that fetch real Wikipedia articles via the API.
+
+### How It Works
+
+The `LiveArticles` module (`spec/support/live_articles.rb`) provides:
+
+- **Known articles**: Predetermined articles (Ruby, Tokyo, Einstein) for deterministic tests
+- **Random articles**: Fetches random articles for broader coverage
+- **7-day cache**: Cached locally to minimize API calls
+- **Offline mode**: Skip with `OFFLINE=1` environment variable
+
+### Running Live Tests
+
+```bash
+# Run all tests including live tests
+bundle exec rspec
+
+# Run only live article tests
+bundle exec rspec spec/live_article_spec.rb
+
+# Skip live tests (offline mode)
+OFFLINE=1 bundle exec rspec
+```
+
+### Adding Live Tests
+
+```ruby
+RSpec.describe "Live Article Processing", :live do
+  let(:live_articles) { Wp2txt::TestSupport::LiveArticles }
+
+  it "processes a known article" do
+    article_data = live_articles.fetch_known_article(lang: :en, index: 0)
+    skip "Network unavailable" unless article_data
+
+    result = format_wiki(article_data[:wikitext], title: article_data[:title])
+    expect(result).to include("programming")
+  end
+end
 ```
 
 ## Test Data Management

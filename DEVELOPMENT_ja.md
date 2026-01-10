@@ -80,6 +80,20 @@ MARKER_TYPES = %i[math code chem table score timeline graph ipa].freeze
 # 3. finalize_markers() がプレースホルダーを [MARKER] 形式に変換
 ```
 
+### テンプレート展開
+
+`TemplateExpander`クラス（`lib/wp2txt/template_expander.rb`）は一般的なWikipediaテンプレートを可読テキストに展開します：
+
+| テンプレートタイプ | 例 | 出力 |
+|--------------------|-----|------|
+| 生年月日/没年月日 | `{{birth date|1990|5|15}}` | "May 15, 1990" |
+| 単位変換 | `{{convert|100|km|mi}}` | "100 km (62 mi)" |
+| 座標 | `{{coord|35|41|N|139|41|E}}` | "35°41′N 139°41′E" |
+| 言語タグ | `{{lang|ja|日本語}}` | "日本語" |
+| 仮名 | `{{nihongo|Tokyo|東京|Tōkyō}}` | "Tokyo (東京, Tōkyō)" |
+
+テンプレート展開はデフォルトで有効です。`--no-expand-templates`または`expand_templates: false`で無効化できます。
+
 ### マジックワード展開
 
 `MagicWordExpander`クラス（`lib/wp2txt/magic_words.rb`）はMediaWikiマジックワードを実際の値に展開します：
@@ -110,6 +124,9 @@ spec/
 ├── auto_download_spec.rb   # CLIとダウンロードテスト
 ├── multilingual_spec.rb    # 言語固有テスト
 ├── streaming_spec.rb       # ストリーミングアーキテクチャテスト
+├── live_article_spec.rb    # ライブWikipedia記事テスト
+├── support/
+│   └── live_articles.rb    # ライブ記事取得とキャッシュ
 └── testdata/               # 静的テストデータ
 ```
 
@@ -127,6 +144,51 @@ bundle exec rspec --format documentation
 
 # 行番号で特定のテストを実行
 bundle exec rspec spec/utils_spec.rb:42
+
+# ライブテストをスキップ（オフライン開発用）
+OFFLINE=1 bundle exec rspec
+```
+
+## ライブ記事テスト
+
+WP2TXTにはWikipedia APIから実際の記事を取得する統合テストが含まれています。
+
+### 仕組み
+
+`LiveArticles`モジュール（`spec/support/live_articles.rb`）は以下を提供します：
+
+- **既知の記事**: 決定論的テスト用の事前定義された記事（Ruby、東京、アインシュタイン）
+- **ランダム記事**: より広いカバレッジのためのランダム記事取得
+- **7日間キャッシュ**: API呼び出しを最小化するためにローカルにキャッシュ
+- **オフラインモード**: `OFFLINE=1`環境変数でスキップ
+
+### ライブテストの実行
+
+```bash
+# ライブテストを含む全テストを実行
+bundle exec rspec
+
+# ライブ記事テストのみ実行
+bundle exec rspec spec/live_article_spec.rb
+
+# ライブテストをスキップ（オフラインモード）
+OFFLINE=1 bundle exec rspec
+```
+
+### ライブテストの追加
+
+```ruby
+RSpec.describe "Live Article Processing", :live do
+  let(:live_articles) { Wp2txt::TestSupport::LiveArticles }
+
+  it "既知の記事を処理" do
+    article_data = live_articles.fetch_known_article(lang: :en, index: 0)
+    skip "ネットワーク利用不可" unless article_data
+
+    result = format_wiki(article_data[:wikitext], title: article_data[:title])
+    expect(result).to include("programming")
+  end
+end
 ```
 
 ## テストデータ管理

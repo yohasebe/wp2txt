@@ -10,18 +10,9 @@ require_relative "../lib/wp2txt/utils"
 
 RSpec.describe Wp2txt::CLI do
   describe ".parse_options" do
-    # Helper to suppress Optimist error output
-    def suppress_output
-      original_stderr = $stderr
-      $stderr = StringIO.new
-      yield
-    ensure
-      $stderr = original_stderr
-    end
-
     context "with --from-category option" do
       it "requires --lang" do
-        suppress_output do
+        suppress_stderr do
           expect do
             described_class.parse_options(["--from-category=Test"])
           end.to raise_error(SystemExit)
@@ -34,7 +25,7 @@ RSpec.describe Wp2txt::CLI do
           dummy_file = File.join(dir, "test.bz2")
           File.write(dummy_file, "test")
 
-          suppress_output do
+          suppress_stderr do
             expect do
               described_class.parse_options([
                 "--from-category=Test",
@@ -49,7 +40,7 @@ RSpec.describe Wp2txt::CLI do
 
       it "cannot be used with --articles" do
         Dir.mktmpdir do |dir|
-          suppress_output do
+          suppress_stderr do
             expect do
               described_class.parse_options([
                 "--from-category=Test",
@@ -93,7 +84,7 @@ RSpec.describe Wp2txt::CLI do
 
       it "rejects negative values" do
         Dir.mktmpdir do |dir|
-          suppress_output do
+          suppress_stderr do
             expect do
               described_class.parse_options([
                 "--from-category=Test",
@@ -123,7 +114,7 @@ RSpec.describe Wp2txt::CLI do
     context "with --dry-run option" do
       it "requires --from-category" do
         Dir.mktmpdir do |dir|
-          suppress_output do
+          suppress_stderr do
             expect do
               described_class.parse_options([
                 "--lang=en",
@@ -152,7 +143,7 @@ RSpec.describe Wp2txt::CLI do
     context "with --yes option" do
       it "requires --from-category" do
         Dir.mktmpdir do |dir|
-          suppress_output do
+          suppress_stderr do
             expect do
               described_class.parse_options([
                 "--lang=en",

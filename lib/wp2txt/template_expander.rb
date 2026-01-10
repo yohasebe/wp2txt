@@ -241,6 +241,20 @@ module Wp2txt
         params[:positional][0] || ""
       when "abbr", "abbrlink"
         params[:positional][0] || ""
+      when "blockquote", "quote", "cquote", "quotation"
+        expand_blockquote(params)
+      when "frac", "fraction", "sfrac"
+        expand_fraction(params)
+      when "sub", "sup"
+        params[:positional][0] || ""
+      when "wikt", "wiktionary"
+        params[:positional][1] || params[:positional][0] || ""
+      when "sic"
+        "[sic]"
+      when "as of"
+        expand_as_of(params)
+      when "age", "birth year and age", "death year and age"
+        calculate_age(params)
 
       else
         # Handle lang-xx templates (e.g., lang-fr, lang-de, lang-ja)
@@ -280,9 +294,22 @@ module Wp2txt
       params = { positional: [] }
 
       parts.each do |part|
+        # Check for named parameter (key=value)
+        # Only treat as named parameter if:
+        # 1. Contains '='
+        # 2. The key part looks like a valid parameter name (alphanumeric/underscore only)
+        # 3. Key doesn't contain HTML tags or other special chars
         if part.include?("=")
           key, value = part.split("=", 2)
-          params[key.strip.downcase] = value&.strip
+          key_stripped = key.strip
+          # Valid param name: only letters, digits, underscore, space
+          # Should NOT contain < > { } or other markup
+          if key_stripped.match?(/\A[\w\s]+\z/) && !key_stripped.match?(/[<>{}\[\]]/)
+            params[key_stripped.downcase] = value&.strip
+          else
+            # Treat as positional if key doesn't look valid
+            params[:positional] << part.strip
+          end
         else
           params[:positional] << part.strip
         end
@@ -714,6 +741,57 @@ module Wp2txt
       end
 
       parts.join(" ")
+    end
+
+    # Blockquote template - extracts quoted text
+    def expand_blockquote(params)
+      pos = params[:positional]
+      text = params["text"] || params["1"] || pos[0] || ""
+      source = params["source"] || params["2"] || pos[1]
+
+      result = text.strip
+      result += " — #{source}" if source && !source.empty?
+      result
+    end
+
+    # Fraction template - formats fractions
+    def expand_fraction(params)
+      pos = params[:positional]
+      return "" if pos.empty?
+
+      case pos.length
+      when 1
+        # Just denominator: {{frac|2}} -> 1/2
+        "1/#{pos[0]}"
+      when 2
+        # Numerator and denominator: {{frac|1|2}} -> 1/2
+        "#{pos[0]}/#{pos[1]}"
+      when 3
+        # Whole, numerator, denominator: {{frac|1|1|4}} -> 1+1/4
+        "#{pos[0]}+#{pos[1]}/#{pos[2]}"
+      else
+        pos.join("/")
+      end
+    end
+
+    # As of template - formats date reference
+    def expand_as_of(params)
+      pos = params[:positional]
+      return "" if pos.empty?
+
+      year = pos[0]
+      month = pos[1]
+      day = pos[2]
+
+      if day && month && year
+        "As of #{MONTH_NAMES[month.to_i - 1]} #{day}, #{year}"
+      elsif month && year
+        "As of #{MONTH_NAMES[month.to_i - 1]} #{year}"
+      elsif year
+        "As of #{year}"
+      else
+        ""
+      end
     end
   end
 end

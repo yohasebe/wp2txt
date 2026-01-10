@@ -151,10 +151,24 @@ module Wp2txt
       result = template_expander.expand(result)
     end
 
+    # CPU-intensive regex processing (can be parallelized with Ractor)
+    result = format_wiki_regex_transform(result, config)
+
+    # Decode HTML entities (e.g., &Oslash; → Ø)
+    # This uses HTMLEntities gem - must be done outside Ractor
+    result = special_chr(result)
+
+    # Convert marker placeholders to final [MARKER] format
+    result = finalize_markers(result)
+    result
+  end
+
+  # CPU-intensive regex transformations - Ractor-safe (no external gem dependencies)
+  # This is the part that benefits from parallel processing
+  def format_wiki_regex_transform(text, config = {})
+    result = +text.to_s
+
     # Determine which markers are enabled
-    # Default: all markers ON (true or not specified)
-    # false: all markers OFF
-    # Array: only specified markers ON
     markers_config = config.fetch(:markers, true)
     enabled_markers = parse_markers_config(markers_config)
 
@@ -162,7 +176,6 @@ module Wp2txt
     extract_citations = config.fetch(:extract_citations, false)
 
     # Apply markers BEFORE other processing (to preserve content for replacement)
-    # Skip references marker if extracting citations (let citations be processed individually)
     markers_to_apply = extract_citations ? enabled_markers - [:references] : enabled_markers
     result = apply_markers(result, markers_to_apply)
 
@@ -171,19 +184,18 @@ module Wp2txt
     result = process_interwiki_links(result)
     result = process_external_links(result)
     result = unescape_nowiki(result)
+
     # Use in-place modifications for simple regex replacements
     result.gsub!(REMOVE_DIRECTIVES_REGEX, "")
     result.gsub!(REMOVE_EMPHASIS_REGEX) { $2 }
     result.gsub!(MNDASH_REGEX, "–")
     result.gsub!(REMOVE_HR_REGEX, "")
     result.gsub!(REMOVE_TAG_REGEX, "")
+
     result = correct_inline_template(result, enabled_markers, extract_citations) unless config[:inline]
     result = remove_templates(result) unless config[:inline]
     result = remove_table(result, enabled_markers) unless config[:table]
-    # Decode HTML entities (e.g., &Oslash; → Ø)
-    result = special_chr(result)
-    # Convert marker placeholders to final [MARKER] format
-    result = finalize_markers(result)
+
     result
   end
 
@@ -685,4 +697,26 @@ module Wp2txt
 
     ""
   end
+
+  # =========================================================================
+  # Make constants Ractor-shareable for parallel processing
+  # =========================================================================
+  module_function
+
+  def self.make_constants_ractor_shareable!
+    return unless defined?(Ractor) && Ractor.respond_to?(:make_shareable)
+
+    constants(false).each do |const_name|
+      const = const_get(const_name)
+      next if Ractor.shareable?(const)
+
+      begin
+        Ractor.make_shareable(const)
+      rescue Ractor::IsolationError, FrozenError, TypeError
+        # Some constants can't be made shareable, skip them
+      end
+    end
+  end
+
+  make_constants_ractor_shareable!
 end
