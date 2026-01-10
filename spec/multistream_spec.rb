@@ -160,6 +160,65 @@ RSpec.describe "Wp2txt Multistream" do
         end
       end
     end
+
+    describe "resumable download support" do
+      let(:test_file_path) { File.join(temp_dir, "test_download.bz2") }
+      let(:test_url) { "https://example.com/test.bz2" }
+
+      describe "#download_meta_path" do
+        it "returns path with .wp2txt_download suffix" do
+          path = manager.send(:download_meta_path, test_file_path)
+          expect(path).to eq("#{test_file_path}.wp2txt_download")
+        end
+      end
+
+      describe "#save_download_meta and #load_download_meta" do
+        let(:remote_info) do
+          {
+            size: 1_000_000,
+            etag: '"abc123"',
+            last_modified: "Wed, 01 Jan 2026 00:00:00 GMT"
+          }
+        end
+
+        it "saves and loads metadata correctly" do
+          manager.send(:save_download_meta, test_file_path, test_url, remote_info)
+          loaded = manager.send(:load_download_meta, test_file_path)
+
+          expect(loaded[:url]).to eq(test_url)
+          expect(loaded[:size]).to eq(1_000_000)
+          expect(loaded[:etag]).to eq('"abc123"')
+          expect(loaded[:last_modified]).to eq("Wed, 01 Jan 2026 00:00:00 GMT")
+          expect(loaded[:started_at]).not_to be_nil
+        end
+      end
+
+      describe "#cleanup_download_meta" do
+        it "removes metadata file" do
+          meta_path = manager.send(:download_meta_path, test_file_path)
+          File.write(meta_path, "{}")
+
+          expect(File.exist?(meta_path)).to be true
+          manager.send(:cleanup_download_meta, test_file_path)
+          expect(File.exist?(meta_path)).to be false
+        end
+      end
+
+      describe "#load_download_meta" do
+        it "returns nil when file does not exist" do
+          result = manager.send(:load_download_meta, "/nonexistent/path")
+          expect(result).to be_nil
+        end
+
+        it "returns nil for invalid JSON" do
+          meta_path = manager.send(:download_meta_path, test_file_path)
+          File.write(meta_path, "invalid json {{{")
+
+          result = manager.send(:load_download_meta, test_file_path)
+          expect(result).to be_nil
+        end
+      end
+    end
   end
 
   describe Wp2txt::MultistreamIndex do

@@ -811,10 +811,135 @@ module Wp2txt
       "#{DUMP_BASE_URL}/#{wiki}/#{date}/#{wiki}-#{date}-pages-articles-multistream.xml.bz2"
     end
 
+    # Download metadata file path for tracking resumable downloads
+    def download_meta_path(path)
+      "#{path}.wp2txt_download"
+    end
+
+    # Get remote file info via HEAD request
+    # @return [Hash] { size:, etag:, last_modified: }
+    def get_remote_file_info(url)
+      uri = URI(url)
+      http = Net::HTTP.new(uri.host, uri.port)
+      http.use_ssl = (uri.scheme == "https")
+      http.open_timeout = 30
+      http.read_timeout = 30
+      if http.use_ssl?
+        http.verify_mode = OpenSSL::SSL::VERIFY_PEER
+        http.verify_callback = ->(_preverify_ok, _store_ctx) { true }
+      end
+
+      request = Net::HTTP::Head.new(uri)
+      response = http.request(request)
+
+      {
+        size: response["Content-Length"]&.to_i || 0,
+        etag: response["ETag"],
+        last_modified: response["Last-Modified"],
+        accept_ranges: response["Accept-Ranges"] == "bytes"
+      }
+    end
+
+    # Save download metadata for resume support
+    def save_download_meta(path, url, remote_info)
+      meta = {
+        url: url,
+        size: remote_info[:size],
+        etag: remote_info[:etag],
+        last_modified: remote_info[:last_modified],
+        started_at: Time.now.iso8601
+      }
+      File.write(download_meta_path(path), JSON.pretty_generate(meta))
+    end
+
+    # Load download metadata
+    # @return [Hash, nil] Metadata or nil if not found/invalid
+    def load_download_meta(path)
+      meta_path = download_meta_path(path)
+      return nil unless File.exist?(meta_path)
+
+      JSON.parse(File.read(meta_path), symbolize_names: true)
+    rescue JSON::ParserError
+      nil
+    end
+
+    # Clean up download metadata
+    def cleanup_download_meta(path)
+      FileUtils.rm_f(download_meta_path(path))
+    end
+
+    # Check if resume is safe (server file hasn't changed)
+    def can_resume_download?(path, url)
+      return false unless File.exist?(path)
+
+      meta = load_download_meta(path)
+      return false unless meta
+
+      # Check if metadata is not too old (max 7 days)
+      if meta[:started_at]
+        started = Time.parse(meta[:started_at]) rescue nil
+        if started && (Time.now - started) > 7 * 24 * 3600
+          puts "  Partial download is too old (>7 days). Starting fresh."
+          return false
+        end
+      end
+
+      # Get current remote file info
+      remote_info = get_remote_file_info(url)
+
+      # Check if ETag matches (most reliable)
+      if meta[:etag] && remote_info[:etag]
+        if meta[:etag] != remote_info[:etag]
+          puts "  Server file has changed (ETag mismatch). Starting fresh."
+          return false
+        end
+      # Fallback: check Last-Modified
+      elsif meta[:last_modified] && remote_info[:last_modified]
+        if meta[:last_modified] != remote_info[:last_modified]
+          puts "  Server file has changed (Last-Modified mismatch). Starting fresh."
+          return false
+        end
+      end
+
+      # Check if server supports Range requests
+      unless remote_info[:accept_ranges]
+        puts "  Server doesn't support resume. Starting fresh."
+        return false
+      end
+
+      true
+    end
+
     def download_file(url, path)
       uri = URI(url)
-
       FileUtils.mkdir_p(File.dirname(path))
+
+      # Check for resumable download
+      partial_size = File.exist?(path) ? File.size(path) : 0
+      resume_mode = false
+
+      if partial_size > 0 && can_resume_download?(path, url)
+        meta = load_download_meta(path)
+        total_size = meta[:size]
+        if partial_size < total_size
+          resume_mode = true
+          puts "  Resuming download from #{format_size(partial_size)} / #{format_size(total_size)} (#{(partial_size * 100.0 / total_size).round(1)}%)"
+        elsif partial_size == total_size
+          puts "  Download already complete."
+          cleanup_download_meta(path)
+          return path
+        else
+          # Partial is larger than expected - corrupted, start fresh
+          puts "  Partial file corrupted (size mismatch). Starting fresh."
+          FileUtils.rm_f(path)
+          partial_size = 0
+        end
+      elsif partial_size > 0
+        # Can't resume - remove partial and start fresh
+        FileUtils.rm_f(path)
+        cleanup_download_meta(path)
+        partial_size = 0
+      end
 
       http = Net::HTTP.new(uri.host, uri.port)
       http.use_ssl = (uri.scheme == "https")
@@ -825,11 +950,25 @@ module Wp2txt
 
       request = Net::HTTP::Get.new(uri)
 
-      File.open(path, "wb") do |file|
+      if resume_mode
+        request["Range"] = "bytes=#{partial_size}-"
+        file_mode = "ab"  # Append mode
+      else
+        file_mode = "wb"  # Write mode (overwrite)
+        # Save metadata for potential future resume
+        remote_info = get_remote_file_info(url)
+        save_download_meta(path, url, remote_info) if remote_info[:size] > 0
+      end
+
+      File.open(path, file_mode) do |file|
         http.request(request) do |response|
-          if response.code == "200"
-            total = response["Content-Length"]&.to_i
-            downloaded = 0
+          if response.code == "200" || response.code == "206"
+            total = if resume_mode
+                      load_download_meta(path)[:size]
+                    else
+                      response["Content-Length"]&.to_i
+                    end
+            downloaded = partial_size
 
             response.read_body do |chunk|
               file.write(chunk)
@@ -841,11 +980,27 @@ module Wp2txt
               end
             end
             puts
+          elsif response.code == "416"
+            # Range Not Satisfiable - file might be complete or corrupted
+            puts "\n  Range error. Verifying file..."
+            remote_info = get_remote_file_info(url)
+            if File.size(path) == remote_info[:size]
+              puts "  File is already complete."
+            else
+              puts "  File corrupted. Re-downloading..."
+              file.close
+              FileUtils.rm_f(path)
+              cleanup_download_meta(path)
+              return download_file(url, path)
+            end
           else
             raise "Download failed: #{response.code} #{response.message}"
           end
         end
       end
+
+      # Clean up metadata on successful completion
+      cleanup_download_meta(path)
 
       path
     end
