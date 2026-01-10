@@ -1,5 +1,7 @@
 # frozen_string_literal: true
 
+require "time"
+
 module Wp2txt
   # Evaluates MediaWiki parser functions
   # Handles #if, #ifeq, #switch, #expr, #ifexpr, and string functions
@@ -312,6 +314,10 @@ module Wp2txt
         # Only allow safe characters (numbers, operators, parentheses, whitespace, ?)
         return nil unless expr.match?(/\A[\d\s\+\-\*\/\%\(\)\.\<\>\=\!\&\|\?:]+\z/)
 
+        # Additional validation: reject invalid number formats like "1.0.38.0"
+        # These can appear from version numbers or IP addresses in templates
+        return nil if expr.match?(/\d+\.\d+\.\d+/)
+
         result = eval(expr)
 
         # Convert boolean results to 1/0
@@ -320,7 +326,7 @@ module Wp2txt
         when false then 0.0
         else result.to_f
         end
-      rescue StandardError
+      rescue StandardError, SyntaxError
         nil
       end
     end
@@ -499,15 +505,24 @@ module Wp2txt
     end
 
     def parse_date(str)
+      return nil if str.nil? || str.strip.empty?
+
       # Try common formats
-      formats = ["%Y-%m-%d", "%Y/%m/%d", "%d %B %Y", "%B %d, %Y"]
+      formats = ["%Y-%m-%d", "%Y/%m/%d", "%d %B %Y", "%B %d, %Y", "%Y"]
 
       formats.each do |fmt|
-        return Time.strptime(str, fmt)
-      rescue ArgumentError
-        next
+        begin
+          time = Time.strptime(str.strip, fmt)
+          # Validate the parsed time is reasonable (year 1-9999)
+          return time if time.year > 0 && time.year < 10000
+        rescue ArgumentError, RangeError
+          next
+        end
       end
 
+      nil
+    rescue StandardError
+      # Catch any unexpected errors during date parsing
       nil
     end
 
