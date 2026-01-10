@@ -2,6 +2,7 @@
 
 require_relative "utils"
 require_relative "regex"
+require_relative "section_extractor"
 
 module Wp2txt
   # Article formatting utilities for WpApp
@@ -20,11 +21,160 @@ module Wp2txt
       # Add title to config for magic word expansion in content processing
       config_with_title = config.merge(title: original_title)
 
+      # Handle metadata_only mode (title + sections + categories)
+      if config[:metadata_only]
+        return format_metadata_only(article, config_with_title)
+      end
+
+      # Handle summary_only as section extraction (for consistency)
+      if config[:summary_only]
+        summary_config = config_with_title.merge(
+          sections: [SectionExtractor::SUMMARY_KEY],
+          section_output: "combined"
+        )
+        return format_with_sections(article, summary_config)
+      end
+
+      # Handle section extraction mode (--sections option)
+      if config[:sections] && !config[:sections].empty?
+        return format_with_sections(article, config_with_title)
+      end
+
       if config[:format] == :json
         format_article_json(article, config_with_title)
       else
         format_article_text(article, config_with_title)
       end
+    end
+
+    # Format article with specific section extraction
+    def format_with_sections(article, config)
+      extractor = SectionExtractor.new(
+        config[:sections],
+        min_length: config[:min_section_length] || 0,
+        skip_empty: config[:skip_empty] || false
+      )
+
+      # Skip article if no matching sections and skip_empty is true
+      return nil if extractor.should_skip?(article)
+
+      sections = extractor.extract_sections(article, config)
+
+      # Apply format_wiki to section content
+      sections.transform_values! do |content|
+        next nil if content.nil?
+        cleanup(format_wiki(content, config))
+      end
+
+      output_mode = config[:section_output] || "structured"
+
+      if config[:format] == :json
+        if output_mode == "combined"
+          format_sections_combined_json(article, sections, config)
+        else
+          format_sections_structured_json(article, sections, config)
+        end
+      else
+        if output_mode == "combined"
+          format_sections_combined_text(article, sections, config)
+        else
+          format_sections_structured_text(article, sections, config)
+        end
+      end
+    end
+
+    # Format sections as structured JSON (each section as separate field)
+    def format_sections_structured_json(article, sections, config)
+      result = {
+        "title" => article.title,
+        "sections" => sections
+      }
+      result["categories"] = article.categories.flatten if config[:category]
+      result
+    end
+
+    # Format sections as combined JSON (all sections concatenated)
+    def format_sections_combined_json(article, sections, config)
+      included = sections.keys.select { |k| sections[k] && !sections[k].empty? }
+      text = included.map { |k| sections[k] }.join("\n\n")
+
+      result = {
+        "title" => article.title,
+        "text" => text,
+        "sections_included" => included
+      }
+      result["categories"] = article.categories.flatten if config[:category]
+      result
+    end
+
+    # Format sections as structured text
+    def format_sections_structured_text(article, sections, config)
+      output = +"TITLE: #{article.title}\n\n"
+
+      sections.each do |name, content|
+        if content.nil?
+          output << "SECTION [#{name}]: (not found)\n\n"
+        else
+          output << "SECTION [#{name}]:\n#{content}\n\n"
+        end
+      end
+
+      if config[:category] && !article.categories.empty?
+        output << "CATEGORIES: #{article.categories.flatten.join(', ')}\n"
+      end
+
+      output << "\n"
+      output
+    end
+
+    # Format sections as combined text
+    def format_sections_combined_text(article, sections, config)
+      included = sections.keys.select { |k| sections[k] && !sections[k].empty? }
+      text = included.map { |k| sections[k] }.join("\n\n")
+
+      output = +"TITLE: #{article.title}\n"
+      output << "SECTIONS: #{included.join(', ')}\n\n"
+      output << text
+      output << "\n\n"
+
+      if config[:category] && !article.categories.empty?
+        output << "CATEGORIES: #{article.categories.flatten.join(', ')}\n"
+      end
+
+      output << "\n"
+      output
+    end
+
+    # Format article with metadata only (title, section headings, categories)
+    # Used for analyzing section distribution across Wikipedia dumps
+    def format_metadata_only(article, config)
+      extractor = SectionExtractor.new
+      sections = extractor.extract_headings(article)
+
+      if config[:format] == :json
+        format_metadata_only_json(article, sections)
+      else
+        format_metadata_only_text(article, sections)
+      end
+    end
+
+    # Format metadata as JSON
+    def format_metadata_only_json(article, sections)
+      {
+        "title" => article.title,
+        "sections" => sections,
+        "categories" => article.categories.flatten
+      }
+    end
+
+    # Format metadata as TSV text
+    # Format: Title<TAB>Section1|Section2|...<TAB>Category1,Category2,...
+    def format_metadata_only_text(article, sections)
+      title = article.title
+      sections_str = sections.join("|")
+      categories_str = article.categories.flatten.join(",")
+
+      "#{title}\t#{sections_str}\t#{categories_str}\n"
     end
 
     # Format article as JSON hash

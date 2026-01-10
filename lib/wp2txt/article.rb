@@ -43,6 +43,29 @@ module Wp2txt
       [tpx, text]
     end
 
+    # Create a heading element with level information
+    # @param text [String] The heading text (with or without = markers)
+    # @param level [Integer] The heading level (2 for ==, 3 for ===, etc.)
+    # @return [Array] [:mw_heading, text, level]
+    def create_heading_element(text, level)
+      [:mw_heading, text, level]
+    end
+
+    # Extract heading level from line with = markers
+    # @param line [String] The heading line (e.g., "== Heading ==")
+    # @return [Integer] The heading level (count of = signs)
+    def extract_heading_level(line)
+      match = line.match(/^(=+)/)
+      match ? match[1].length : 2
+    end
+
+    # Extract clean heading text without = markers
+    # @param line [String] The heading line
+    # @return [String] The heading text without = markers
+    def extract_heading_text(line)
+      line.gsub(/^=+\s*/, "").gsub(/\s*=+$/, "").strip
+    end
+
     # Check if a line has unbalanced [[ ]] brackets
     # Returns true if there are more [[ than ]] (indicating multi-line link)
     def has_unbalanced_link_brackets?(line)
@@ -150,8 +173,10 @@ module Wp2txt
         when REDIRECT_REGEX
           @elements << create_element(:mw_redirect, line)
         when IN_HEADING_REGEX
-          line = line.sub(HEADING_ONSET_REGEX) { $1 }.sub(HEADING_CODA_REGEX) { $1 }
-          @elements << create_element(:mw_heading, "\n" + line + "\n")
+          level = extract_heading_level(line)
+          # Keep original format for backward compatibility, but also store level
+          formatted_line = line.sub(HEADING_ONSET_REGEX) { $1 }.sub(HEADING_CODA_REGEX) { $1 }
+          @elements << create_heading_element("\n" + formatted_line + "\n", level)
         when IN_INPUTBOX_REGEX
           @elements << create_element(:mw_inputbox, line)
         when ML_TEMPLATE_ONSET_REGEX

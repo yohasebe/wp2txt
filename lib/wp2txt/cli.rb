@@ -4,14 +4,19 @@ require "optimist"
 require_relative "version"
 require_relative "multistream"
 require_relative "config"
+require_relative "memory_monitor"
 
 module Wp2txt
   # CLI option parsing and validation
   module CLI
-    # Maximum number of processors for parallel processing
-    MAX_PROCESSORS = 8
-
     class << self
+      # Get the optimal number of processors for this system
+      # Based on CPU cores and available memory
+      # @return [Integer] Optimal number of parallel processes
+      def max_processors
+        MemoryMonitor.optimal_processes
+      end
+
       # Load configuration
       # @return [Config] Configuration object
       def load_config(config_path = nil)
@@ -92,9 +97,22 @@ module Wp2txt
               default: false, short: "-g"
           opt :summary_only, "Extract only title, categories, and summary",
               default: false, short: "-s"
+          opt :metadata_only, "Extract only title, section headings, and categories (for analysis)",
+              default: false, short: "-M"
+
+          # Section extraction options
+          opt :sections, "Extract specific sections (comma-separated, 'summary' for lead text)",
+              type: String, short: "-S"
+          opt :section_output, "Section output mode: 'structured' (default) or 'combined'",
+              default: "structured"
+          opt :min_section_length, "Minimum section length in characters (shorter sections become null)",
+              default: 0, type: Integer
+          opt :skip_empty, "Skip articles with no matching sections",
+              default: false
+
           opt :file_size, "Approximate size (in MB) of each output file (0 for single file)",
               default: 10, short: "-f"
-          opt :num_procs, "Number of parallel processes (up to #{MAX_PROCESSORS})",
+          opt :num_procs, "Number of parallel processes (auto-detected based on CPU/memory)",
               type: Integer, short: "-n"
           opt :title, "Keep page titles in output",
               default: true, short: "-t"
@@ -112,8 +130,12 @@ module Wp2txt
               default: "all", short: "-k"
           opt :extract_citations, "Extract formatted citations instead of removing them",
               default: false, short: "-C"
+          opt :expand_templates, "Expand common templates (birth date, convert, etc.) to readable text",
+              default: true, short: "-E"
           opt :bz2_gem, "Use Ruby's bzip2-ruby gem instead of system command",
               default: false, short: "-b"
+          opt :ractor, "Use Ractor for parallel processing (experimental, Ruby 3.0+)",
+              default: false, short: "-R"
 
           # Output control
           opt :quiet, "Suppress progress output (only show errors and final result)",
