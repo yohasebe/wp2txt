@@ -122,9 +122,12 @@ module Wp2txt
     # Work with a mutable copy to reduce intermediate string allocations
     result = +text.to_s
 
-    # Expand magic words if title is provided
+    # Early exit: Skip expensive processing if no templates present
+    has_templates = result.include?("{{")
+
+    # Expand magic words if title is provided and text contains templates
     # This converts {{PAGENAME}}, {{CURRENTYEAR}}, {{lc:...}}, etc. to actual values
-    if config[:title]
+    if config[:title] && has_templates
       magic_expander = MagicWordExpander.new(
         config[:title],
         namespace: config[:namespace] || "",
@@ -133,18 +136,18 @@ module Wp2txt
       result = magic_expander.expand(result)
     end
 
-    # Expand parser functions if enabled
+    # Expand parser functions if enabled and text contains parser function syntax
     # This evaluates {{#if:...}}, {{#switch:...}}, {{#expr:...}}, etc.
-    if config[:expand_templates]
+    if config[:expand_templates] && has_templates && result.include?("{{#")
       parser_functions = ParserFunctions.new(
         reference_date: config[:dump_date]
       )
       result = parser_functions.evaluate(result)
     end
 
-    # Expand common templates if enabled
+    # Expand common templates if enabled and text still contains templates
     # This converts {{birth date|...}}, {{convert|...}}, etc. to readable text
-    if config[:expand_templates]
+    if config[:expand_templates] && result.include?("{{")
       template_expander = TemplateExpander.new(
         reference_date: config[:dump_date]
       )

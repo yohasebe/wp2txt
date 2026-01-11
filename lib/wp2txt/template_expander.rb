@@ -96,6 +96,9 @@ module Wp2txt
     def expand(text)
       return text if text.nil? || text.empty?
 
+      # Early exit: no templates to expand
+      return text unless text.include?("{{")
+
       result = text.dup
 
       # Process templates from innermost to outermost

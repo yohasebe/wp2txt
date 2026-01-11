@@ -107,7 +107,8 @@ class WpApp
       "Articles (est.)" => estimated_total_str,
       "Format" => format.to_s,
       "CPU cores" => num_processes.to_s,
-      "Parallel" => parallel_mode
+      "Parallel" => parallel_mode,
+      "Skip redirects" => "yes"
     })
 
     # Ensure output is not buffered (important for piped output)
@@ -193,16 +194,22 @@ class WpApp
     # Close output
     output_files = writer.close
 
+    # Get redirect skip count
+    redirects_skipped = stream.redirects_skipped
+
     time_elapsed = Time.now - time_start
     puts
     puts pastel.green("#{ICONS[:success]} Processing complete!")
 
     # Summary
-    print_summary("Processing Complete", {
+    summary_data = {
       "Articles" => page_count.to_s,
       "Output files" => output_files.size.to_s,
       "Time" => format_duration(time_elapsed)
-    }, status: :success)
+    }
+    summary_data["Redirects skipped"] = redirects_skipped.to_s if redirects_skipped > 0
+
+    print_summary("Processing Complete", summary_data, status: :success)
 
     puts
     puts pastel.dim("Output files:")

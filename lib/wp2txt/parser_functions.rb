@@ -20,6 +20,9 @@ module Wp2txt
     def evaluate(text)
       return text if text.nil? || text.empty?
 
+      # Early exit: no parser functions to evaluate
+      return text unless text.include?("{{#")
+
       result = text.dup
 
       # Process parser functions from innermost to outermost

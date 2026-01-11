@@ -347,6 +347,83 @@ RSpec.describe Wp2txt::StreamProcessor do
         expect(pages.map(&:first)).to eq((1..10).map { |i| "Article #{i}" })
       end
     end
+
+    context "with redirect pages" do
+      let(:xml_content) do
+        <<~XML
+          <page>
+            <title>Normal Article</title>
+            <revision>
+              <text>This is a normal article with content.</text>
+            </revision>
+          </page>
+          <page>
+            <title>English Redirect</title>
+            <revision>
+              <text>#REDIRECT [[Target Article]]</text>
+            </revision>
+          </page>
+          <page>
+            <title>Japanese Redirect</title>
+            <revision>
+              <text>#転送 [[ターゲット記事]]</text>
+            </revision>
+          </page>
+          <page>
+            <title>Another Normal</title>
+            <revision>
+              <text>Another normal article.</text>
+            </revision>
+          </page>
+          <page>
+            <title>Fullwidth Hash Redirect</title>
+            <revision>
+              <text>＃REDIRECT [[Target]]</text>
+            </revision>
+          </page>
+        XML
+      end
+
+      let(:xml_file) { File.join(temp_dir, "redirects.xml") }
+
+      before do
+        File.write(xml_file, xml_content)
+      end
+
+      it "skips redirect pages by default" do
+        processor = described_class.new(xml_file)
+        pages = processor.each_page.to_a
+
+        expect(pages.size).to eq(2)
+        titles = pages.map(&:first)
+        expect(titles).to include("Normal Article", "Another Normal")
+        expect(titles).not_to include("English Redirect", "Japanese Redirect", "Fullwidth Hash Redirect")
+      end
+
+      it "counts skipped redirects" do
+        processor = described_class.new(xml_file)
+        processor.each_page.to_a
+
+        expect(processor.redirects_skipped).to eq(3)
+      end
+
+      it "includes redirect pages when skip_redirects is false" do
+        processor = described_class.new(xml_file, skip_redirects: false)
+        pages = processor.each_page.to_a
+
+        expect(pages.size).to eq(5)
+        expect(processor.redirects_skipped).to eq(0)
+      end
+
+      it "includes redirects_skipped in stats" do
+        processor = described_class.new(xml_file)
+        processor.each_page.to_a
+
+        stats = processor.stats
+        expect(stats[:redirects_skipped]).to eq(3)
+        expect(stats[:pages_processed]).to eq(2)
+      end
+    end
   end
 
   describe "#initialize" do

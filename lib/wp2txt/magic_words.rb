@@ -101,6 +101,9 @@ module Wp2txt
     def expand(text)
       return text if text.nil? || text.empty?
 
+      # Early exit: no templates to process
+      return text unless text.include?("{{")
+
       result = text.dup
 
       # Expand simple magic words: {{PAGENAME}}, {{CURRENTYEAR}}, etc.

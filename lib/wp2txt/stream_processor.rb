@@ -17,9 +17,9 @@ module Wp2txt
     MAX_BUFFER_SIZE = Wp2txt::MAX_BUFFER_SIZE
     DEFAULT_BUFFER_SIZE = Wp2txt::DEFAULT_BUFFER_SIZE
 
-    attr_reader :buffer_size, :pages_processed, :bytes_read
+    attr_reader :buffer_size, :pages_processed, :bytes_read, :redirects_skipped
 
-    def initialize(input_path, bz2_gem: false, adaptive_buffer: true, validate_bz2: true)
+    def initialize(input_path, bz2_gem: false, adaptive_buffer: true, validate_bz2: true, skip_redirects: true)
       @input_path = input_path
       @bz2_gem = bz2_gem
       @buffer = +""
@@ -29,6 +29,8 @@ module Wp2txt
       @pages_processed = 0
       @bytes_read = 0
       @validate_bz2 = validate_bz2
+      @skip_redirects = skip_redirects
+      @redirects_skipped = 0
     end
 
     # Validate bz2 file before processing
@@ -84,6 +86,7 @@ module Wp2txt
     def stats
       {
         pages_processed: @pages_processed,
+        redirects_skipped: @redirects_skipped,
         bytes_read: @bytes_read,
         buffer_size: @buffer_size,
         current_buffer_length: @buffer.bytesize,
@@ -224,6 +227,14 @@ module Wp2txt
       return nil if title.include?(":")
 
       text = text_node.content
+
+      # Early redirect detection and skip (before expensive processing)
+      # Redirects start with # or ＃ followed by redirect keyword and [[target]]
+      if @skip_redirects && redirect_page?(text)
+        @redirects_skipped += 1
+        return nil
+      end
+
       # Remove HTML comments while preserving newline count
       text = text.gsub(/<!--(.*?)-->/m) do |content|
         num_newlines = content.count("\n")
@@ -235,6 +246,26 @@ module Wp2txt
     rescue Nokogiri::XML::SyntaxError
       # Skip malformed XML
       nil
+    end
+
+    # Fast redirect detection using heuristic check
+    # Checks if text starts with redirect pattern without full regex evaluation
+    # @param text [String] The page text content
+    # @return [Boolean] true if page appears to be a redirect
+    def redirect_page?(text)
+      return false if text.nil? || text.empty?
+
+      # Check first 200 characters for redirect pattern
+      # Redirects are always at the start: #REDIRECT [[Target]] or #転送 [[ターゲット]]
+      first_part = text[0, 200]
+      return false unless first_part
+
+      # Quick check: must start with # or ＃ (after optional whitespace)
+      stripped = first_part.lstrip
+      return false unless stripped.start_with?("#", "＃")
+
+      # Must contain [[ which indicates the redirect target
+      stripped.include?("[[")
     end
   end
 end
