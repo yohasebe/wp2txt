@@ -233,6 +233,68 @@ class WpApp
     end
   end
 
+  # Process section statistics mode
+  # Collects section heading statistics and outputs JSON to stdout
+  def process_section_stats(input_path, config)
+    require_relative "../lib/wp2txt/section_extractor"
+
+    bz2_gem = config[:bz2_gem]
+
+    print_mode_banner("Section Statistics", {
+      "Input" => File.basename(input_path),
+      "Mode" => "Statistics collection (headings only)"
+    })
+
+    puts pastel.cyan("Collecting section statistics...")
+    puts pastel.dim("This may take a while for large dumps.")
+    puts
+
+    # Create stream processor and stats collector
+    stream = StreamProcessor.new(input_path, bz2_gem: bz2_gem)
+    collector = Wp2txt::SectionStatsCollector.new
+
+    time_start = Time.now
+    last_progress_time = time_start
+    progress_interval = 10 # seconds
+
+    # Process pages without full text processing (just extract headings)
+    stream.each_page do |title, text|
+      # Create minimal article just for heading extraction
+      article = Article.new(text, title, false)
+      collector.process(article)
+
+      # Show progress periodically
+      now = Time.now
+      if now - last_progress_time >= progress_interval
+        elapsed = now - time_start
+        rate = collector.total_articles / elapsed
+        puts pastel.dim(format("  [%s] %d articles processed (%.1f/sec)",
+                               now.strftime("%H:%M:%S"),
+                               collector.total_articles,
+                               rate))
+        last_progress_time = now
+      end
+    end
+
+    time_elapsed = Time.now - time_start
+
+    # Output results
+    puts
+    puts pastel.green("#{ICONS[:success]} Statistics collection complete!")
+    puts
+
+    # Print summary to stderr so JSON goes to stdout cleanly
+    $stderr.puts pastel.dim("Total articles: #{collector.total_articles}")
+    $stderr.puts pastel.dim("Unique sections: #{collector.section_counts.size}")
+    $stderr.puts pastel.dim("Time: #{format_duration(time_elapsed)}")
+    $stderr.puts
+
+    # Output JSON to stdout
+    puts collector.to_json(top_n: 50)
+
+    EXIT_SUCCESS
+  end
+
   # Parse --markers option value
   # "all" -> true (all markers enabled)
   # "none" -> DEPRECATED (now treated as "all" with warning)
@@ -325,7 +387,8 @@ class WpApp
 
     %i[title list heading table redirect multiline category category_only
        summary_only metadata_only marker extract_citations expand_templates
-       section_output min_section_length skip_empty].each do |opt|
+       section_output min_section_length skip_empty
+       alias_file no_section_aliases section_stats show_matched_sections].each do |opt|
       config[opt] = opts[opt]
     end
 
@@ -336,6 +399,11 @@ class WpApp
 
     # Parse markers option
     config[:markers] = parse_markers_option(opts[:markers])
+
+    # Handle section-stats mode (standalone, outputs to stdout)
+    if opts[:section_stats]
+      return process_section_stats(input_path, config)
+    end
 
     # Process input
     process_stream(input_path, opts[:output_dir], config)

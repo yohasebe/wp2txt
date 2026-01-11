@@ -1,5 +1,7 @@
 # frozen_string_literal: true
 
+require "yaml"
+
 module Wp2txt
   # SectionExtractor handles extraction of sections from Wikipedia articles
   # Supports both metadata extraction (headings only) and content extraction
@@ -13,18 +15,40 @@ module Wp2txt
       "Reception" => ["Critical reception"]
     }.freeze
 
+    # Track which actual headings matched which requested sections
+    attr_reader :matched_sections
+
     # @param target_sections [Array<String>, nil] List of section names to extract (nil = all)
     # @param options [Hash] Extraction options
     # @option options [Integer] :min_length Minimum section length (default: 0)
     # @option options [Boolean] :skip_empty Skip articles with no matching sections (default: false)
-    # @option options [Hash] :aliases Custom section aliases
+    # @option options [Hash] :aliases Custom section aliases (merged with defaults)
+    # @option options [String] :alias_file Path to YAML file with custom aliases
     # @option options [Boolean] :use_aliases Enable alias matching (default: true)
+    # @option options [Boolean] :track_matches Track which headings matched (default: false)
     def initialize(target_sections = nil, options = {})
       @targets = normalize_targets(target_sections)
       @min_length = options[:min_length] || 0
       @skip_empty = options[:skip_empty] || false
       @use_aliases = options.fetch(:use_aliases, true)
-      @aliases = build_aliases(options[:aliases])
+      @track_matches = options[:track_matches] || false
+      @matched_sections = {}
+      @aliases = build_aliases(options[:aliases], options[:alias_file])
+    end
+
+    # Load aliases from YAML file
+    # @param file_path [String] Path to YAML file
+    # @return [Hash] Aliases hash (canonical => [aliases])
+    def self.load_aliases_from_file(file_path)
+      return {} unless file_path && File.exist?(file_path)
+
+      data = YAML.load_file(file_path)
+      return {} unless data.is_a?(Hash)
+
+      # Normalize: ensure values are arrays
+      data.transform_values { |v| Array(v) }
+    rescue Psych::SyntaxError, Errno::ENOENT
+      {}
     end
 
     # Extract section headings from article (for --metadata-only)
@@ -83,6 +107,9 @@ module Wp2txt
     # @return [Hash] Section name => content (nil if not found)
     def extract_sections(article, config = {})
       return {} if @targets.nil? || @targets.empty?
+
+      # Reset matched sections for this article
+      @matched_sections = {}
 
       result = {}
 
@@ -157,9 +184,9 @@ module Wp2txt
         return true if summary && !summary.empty?
       end
 
-      # Check headings
+      # Check headings (don't record matches during check)
       headings = extract_headings(article)
-      headings.any? { |h| find_canonical_name(h) }
+      headings.any? { |h| find_canonical_name(h, record_match: false) }
     end
 
     # Check if extraction should be skipped for this article
@@ -179,11 +206,19 @@ module Wp2txt
       Array(targets).map { |t| t.to_s.strip }.reject(&:empty?)
     end
 
-    # Build aliases hash from options and defaults
-    def build_aliases(custom_aliases)
+    # Build aliases hash from options, file, and defaults
+    def build_aliases(custom_aliases, alias_file = nil)
       return {} unless @use_aliases
 
       aliases = DEFAULT_ALIASES.dup
+
+      # Load from file if specified
+      if alias_file
+        file_aliases = self.class.load_aliases_from_file(alias_file)
+        aliases.merge!(file_aliases)
+      end
+
+      # Merge inline custom aliases
       aliases.merge!(custom_aliases) if custom_aliases.is_a?(Hash)
       aliases
     end
@@ -194,7 +229,10 @@ module Wp2txt
     end
 
     # Find canonical name for a heading (handles aliases)
-    def find_canonical_name(heading)
+    # @param heading [String] The actual heading text from the article
+    # @param record_match [Boolean] Whether to record the match for tracking
+    # @return [String, nil] The canonical (requested) section name, or nil
+    def find_canonical_name(heading, record_match: true)
       return nil if heading.nil? || heading.empty?
       return nil if @targets.nil?
 
@@ -202,7 +240,13 @@ module Wp2txt
 
       # Direct match
       @targets.each do |target|
-        return target if target.downcase == heading_lower
+        if target.downcase == heading_lower
+          # Record direct match (only if heading differs in case)
+          if @track_matches && record_match && target != heading
+            @matched_sections[target] = heading
+          end
+          return target
+        end
       end
 
       # Alias match
@@ -213,7 +257,12 @@ module Wp2txt
 
         if alias_list.any? { |a| a.downcase == heading_lower }
           # Return the target that matches canonical
-          return @targets.find { |t| t.downcase == canonical.downcase }
+          target = @targets.find { |t| t.downcase == canonical.downcase }
+          # Record alias match
+          if @track_matches && record_match && target
+            @matched_sections[target] = heading
+          end
+          return target
         end
       end
 
@@ -226,6 +275,55 @@ module Wp2txt
       return nil if @min_length > 0 && text.length < @min_length
 
       text
+    end
+  end
+
+  # Collects section heading statistics across multiple articles
+  # Used for --section-stats mode
+  class SectionStatsCollector
+    attr_reader :total_articles, :section_counts
+
+    def initialize
+      @total_articles = 0
+      @section_counts = Hash.new(0)
+      @extractor = SectionExtractor.new
+    end
+
+    # Process an article and collect section heading statistics
+    # @param article [Article] The article to process
+    def process(article)
+      @total_articles += 1
+      headings = @extractor.extract_headings(article)
+      headings.each { |h| @section_counts[h] += 1 }
+    end
+
+    # Get top N sections by count
+    # @param n [Integer] Number of sections to return (default: 50)
+    # @return [Array<Hash>] Array of {name:, count:} hashes
+    def top_sections(n = 50)
+      @section_counts
+        .sort_by { |_name, count| -count }
+        .first(n)
+        .map { |name, count| { "name" => name, "count" => count } }
+    end
+
+    # Generate statistics output as a hash
+    # @param top_n [Integer] Number of top sections to include
+    # @return [Hash] Statistics hash
+    def to_hash(top_n: 50)
+      {
+        "total_articles" => @total_articles,
+        "section_counts" => @section_counts.sort_by { |_k, v| -v }.to_h,
+        "top_sections" => top_sections(top_n)
+      }
+    end
+
+    # Generate JSON output
+    # @param top_n [Integer] Number of top sections to include
+    # @return [String] JSON string
+    def to_json(top_n: 50)
+      require "json"
+      JSON.pretty_generate(to_hash(top_n: top_n))
     end
   end
 end

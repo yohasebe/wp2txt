@@ -1,6 +1,8 @@
 # frozen_string_literal: true
 
 require "spec_helper"
+require "tmpdir"
+require "fileutils"
 require_relative "../lib/wp2txt/article"
 require_relative "../lib/wp2txt/section_extractor"
 
@@ -215,6 +217,181 @@ RSpec.describe Wp2txt::SectionExtractor do
         extractor_with_match = described_class.new(["Career"], skip_empty: true)
         expect(extractor_with_match.should_skip?(article)).to be false
       end
+    end
+  end
+
+  describe "alias file loading" do
+    let(:temp_dir) { Dir.mktmpdir }
+    let(:alias_file) { File.join(temp_dir, "aliases.yml") }
+
+    after { FileUtils.remove_entry(temp_dir) }
+
+    context "with valid YAML alias file" do
+      before do
+        File.write(alias_file, <<~YAML)
+          Career:
+            - Work history
+            - Employment
+          Plot:
+            - Synopsis
+            - Story
+        YAML
+      end
+
+      it "loads aliases from file" do
+        aliases = described_class.load_aliases_from_file(alias_file)
+        expect(aliases["Career"]).to eq(["Work history", "Employment"])
+        expect(aliases["Plot"]).to eq(["Synopsis", "Story"])
+      end
+
+      it "merges file aliases with defaults" do
+        extractor = described_class.new(["Plot"], alias_file: alias_file)
+        # Should have both default "Synopsis" and file "Story" as aliases
+        wiki_with_story = <<~WIKI
+          == Story ==
+          The story begins...
+        WIKI
+        story_article = Wp2txt::Article.new(wiki_with_story, "Film")
+        sections = extractor.extract_sections(story_article)
+        expect(sections["Plot"]).to include("story begins")
+      end
+    end
+
+    context "with non-existent file" do
+      it "returns empty hash" do
+        aliases = described_class.load_aliases_from_file("/nonexistent/file.yml")
+        expect(aliases).to eq({})
+      end
+    end
+
+    context "with invalid YAML" do
+      before { File.write(alias_file, "invalid: yaml: syntax: {{") }
+
+      it "returns empty hash" do
+        aliases = described_class.load_aliases_from_file(alias_file)
+        expect(aliases).to eq({})
+      end
+    end
+  end
+
+  describe "matched sections tracking" do
+    let(:wiki_with_synopsis) do
+      <<~WIKI
+        Summary text.
+        == Synopsis ==
+        The story begins...
+      WIKI
+    end
+    let(:synopsis_article) { Wp2txt::Article.new(wiki_with_synopsis, "Movie") }
+
+    context "with track_matches enabled" do
+      let(:extractor) { described_class.new(["Plot"], track_matches: true) }
+
+      it "records alias matches" do
+        extractor.extract_sections(synopsis_article)
+        expect(extractor.matched_sections["Plot"]).to eq("Synopsis")
+      end
+    end
+
+    context "with track_matches disabled (default)" do
+      let(:extractor) { described_class.new(["Plot"], track_matches: false) }
+
+      it "does not record matches" do
+        extractor.extract_sections(synopsis_article)
+        expect(extractor.matched_sections).to be_empty
+      end
+    end
+
+    context "with direct match (different case)" do
+      let(:wiki_text) { "== plot ==\nContent here." }
+      let(:plot_article) { Wp2txt::Article.new(wiki_text, "Film") }
+      let(:extractor) { described_class.new(["Plot"], track_matches: true) }
+
+      it "records case-different direct matches" do
+        extractor.extract_sections(plot_article)
+        expect(extractor.matched_sections["Plot"]).to eq("plot")
+      end
+    end
+  end
+end
+
+RSpec.describe Wp2txt::SectionStatsCollector do
+  let(:sample_wiki_text) do
+    <<~WIKI
+      Summary.
+      == Early life ==
+      Content.
+      == Career ==
+      Content.
+    WIKI
+  end
+
+  let(:another_wiki_text) do
+    <<~WIKI
+      Summary.
+      == Career ==
+      Content.
+      == Reception ==
+      Content.
+    WIKI
+  end
+
+  let(:article1) { Wp2txt::Article.new(sample_wiki_text, "Person 1") }
+  let(:article2) { Wp2txt::Article.new(another_wiki_text, "Work 1") }
+
+  describe "#process" do
+    it "counts articles" do
+      collector = described_class.new
+      collector.process(article1)
+      collector.process(article2)
+      expect(collector.total_articles).to eq(2)
+    end
+
+    it "counts section occurrences" do
+      collector = described_class.new
+      collector.process(article1)
+      collector.process(article2)
+
+      expect(collector.section_counts["Career"]).to eq(2)
+      expect(collector.section_counts["Early life"]).to eq(1)
+      expect(collector.section_counts["Reception"]).to eq(1)
+    end
+  end
+
+  describe "#top_sections" do
+    it "returns sections sorted by count" do
+      collector = described_class.new
+      collector.process(article1)
+      collector.process(article2)
+
+      top = collector.top_sections(2)
+      expect(top.first["name"]).to eq("Career")
+      expect(top.first["count"]).to eq(2)
+      expect(top.length).to eq(2)
+    end
+  end
+
+  describe "#to_hash" do
+    it "returns statistics as hash" do
+      collector = described_class.new
+      collector.process(article1)
+      collector.process(article2)
+
+      result = collector.to_hash(top_n: 5)
+      expect(result["total_articles"]).to eq(2)
+      expect(result["section_counts"]).to be_a(Hash)
+      expect(result["top_sections"]).to be_an(Array)
+    end
+  end
+
+  describe "#to_json" do
+    it "returns valid JSON" do
+      collector = described_class.new
+      collector.process(article1)
+
+      json = collector.to_json
+      parsed = JSON.parse(json)
+      expect(parsed["total_articles"]).to eq(1)
     end
   end
 end

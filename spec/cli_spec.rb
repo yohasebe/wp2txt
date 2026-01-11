@@ -208,6 +208,157 @@ RSpec.describe Wp2txt::CLI do
         end
       end
     end
+
+    context "with section extraction options" do
+      it "parses --sections option" do
+        Dir.mktmpdir do |dir|
+          opts = described_class.parse_options([
+            "--lang=en",
+            "--sections=summary,Plot,Reception",
+            "-o", dir
+          ])
+
+          expect(opts[:sections]).to eq("summary,Plot,Reception")
+        end
+      end
+
+      it "parses --no-section-aliases option" do
+        Dir.mktmpdir do |dir|
+          opts = described_class.parse_options([
+            "--lang=en",
+            "--sections=Plot",
+            "--no-section-aliases",
+            "-o", dir
+          ])
+
+          expect(opts[:no_section_aliases]).to be true
+        end
+      end
+
+      it "parses --show-matched-sections option" do
+        Dir.mktmpdir do |dir|
+          opts = described_class.parse_options([
+            "--lang=en",
+            "--sections=Plot",
+            "--show-matched-sections",
+            "--format=json",
+            "-o", dir
+          ])
+
+          expect(opts[:show_matched_sections]).to be true
+        end
+      end
+
+      it "rejects --show-matched-sections without JSON format" do
+        Dir.mktmpdir do |dir|
+          suppress_stderr do
+            expect do
+              described_class.parse_options([
+                "--lang=en",
+                "--sections=Plot",
+                "--show-matched-sections",
+                "--format=text",
+                "-o", dir
+              ])
+            end.to raise_error(SystemExit)
+          end
+        end
+      end
+
+      it "parses --section-stats option" do
+        Dir.mktmpdir do |dir|
+          opts = described_class.parse_options([
+            "--lang=en",
+            "--section-stats",
+            "-o", dir
+          ])
+
+          expect(opts[:section_stats]).to be true
+        end
+      end
+
+      it "rejects --section-stats with --sections" do
+        Dir.mktmpdir do |dir|
+          suppress_stderr do
+            expect do
+              described_class.parse_options([
+                "--lang=en",
+                "--section-stats",
+                "--sections=Plot",
+                "-o", dir
+              ])
+            end.to raise_error(SystemExit)
+          end
+        end
+      end
+
+      it "rejects --section-stats with --metadata-only" do
+        Dir.mktmpdir do |dir|
+          suppress_stderr do
+            expect do
+              described_class.parse_options([
+                "--lang=en",
+                "--section-stats",
+                "--metadata-only",
+                "-o", dir
+              ])
+            end.to raise_error(SystemExit)
+          end
+        end
+      end
+    end
+
+    context "with --alias-file option" do
+      let(:temp_dir) { Dir.mktmpdir }
+      let(:alias_file) { File.join(temp_dir, "aliases.yml") }
+
+      after { FileUtils.remove_entry(temp_dir) }
+
+      it "parses --alias-file option" do
+        File.write(alias_file, "Plot:\n  - Synopsis\n")
+        Dir.mktmpdir do |dir|
+          opts = described_class.parse_options([
+            "--lang=en",
+            "--sections=Plot",
+            "--alias-file=#{alias_file}",
+            "-o", dir
+          ])
+
+          expect(opts[:alias_file]).to eq(alias_file)
+        end
+      end
+
+      it "rejects non-existent alias file" do
+        Dir.mktmpdir do |dir|
+          suppress_stderr do
+            expect do
+              described_class.parse_options([
+                "--lang=en",
+                "--sections=Plot",
+                "--alias-file=/nonexistent/file.yml",
+                "-o", dir
+              ])
+            end.to raise_error(SystemExit)
+          end
+        end
+      end
+
+      it "rejects invalid YAML alias file" do
+        File.write(alias_file, "invalid: yaml: {{")
+        Dir.mktmpdir do |dir|
+          suppress_stderr do
+            expect do
+              described_class.parse_options([
+                "--lang=en",
+                "--sections=Plot",
+                "--alias-file=#{alias_file}",
+                "-o", dir
+              ])
+            end.to raise_error(SystemExit)
+          end
+        end
+      end
+    end
   end
 end
 

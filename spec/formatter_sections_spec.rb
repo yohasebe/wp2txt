@@ -1,6 +1,8 @@
 # frozen_string_literal: true
 
 require "spec_helper"
+require "tmpdir"
+require "fileutils"
 require_relative "../lib/wp2txt/article"
 require_relative "../lib/wp2txt/formatter"
 
@@ -237,6 +239,144 @@ RSpec.describe "Formatter section extraction" do
     it "matches Synopsis as alias for Plot" do
       result = format_article(synopsis_article, config)
       expect(result["sections"]["Plot"]).to include("main character")
+    end
+  end
+
+  describe "show_matched_sections option" do
+    let(:wiki_with_synopsis) do
+      <<~WIKI
+        A movie summary.
+
+        == Synopsis ==
+        The story follows the main character.
+
+        [[Category:Films]]
+      WIKI
+    end
+
+    let(:synopsis_article) { Wp2txt::Article.new(wiki_with_synopsis, "Test Movie") }
+
+    context "when enabled" do
+      let(:config) do
+        {
+          format: :json,
+          sections: ["summary", "Plot"],
+          show_matched_sections: true,
+          category: true
+        }
+      end
+
+      it "includes matched_sections field" do
+        result = format_article(synopsis_article, config)
+        expect(result["matched_sections"]).to be_a(Hash)
+        expect(result["matched_sections"]["Plot"]).to eq("Synopsis")
+      end
+    end
+
+    context "when disabled (default)" do
+      let(:config) do
+        {
+          format: :json,
+          sections: ["summary", "Plot"],
+          show_matched_sections: false,
+          category: true
+        }
+      end
+
+      it "does not include matched_sections field" do
+        result = format_article(synopsis_article, config)
+        expect(result).not_to have_key("matched_sections")
+      end
+    end
+
+    context "with combined output mode" do
+      let(:config) do
+        {
+          format: :json,
+          sections: ["summary", "Plot"],
+          section_output: "combined",
+          show_matched_sections: true,
+          category: true
+        }
+      end
+
+      it "includes matched_sections in combined output" do
+        result = format_article(synopsis_article, config)
+        expect(result["matched_sections"]["Plot"]).to eq("Synopsis")
+      end
+    end
+  end
+
+  describe "no_section_aliases option" do
+    let(:wiki_with_synopsis) do
+      <<~WIKI
+        A movie summary.
+
+        == Synopsis ==
+        The story follows the main character.
+
+        [[Category:Films]]
+      WIKI
+    end
+
+    let(:synopsis_article) { Wp2txt::Article.new(wiki_with_synopsis, "Test Movie") }
+
+    context "when aliases are disabled" do
+      let(:config) do
+        {
+          format: :json,
+          sections: ["summary", "Plot"],
+          no_section_aliases: true,
+          category: true
+        }
+      end
+
+      it "does not match Synopsis as Plot" do
+        result = format_article(synopsis_article, config)
+        expect(result["sections"]["Plot"]).to be_nil
+      end
+    end
+  end
+
+  describe "alias_file option" do
+    let(:temp_dir) { Dir.mktmpdir }
+    let(:alias_file) { File.join(temp_dir, "custom_aliases.yml") }
+
+    after { FileUtils.remove_entry(temp_dir) }
+
+    let(:wiki_with_story) do
+      <<~WIKI
+        A summary.
+
+        == Storyline ==
+        The narrative unfolds.
+
+        [[Category:Films]]
+      WIKI
+    end
+
+    let(:story_article) { Wp2txt::Article.new(wiki_with_story, "Story Film") }
+
+    before do
+      File.write(alias_file, <<~YAML)
+        Plot:
+          - Storyline
+          - Narrative
+      YAML
+    end
+
+    let(:config) do
+      {
+        format: :json,
+        sections: ["Plot"],
+        alias_file: alias_file,
+        category: true
+      }
+    end
+
+    it "uses custom aliases from file" do
+      result = format_article(story_article, config)
+      expect(result["sections"]["Plot"]).to include("narrative unfolds")
     end
   end
 end

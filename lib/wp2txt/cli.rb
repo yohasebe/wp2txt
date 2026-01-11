@@ -109,6 +109,14 @@ module Wp2txt
               default: 0, type: Integer
           opt :skip_empty, "Skip articles with no matching sections",
               default: false
+          opt :alias_file, "Custom section alias definitions file (YAML format)",
+              type: String
+          opt :no_section_aliases, "Disable section alias matching (exact match only)",
+              default: false
+          opt :section_stats, "Collect and output section heading statistics (JSON)",
+              default: false
+          opt :show_matched_sections, "Include matched_sections field in JSON output (shows actual headings)",
+              default: false
 
           opt :file_size, "Approximate size (in MB) of each output file (0 for single file)",
               default: 10, short: "-f"
@@ -236,6 +244,34 @@ module Wp2txt
 
         # Validate file_size
         Optimist.die :file_size, "must be 0 or larger" if opts[:file_size] < 0
+
+        # Validate --alias-file exists and is valid YAML
+        if opts[:alias_file]
+          unless File.exist?(opts[:alias_file])
+            Optimist.die :alias_file, "file does not exist"
+          end
+          begin
+            require "yaml"
+            YAML.load_file(opts[:alias_file])
+          rescue Psych::SyntaxError => e
+            Optimist.die :alias_file, "invalid YAML syntax: #{e.message}"
+          end
+        end
+
+        # --section-stats is a standalone mode
+        if opts[:section_stats]
+          if opts[:sections]
+            Optimist.die "--section-stats cannot be used with --sections"
+          end
+          if opts[:metadata_only]
+            Optimist.die "--section-stats cannot be used with --metadata-only"
+          end
+        end
+
+        # --show-matched-sections only works with JSON format
+        if opts[:show_matched_sections] && opts[:format].to_s.downcase != "json"
+          Optimist.die "--show-matched-sections requires --format json"
+        end
       end
 
       # Parse article list from comma-separated string

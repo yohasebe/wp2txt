@@ -52,13 +52,17 @@ module Wp2txt
       extractor = SectionExtractor.new(
         config[:sections],
         min_length: config[:min_section_length] || 0,
-        skip_empty: config[:skip_empty] || false
+        skip_empty: config[:skip_empty] || false,
+        use_aliases: !config[:no_section_aliases],
+        alias_file: config[:alias_file],
+        track_matches: config[:show_matched_sections] || false
       )
 
       # Skip article if no matching sections and skip_empty is true
       return nil if extractor.should_skip?(article)
 
       sections = extractor.extract_sections(article, config)
+      matched_sections = extractor.matched_sections
 
       # Apply format_wiki to section content
       sections.transform_values! do |content|
@@ -70,9 +74,9 @@ module Wp2txt
 
       if config[:format] == :json
         if output_mode == "combined"
-          format_sections_combined_json(article, sections, config)
+          format_sections_combined_json(article, sections, config, matched_sections)
         else
-          format_sections_structured_json(article, sections, config)
+          format_sections_structured_json(article, sections, config, matched_sections)
         end
       else
         if output_mode == "combined"
@@ -84,17 +88,21 @@ module Wp2txt
     end
 
     # Format sections as structured JSON (each section as separate field)
-    def format_sections_structured_json(article, sections, config)
+    def format_sections_structured_json(article, sections, config, matched_sections = {})
       result = {
         "title" => article.title,
         "sections" => sections
       }
       result["categories"] = article.categories.flatten if config[:category]
+      # Include matched_sections if tracking is enabled and there are matches
+      if config[:show_matched_sections] && matched_sections && !matched_sections.empty?
+        result["matched_sections"] = matched_sections
+      end
       result
     end
 
     # Format sections as combined JSON (all sections concatenated)
-    def format_sections_combined_json(article, sections, config)
+    def format_sections_combined_json(article, sections, config, matched_sections = {})
       included = sections.keys.select { |k| sections[k] && !sections[k].empty? }
       text = included.map { |k| sections[k] }.join("\n\n")
 
@@ -104,6 +112,10 @@ module Wp2txt
         "sections_included" => included
       }
       result["categories"] = article.categories.flatten if config[:category]
+      # Include matched_sections if tracking is enabled and there are matches
+      if config[:show_matched_sections] && matched_sections && !matched_sections.empty?
+        result["matched_sections"] = matched_sections
+      end
       result
     end
 
