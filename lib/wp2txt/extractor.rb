@@ -248,6 +248,17 @@ module Wp2txt
         config[opt] = opts[opt]
       end
 
+      # Section extraction options
+      %i[sections section_output min_section_length skip_empty
+         alias_file no_section_aliases show_matched_sections].each do |opt|
+        config[opt] = opts[opt]
+      end
+
+      # Parse sections string into array if provided
+      if config[:sections].is_a?(String)
+        config[:sections] = config[:sections].split(",").map(&:strip).reject(&:empty?)
+      end
+
       config[:markers] = parse_markers_option(opts[:markers])
       config
     end
