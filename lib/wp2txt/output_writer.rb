@@ -44,6 +44,40 @@ module Wp2txt
       end
     end
 
+    # Write raw content directly without formatting
+    # Used for merging pre-formatted temp files
+    # @param content [String] Raw content to append
+    def write_raw(content)
+      return if content.nil? || content.empty?
+
+      @mutex.synchronize do
+        ensure_file_open
+
+        @current_file.write(content)
+        @current_size += content.bytesize
+
+        rotate_file_if_needed
+      end
+    end
+
+    # Stream content from a file without loading it entirely into memory
+    # @param source_path [String] Path to source file
+    def write_from_file(source_path)
+      return unless File.exist?(source_path)
+
+      @mutex.synchronize do
+        File.open(source_path, "r") do |src|
+          buffer_size = 1024 * 1024 # 1MB buffer
+          while (chunk = src.read(buffer_size))
+            ensure_file_open
+            @current_file.write(chunk)
+            @current_size += chunk.bytesize
+            rotate_file_if_needed
+          end
+        end
+      end
+    end
+
     # Close current file and finalize
     def close
       @mutex.synchronize do

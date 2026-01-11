@@ -53,6 +53,223 @@ class WpApp
     end.tap { |n| n = 1 if n < 1 }
   end
 
+  # Process articles using turbo mode (split-first architecture from v1.x)
+  # This splits the bz2 file into XML chunks first, then processes in parallel
+  # Much faster for large dumps due to parallel decompression benefit
+  def process_with_turbo(input_path, output_dir, config)
+    require "tmpdir"
+    require "fileutils"
+
+    num_processes = config[:num_procs]
+    file_size_mb = config[:file_size]
+    format = config[:format]
+    bz2_gem = config[:bz2_gem]
+
+    # Determine base name for output files
+    base_name = File.basename(input_path, ".*")
+    base_name = base_name.sub(/\.xml$/, "") # Handle .xml.bz2
+
+    # Get input file size for display
+    input_size = File.size(input_path) rescue 0
+    input_size_str = input_size > 0 ? format_size(input_size) : "unknown"
+
+    print_mode_banner("Turbo Mode Processing", {
+      "Input" => File.basename(input_path),
+      "Size" => input_size_str,
+      "Format" => format.to_s,
+      "CPU cores" => num_processes.to_s,
+      "Mode" => "Split-first (parallel decompression)"
+    })
+
+    time_start = Time.now
+
+    # Create temp directory for split XML files
+    temp_dir = Dir.mktmpdir("wp2txt_turbo_")
+    puts pastel.cyan("Phase 1: Splitting bz2 file into XML chunks...")
+    puts pastel.dim("  Temp directory: #{temp_dir}")
+    puts
+
+    begin
+      # Phase 1: Split bz2 into XML files using Splitter
+      # Split into 10MB chunks for good parallelism
+      $stdout.sync = true
+      splitter = Splitter.new(input_path, temp_dir, 10, bz2_gem) do |bytes_read, file_count|
+        # Progress callback - called every 5 seconds
+        size_str = format_size(bytes_read)
+        elapsed = Time.now - time_start
+        rate = bytes_read / elapsed / 1024 / 1024  # MB/s
+        puts pastel.dim(format("  [%s] Decompressed: %s | %.1f MB/s | %d XML files created",
+                               Time.now.strftime("%H:%M:%S"),
+                               size_str,
+                               rate,
+                               file_count))
+      end
+      splitter.split_file
+      xml_files = Dir.glob(File.join(temp_dir, "*.xml")).sort
+
+      split_time = Time.now - time_start
+      final_size = splitter.size_read || 0
+      puts
+      puts pastel.green("#{ICONS[:success]} Split complete: #{xml_files.size} XML files, #{format_size(final_size)} decompressed (#{format_duration(split_time)})")
+      puts
+
+      # Phase 2: Process XML files in parallel and write output directly
+      puts pastel.cyan("Phase 2: Processing XML files in parallel...")
+      puts pastel.dim("  Using #{num_processes} parallel processes")
+      puts
+
+      strip_tmarker = !config[:marker]
+
+      # Each parallel process writes to its own temp output file
+      # This avoids memory accumulation and enables streaming output
+      $stdout.sync = true
+      processed_count = 0
+      last_report_time = Time.now
+      temp_output_dir = File.join(temp_dir, "output")
+      FileUtils.mkdir_p(temp_output_dir)
+
+      # Process XML files in parallel - each writes its own output
+      article_counts = Parallel.map(
+        xml_files.each_with_index.to_a,
+        in_processes: num_processes,
+        finish: lambda { |_item, _index, _result|
+          processed_count += 1
+          now = Time.now
+          if now - last_report_time >= 5 || processed_count == xml_files.size
+            last_report_time = now
+            percent = (processed_count.to_f / xml_files.size * 100).round(1)
+            elapsed = now - time_start
+            rate = processed_count / elapsed
+            remaining = xml_files.size - processed_count
+            eta = remaining > 0 && rate > 0 ? remaining / rate : 0
+            puts pastel.dim(format("  [%d/%d] %.1f%% | %.1f files/sec | ETA: %s",
+                                   processed_count, xml_files.size,
+                                   percent, rate,
+                                   format_duration(eta)))
+          end
+        }
+      ) do |xml_file, idx|
+        # Each process writes directly to its own temp file
+        temp_output_file = File.join(temp_output_dir, "part_#{idx.to_s.rjust(5, '0')}.txt")
+        process_xml_file_and_write(xml_file, temp_output_file, config, strip_tmarker, format)
+      end
+
+      total_articles = article_counts.sum
+
+      # Phase 3: Merge temp output files into final output (streaming)
+      puts
+      puts pastel.cyan("Merging output files...")
+
+      temp_files = Dir.glob(File.join(temp_output_dir, "part_*.txt")).sort
+      writer = OutputWriter.new(
+        output_dir: output_dir,
+        base_name: base_name,
+        format: format,
+        file_size_mb: file_size_mb
+      )
+
+      temp_files.each do |temp_file|
+        next if File.size(temp_file).zero?
+        # Stream copy instead of loading entire file into memory
+        writer.write_from_file(temp_file)
+      end
+
+      output_files = writer.close
+
+      time_elapsed = Time.now - time_start
+      puts
+      puts pastel.green("#{ICONS[:success]} Processing complete!")
+
+      print_summary("Turbo Processing Complete", {
+        "XML files processed" => xml_files.size.to_s,
+        "Articles" => total_articles.to_s,
+        "Output files" => output_files.size.to_s,
+        "Time" => format_duration(time_elapsed)
+      }, status: :success)
+
+      puts
+      puts pastel.dim("Output files:")
+      output_files.each { |f| print_list_item(f, status: :success) }
+    ensure
+      # Cleanup temp directory
+      FileUtils.rm_rf(temp_dir) if File.exist?(temp_dir)
+    end
+  end
+
+  # Regex patterns for fast XML extraction (avoid full DOM parsing)
+  TITLE_REGEX = %r{<title>([^<]*)</title>}m
+  TEXT_REGEX = %r{<text[^>]*>(.*)$}m
+  TEXT_END_REGEX = %r{</text>}
+
+  # Process a single XML file and write directly to output file
+  # Returns the number of articles processed
+  def process_xml_file_and_write(xml_file, output_file, config, strip_tmarker, format)
+    article_count = 0
+    runner = Runner.new(xml_file, File.dirname(xml_file), strip_tmarker, false)
+
+    File.open(output_file, "w") do |out|
+      while (page_xml = runner.get_page)
+        begin
+          # Fast regex extraction instead of full Nokogiri DOM parsing
+          title_match = TITLE_REGEX.match(page_xml)
+          next unless title_match
+
+          title = title_match[1]
+          next if title.nil? || title.empty? || title.include?(":")
+
+          # Extract text content
+          text_match = TEXT_REGEX.match(page_xml)
+          next unless text_match
+
+          # Find end of text and extract content
+          text_start = text_match.begin(1)
+          text_end_match = TEXT_END_REGEX.match(page_xml, text_start)
+          next unless text_end_match
+
+          text = page_xml[text_start...text_end_match.begin(0)]
+          next if text.nil? || text.empty?
+
+          # Decode XML entities
+          text = text.gsub("&lt;", "<").gsub("&gt;", ">").gsub("&amp;", "&").gsub("&quot;", '"')
+
+          # Remove HTML comments
+          text.gsub!(/<!--(.*?)-->/m) do |content|
+            num_of_newlines = content.count("\n")
+            num_of_newlines.zero? ? +"" : "\n" * num_of_newlines
+          end
+
+          next if redirect_page?(text)
+
+          article = Article.new(text, title, strip_tmarker)
+          result = format_article(article, config)
+          next unless result
+
+          # Write directly to file
+          if format == :json
+            out.puts(result.to_json)
+          else
+            out.puts(result)
+          end
+          article_count += 1
+        rescue StandardError
+          next
+        end
+      end
+    end
+
+    article_count
+  end
+
+  # Fast redirect detection (same as in stream_processor)
+  def redirect_page?(text)
+    return false if text.nil? || text.empty?
+    first_part = text[0, 200]
+    return false unless first_part
+    stripped = first_part.lstrip
+    return false unless stripped.start_with?("#", "＃")
+    stripped.include?("[[")
+  end
+
   # Process articles using streaming (new architecture)
   def process_stream(input_path, output_dir, config)
     num_processes = config[:num_procs]
@@ -412,8 +629,13 @@ class WpApp
       return process_section_stats(input_path, config)
     end
 
-    # Process input
-    process_stream(input_path, opts[:output_dir], config)
+    # Process input - turbo mode is default for bz2 files (faster parallel decompression)
+    # Use --no-turbo to disable (saves disk space but much slower)
+    if input_path.end_with?(".bz2") && !opts[:no_turbo]
+      process_with_turbo(input_path, opts[:output_dir], config)
+    else
+      process_stream(input_path, opts[:output_dir], config)
+    end
 
     EXIT_SUCCESS
   end

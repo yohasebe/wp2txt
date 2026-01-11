@@ -33,6 +33,17 @@ module Wp2txt
     # Decode additional mathematical entities not covered by HTMLEntities gem
     result.gsub!(MATH_ENTITIES_REGEX) { MATH_ENTITIES[$1] }
     result
+  rescue RangeError
+    # RangeError: character code out of range (e.g., invalid numeric entity like &#1550315;)
+    # Remove invalid numeric entities and try again
+    cleaned = str.gsub(/&#(\d+);/) do |match|
+      codepoint = $1.to_i
+      codepoint <= 0x10FFFF ? match : ""
+    end
+    cleaned.gsub(/&#x([0-9a-fA-F]+);/) do |match|
+      codepoint = $1.to_i(16)
+      codepoint <= 0x10FFFF ? match : ""
+    end
   end
 
   def chrref_to_utf(num_str)

@@ -383,11 +383,11 @@ module Wp2txt
       return "" if pos.length < 6
 
       death_year = pos[0].to_i
-      death_month = pos[1].to_i
-      death_day = pos[2].to_i
+      death_month = normalize_month(pos[1].to_i)
+      death_day = normalize_day(pos[2].to_i)
       birth_year = pos[3].to_i
-      birth_month = pos[4].to_i
-      birth_day = pos[5].to_i
+      birth_month = normalize_month(pos[4].to_i)
+      birth_day = normalize_day(pos[5].to_i)
 
       use_dmy = params["df"] == "yes" || params["df"] == "y"
 
@@ -395,7 +395,9 @@ module Wp2txt
       death_date = Time.new(death_year, death_month, death_day)
       age = calculate_age_from_parts(birth_year, birth_month, birth_day, death_date)
 
-      "#{date_str} (aged #{age})"
+      age ? "#{date_str} (aged #{age})" : date_str
+    rescue ArgumentError
+      format_date_parts(death_year, death_month, death_day, use_dmy ? :dmy : :mdy)
     end
 
     # Age calculation methods
@@ -412,6 +414,11 @@ module Wp2txt
     end
 
     def calculate_age_from_parts(year, month, day, reference)
+      # Validate date components
+      return nil unless year.is_a?(Integer) && year > 0 && year <= 9999
+      month = 1 if month.nil? || month < 1 || month > 12
+      day = 1 if day.nil? || day < 1 || day > 31
+
       birth = Time.new(year, month, day)
       age = reference.year - birth.year
 
@@ -422,6 +429,9 @@ module Wp2txt
       end
 
       age
+    rescue ArgumentError
+      # Invalid date (e.g., Feb 30)
+      nil
     end
 
     def calculate_age_between_dates(params)
@@ -429,24 +439,39 @@ module Wp2txt
       return "" if pos.length < 6
 
       birth_year = pos[0].to_i
-      birth_month = pos[1].to_i
-      birth_day = pos[2].to_i
+      birth_month = normalize_month(pos[1].to_i)
+      birth_day = normalize_day(pos[2].to_i)
       end_year = pos[3].to_i
-      end_month = pos[4].to_i
-      end_day = pos[5].to_i
+      end_month = normalize_month(pos[4].to_i)
+      end_day = normalize_day(pos[5].to_i)
 
       end_date = Time.new(end_year, end_month, end_day)
-      calculate_age_from_parts(birth_year, birth_month, birth_day, end_date).to_s
+      age = calculate_age_from_parts(birth_year, birth_month, birth_day, end_date)
+      age ? age.to_s : ""
+    rescue ArgumentError
+      ""
     end
 
     def calculate_days_between(params)
       pos = params[:positional]
       return "" if pos.length < 6
 
-      start_date = Time.new(pos[0].to_i, pos[1].to_i, pos[2].to_i)
-      end_date = Time.new(pos[3].to_i, pos[4].to_i, pos[5].to_i)
+      start_date = Time.new(pos[0].to_i, normalize_month(pos[1].to_i), normalize_day(pos[2].to_i))
+      end_date = Time.new(pos[3].to_i, normalize_month(pos[4].to_i), normalize_day(pos[5].to_i))
 
       ((end_date - start_date) / 86400).to_i.to_s
+    rescue ArgumentError
+      ""
+    end
+
+    def normalize_month(month)
+      return 1 if month < 1 || month > 12
+      month
+    end
+
+    def normalize_day(day)
+      return 1 if day < 1 || day > 31
+      day
     end
 
     def calculate_age_years_and_days(params)
@@ -454,16 +479,17 @@ module Wp2txt
       return "" if pos.length < 6
 
       birth_year = pos[0].to_i
-      birth_month = pos[1].to_i
-      birth_day = pos[2].to_i
+      birth_month = normalize_month(pos[1].to_i)
+      birth_day = normalize_day(pos[2].to_i)
       end_year = pos[3].to_i
-      end_month = pos[4].to_i
-      end_day = pos[5].to_i
+      end_month = normalize_month(pos[4].to_i)
+      end_day = normalize_day(pos[5].to_i)
 
       birth_date = Time.new(birth_year, birth_month, birth_day)
       end_date = Time.new(end_year, end_month, end_day)
 
       years = calculate_age_from_parts(birth_year, birth_month, birth_day, end_date)
+      return "" unless years
 
       # Calculate days since last birthday
       last_birthday = Time.new(end_year, birth_month, birth_day)
@@ -471,6 +497,8 @@ module Wp2txt
       days = ((end_date - last_birthday) / 86400).to_i
 
       "#{years} years, #{days} days"
+    rescue ArgumentError
+      ""
     end
 
     def format_time_ago(params)
@@ -478,8 +506,8 @@ module Wp2txt
       return "" if pos.empty?
 
       year = pos[0].to_i
-      month = pos[1]&.to_i || 1
-      day = pos[2]&.to_i || 1
+      month = normalize_month(pos[1]&.to_i || 1)
+      day = normalize_day(pos[2]&.to_i || 1)
 
       target = Time.new(year, month, day)
       diff_days = ((@reference_date - target) / 86400).to_i
@@ -493,6 +521,8 @@ module Wp2txt
         years = (diff_days / 365.0).round
         "#{years} years ago"
       end
+    rescue ArgumentError
+      ""
     end
 
     # Convert template

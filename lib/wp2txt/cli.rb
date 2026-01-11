@@ -144,6 +144,8 @@ module Wp2txt
               default: false, short: "-b"
           opt :ractor, "Use Ractor for parallel processing (experimental, Ruby 3.0+)",
               default: false, short: "-R"
+          opt :no_turbo, "Disable turbo mode (use streaming instead, saves disk space)",
+              default: false
 
           # Output control
           opt :quiet, "Suppress progress output (only show errors and final result)",
