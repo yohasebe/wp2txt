@@ -4,17 +4,33 @@ Wikipediaダンプファイルからテキストコンテンツとカテゴリ�
 
 [English](README.md) | 日本語
 
+## クイックスタート
+
+```bash
+# インストール
+gem install wp2txt
+
+# 日本語Wikipediaからテキストを抽出（自動ダウンロード）
+wp2txt --lang=ja -o ./output
+
+# 特定の記事を抽出
+wp2txt --lang=ja --articles="東京,京都" -o ./articles
+
+# カテゴリから記事を抽出
+wp2txt --lang=ja --from-category="日本の都市" -o ./cities
+```
+
 ## 概要
 
 WP2TXTはWikipediaダンプファイルからプレーンテキストとカテゴリ情報を抽出します。XMLダンプ（bzip2圧縮）を処理し、MediaWikiマークアップを除去して、コーパス言語学やテキストマイニングなどの研究に適したクリーンなテキストを出力します。
 
 ## 主な機能
 
-- **テンプレート展開** - 日付・単位・座標などの一般的なテンプレートを可読テキストに変換
-- **カテゴリメタデータ抽出** - 記事のカテゴリ情報を出力に保持
-- **カテゴリベース抽出** - 特定のWikipediaカテゴリから全記事を抽出
-- **タイトル指定抽出** - フルダンプをダウンロードせずに特定記事を抽出
 - **自動ダウンロード** - 言語コード指定でダンプを自動ダウンロード
+- **タイトル指定抽出** - フルダンプをダウンロードせずに特定記事を抽出
+- **カテゴリベース抽出** - 特定のWikipediaカテゴリから全記事を抽出
+- **カテゴリメタデータ抽出** - 記事のカテゴリ情報を出力に保持
+- **テンプレート展開** - 日付・単位・座標などの一般的なテンプレートを可読テキストに変換
 - **多言語対応** - 350以上のWikipedia言語でカテゴリ・リダイレクトを検出
 - **ストリーミング処理** - 中間ファイルなしで大規模ダンプを処理
 - **JSON出力** - データパイプライン向けの機械可読JSONL形式
@@ -32,125 +48,33 @@ wp2txtは以下の用途に適しています：
 
 wp2txtは[公式Wikipediaダンプファイル](https://meta.wikimedia.org/wiki/Data_dumps)を使用します。これはバルクデータアクセスの推奨方法であり、Wikimediaのインフラガイドラインに準拠しています。
 
-## 変更履歴
-
-詳細なリリースノートは[CHANGELOG.md](CHANGELOG.md)を参照してください。
-
-**2026年1月 (v2.0.0)**
-
-- **新機能: カテゴリベース抽出** (`--from-category`) - Wikipediaカテゴリから全記事を抽出
-  - `--depth`オプションでサブカテゴリの再帰をサポート
-  - `--dry-run`でダウンロード前に記事数をプレビュー
-  - `--yes`オプションで自動化用に確認プロンプトをスキップ
-- **新機能: 自動ダウンロードモード** (`--lang=ja`) - Wikipediaダンプを自動ダウンロード
-- **新機能: 記事抽出** (`--articles`) - タイトル指定で特定記事を抽出
-- **新機能: JSON/JSONL出力形式** (`--format json`) - 機械可読出力
-- **新機能: コンテンツタイプマーカー** (`--markers`) - MATH, CODE, CHEM, TABLEなどをマーク
-- **新機能: ストリーミング処理** - 中間XMLファイルなし、ディスクI/O削減
-- **新機能: キャッシュ管理** - `--cache-status`と`--cache-clear`でダウンロード済みダンプを管理
-- **新機能: 設定ファイル** (`--config-init`) - キャッシュ有効期限、デフォルト形式などをカスタマイズ
-- Ruby 4.0完全対応
-- カテゴリ抽出の多言語対応（350以上のWikipedia言語、MediaWiki APIから自動生成）
-- リダイレクト検出の多言語対応（350以上のWikipedia言語）
-- 絵文字と補助面文字のUnicode処理を修正
-- エンコーディングエラー処理を修正（無効なUTF-8でクラッシュしなくなった）
-- 記事出力でのFile/Imageリンク処理を改善
-- パフォーマンス最適化（メモリ割り当て削減、正規表現キャッシュ）
-- 包括的なテストスイート（775以上のテスト、78%カバレッジ）
-- 非推奨: `--convert`と`--del-interfile`オプション（不要になった）
-
-## 機能
-
-- 各言語のWikipediaダンプファイルを変換
-- **自動ダウンロードモード** - 言語コードでダンプを自動ダウンロード・処理
-- **特定記事の抽出** - フルダンプをダウンロードせずにタイトルで個別記事を抽出
-- **カテゴリベース抽出** - Wikipediaカテゴリに属する全記事を抽出（サブカテゴリ対応）
-- **記事のカテゴリ情報を抽出**（独自機能）
-- **JSON/JSONL出力形式** - 機械可読データパイプライン向け
-- **コンテンツタイプマーカー** - 数式、コードブロック、化学式、表などをマーク
-- **ストリーミング処理** - 中間ファイルなしでbz2ファイルを直接処理
-- **キャッシュ管理** - ダウンロードしたダンプを再利用のためにキャッシュ
-- **設定ファイル** - キャッシュ有効期限、デフォルト出力形式などをカスタマイズ
-- 指定サイズの出力ファイルを作成
-- 抽出する要素（ページタイトル、セクション見出し、段落、リスト項目）を指定可能
-- 記事の冒頭段落を抽出可能
-
-## セットアップ
-
-### Docker上のWP2TXT
-
-1. [Docker Desktop](https://www.docker.com/products/docker-desktop/)をインストール（Mac/Windows/Linux）
-2. ターミナルで`docker`コマンドを実行：
-
-```shell
-docker run -it -v /Users/me/localdata:/data yohasebe/wp2txt
-```
-
-- `/Users/me/localdata`をローカルコンピュータのデータディレクトリのフルパスに置き換えてください
-
-3. Dockerイメージのダウンロードが始まり、完了するとbashプロンプトが表示されます。
-4. `wp2txt`コマンドはDockerコンテナ内のどこでも使用可能です。入力ダンプファイルと出力テキストファイルの場所として`/data`ディレクトリを使用してください。
-
-**重要:**
-
-- 最高のパフォーマンスを得るために、Docker Desktopのリソース設定（コア数、メモリ量など）を調整してください。
-- Dockerコンテナ内で`wp2txt`コマンドを実行する際は、`docker run`コマンドで指定したマウント済みローカルディレクトリ内のどこかに出力ディレクトリを設定してください。
-
-### MacOSとLinuxでのWP2TXT
-
-WP2TXTは`bz2`ファイルを解凍するために、以下のコマンドのいずれかがシステムにインストールされている必要があります：
-
-- `lbzip2`（推奨）
-- `pbzip2`
-- `bzip2`
-
-ほとんどの場合、`bzip2`コマンドはシステムにプリインストールされています。ただし、`lbzip2`は複数のCPUコアを使用でき、`bzip2`より高速なため、追加でインストールすることをお勧めします。WP2TXTは上記の順序でシステムで利用可能な解凍コマンドを検索します。
-
-Homebrewがインストールされたmacosを使用している場合、以下のコマンドで`lbzip2`をインストールできます：
-
-    $ brew install lbzip2
-
-### WindowsでのWP2TXT
-
-[Bzip2 for Windows](http://gnuwin32.sourceforge.net/packages/bzip2.htm)をインストールし、WP2TXTがbunzip2.exeコマンドを使用できるようにパスを設定してください。または、独自の方法でWikipediaダンプファイルを解凍し、結果のXMLファイルをWP2TXTで処理することもできます。
-
 ## インストール
 
-### WP2TXTコマンド
+### wp2txtのインストール
 
     $ gem install wp2txt
 
-## Wikipediaダンプファイル
+### システム要件
 
-### オプション1: 自動ダウンロード（推奨）
+WP2TXTは`bz2`ファイルを解凍するために、以下のコマンドのいずれかが必要です：
 
-WP2TXTはWikipediaダンプを自動的にダウンロードできます。言語コードを指定するだけです：
+- `lbzip2`（推奨 - 複数CPUコアを使用）
+- `pbzip2`
+- `bzip2`（ほとんどのシステムにプリインストール済み）
 
-    $ wp2txt --lang=ja -o ./text
+macOS（Homebrew）：
 
-ダンプは`~/.wp2txt/cache/`にダウンロードされ、将来の使用のためにキャッシュされます。キャッシュの確認やクリアが可能です：
+    $ brew install lbzip2
 
-    $ wp2txt --cache-status           # キャッシュ状態を表示
-    $ wp2txt --cache-clear            # 全キャッシュをクリア
-    $ wp2txt --cache-clear --lang=ja  # 日本語のみクリア
+Windows：[Bzip2 for Windows](http://gnuwin32.sourceforge.net/packages/bzip2.htm)をインストールしてPATHに追加。
 
-キャッシュが設定された有効期限（デフォルト: 30日）より古い場合、wp2txtは警告を表示しますが、キャッシュされたデータの使用は許可されます。`--update-cache`を使用して強制的に新規ダウンロードできます：
+### Docker（代替方法）
 
-    $ wp2txt --lang=ja --from-category="日本の都市" --update-cache -o ./cities
+```shell
+docker run -it -v /path/to/localdata:/data yohasebe/wp2txt
+```
 
-### オプション2: 手動ダウンロード
-
-以下のようなURLから目的の言語の最新Wikipediaダンプファイルをダウンロードします：
-
-    https://dumps.wikimedia.org/enwiki/latest/enwiki-latest-pages-articles.xml.bz2
-
-ここで`enwiki`は英語Wikipediaを指します。例えば日本語Wikipediaのダンプファイルを取得するには、これを`jawiki`に変更します。その際、上記URLには`enwiki`が2箇所あることに注意してください。
-
-または、[こちら](http://dumps.wikimedia.org/backup-index.html)から特定の日付に作成されたWikipediaダンプファイルを選択することもできます。以下の形式で命名されたファイルをダウンロードしてください：
-
-    xxwiki-yyyymmdd-pages-articles.xml.bz2
-
-ここで`xx`は`en`（英語）や`ja`（日本語）などの言語コード、`yyyymmdd`は作成日（例：`20220801`）です。
+`wp2txt`コマンドはコンテナ内で使用可能です。入出力には`/data`ディレクトリを使用してください。
 
 ## 基本的な使い方
 
@@ -158,69 +82,56 @@ WP2TXTはWikipediaダンプを自動的にダウンロードできます。言�
 
     $ wp2txt --lang=ja -o ./text
 
-これは日本語Wikipediaダンプを自動的にダウンロードし、プレーンテキストを抽出します。
+日本語Wikipediaダンプを自動的にダウンロードし、プレーンテキストを抽出します。ダウンロードは`~/.wp2txt/cache/`にキャッシュされます。
 
 ### タイトルで特定記事を抽出
 
     $ wp2txt --lang=ja --articles="認知言語学,生成文法" -o ./articles
 
-これは指定された記事のみを抽出します。インデックスファイルと必要なデータストリームのみがダウンロードされるため、フルダンプの処理よりはるかに高速です。
+インデックスファイルと必要なデータストリームのみがダウンロードされるため、フルダンプの処理よりはるかに高速です。
 
 ### カテゴリから記事を抽出
 
     $ wp2txt --lang=ja --from-category="日本の都市" -o ./cities
 
-これは指定されたWikipediaカテゴリに属する全記事を抽出します。`--depth`でサブカテゴリを含めることができます：
+`--depth`でサブカテゴリを含める：
 
     $ wp2txt --lang=ja --from-category="日本の都市" --depth=2 -o ./cities
 
-ダウンロードせずにカテゴリをプレビュー（記事数を表示）：
+ダウンロードせずにプレビュー（記事数を表示）：
 
     $ wp2txt --lang=ja --from-category="日本の都市" --dry-run
 
-自動化用に確認プロンプトをスキップ：
+### ローカルダンプファイルを処理
 
-    $ wp2txt --lang=ja --from-category="日本の都市" --yes -o ./cities
+    $ wp2txt -i ./jawiki-20220801-pages-articles.xml.bz2 -o ./text
 
-### ローカルダンプファイルからプレーンテキストを抽出
+### その他の抽出モード
 
-    $ wp2txt -i ./enwiki-20220801-pages-articles.xml.bz2 -o ./text
+    # カテゴリ情報のみ（タイトル + カテゴリ）
+    $ wp2txt -g --lang=ja -o ./category
 
-これは圧縮されたダンプファイルを直接ストリーミングし、中間ファイルを作成せずにプレーンテキストを抽出します。
+    # サマリーのみ（タイトル + カテゴリ + 冒頭段落）
+    $ wp2txt -s --lang=ja -o ./summary
 
-### カテゴリ情報のみを抽出
-
-    $ wp2txt -g -i ./enwiki-20220801-pages-articles.xml.bz2 -o ./category
-
-### 冒頭段落（サマリー）を抽出
-
-    $ wp2txt -s -i ./enwiki-20220801-pages-articles.xml.bz2 -o ./summary
-
-### JSON/JSONLとして出力
-
-    $ wp2txt --format json -i ./enwiki-20220801-pages-articles.xml.bz2 -o ./json
+    # JSON/JSONL出力
+    $ wp2txt --format json --lang=ja -o ./json
 
 ## 出力サンプル
 
-タイトル、カテゴリ情報、段落を含む出力：
+### テキスト出力
 
-    $ wp2txt -i ./input -o /output
+```
+[[記事タイトル]]
 
-タイトルとカテゴリのみを含む出力：
+記事の内容がセクションと段落で表示されます...
 
-    $ wp2txt -g -i ./input -o /output
+CATEGORIES: カテゴリ1, カテゴリ2, カテゴリ3
+```
 
-タイトル、カテゴリ、サマリーを含む出力：
+### JSON/JSONL出力
 
-    $ wp2txt -s -i ./input -o /output
-
-### JSON/JSONL出力 (v2.0+)
-
-JSONL形式（1行に1つのJSONオブジェクト）での出力：
-
-    $ wp2txt --format json -i ./input -o /output
-
-各行には以下が含まれます：
+各行に1つのJSONオブジェクト：
 
 ```json
 {"title": "記事タイトル", "categories": ["カテゴリ1", "カテゴリ2"], "text": "...", "redirect": null}
@@ -232,185 +143,171 @@ JSONL形式（1行に1つのJSONオブジェクト）での出力：
 {"title": "NYC", "categories": [], "text": "", "redirect": "New York City"}
 ```
 
-### コンテンツタイプマーカー (v2.0+)
+## キャッシュ管理
 
-デフォルトでは、特殊コンテンツはコンテンツタイプを示すマーカープレースホルダーに置き換えられます：
+    $ wp2txt --cache-status           # キャッシュ状態を表示
+    $ wp2txt --cache-clear            # 全キャッシュをクリア
+    $ wp2txt --cache-clear --lang=ja  # 日本語のみクリア
+    $ wp2txt --update-cache           # 強制的に新規ダウンロード
+
+キャッシュが有効期限（デフォルト: 30日）を超えると、wp2txtは警告を表示しますが、キャッシュされたデータの使用は許可されます。
+
+## Wikipediaダンプファイル（手動ダウンロード）
+
+手動でダウンロードする場合：
+
+    https://dumps.wikimedia.org/jawiki/latest/jawiki-latest-pages-articles.xml.bz2
+
+`jawiki`を対象言語に置き換えてください（例：英語は`enwiki`）。ファイル名の形式：
+
+    xxwiki-yyyymmdd-pages-articles.xml.bz2
+
+`xx`は言語コード、`yyyymmdd`は作成日です。
+
+## 詳細オプション
+
+### コンテンツタイプマーカー
+
+特殊コンテンツはデフォルトでマーカープレースホルダーに置き換えられます：
 
 **インラインマーカー**（文中に出現）：
 
-| マーカー | コンテンツタイプ | MediaWiki例 |
-|----------|------------------|-------------|
-| `[MATH]` | 数式 | `<math>E=mc^2</math>` |
-| `[CODE]` | インラインコード | `<code>variable</code>` |
-| `[CHEM]` | 化学式 | `<chem>H2O</chem>` |
-| `[IPA]` | IPA発音記号 | `{{IPA|...}}` |
+| マーカー | コンテンツタイプ |
+|----------|------------------|
+| `[MATH]` | 数式 |
+| `[CODE]` | インラインコード |
+| `[CHEM]` | 化学式 |
+| `[IPA]` | IPA発音記号 |
 
 **ブロックマーカー**（独立したコンテンツ）：
 
-| マーカー | コンテンツタイプ | MediaWiki例 |
-|----------|------------------|-------------|
-| `[CODEBLOCK]` | ソースコードブロック | `<syntaxhighlight>`, `<source>`, `<pre>` |
-| `[TABLE]` | Wikiテーブル | `{| ... |}` |
-| `[SCORE]` | 楽譜 | `<score>...</score>` |
-| `[TIMELINE]` | タイムライングラフィック | `<timeline>...</timeline>` |
-| `[GRAPH]` | グラフ/チャート | `<graph>...</graph>` |
-| `[INFOBOX]` | 情報ボックス | `{{Infobox ...}}` |
-| `[NAVBOX]` | ナビゲーションボックス | `{{Navbox ...}}` |
-| `[GALLERY]` | 画像ギャラリー | `<gallery>...</gallery>` |
-| `[SIDEBAR]` | サイドバーテンプレート | `{{Sidebar ...}}` |
-| `[MAPFRAME]` | インタラクティブ地図 | `<mapframe>...</mapframe>` |
-| `[IMAGEMAP]` | クリッカブル画像マップ | `<imagemap>...</imagemap>` |
-| `[REFERENCES]` | 参考文献リスト | `{{reflist}}`, `{{refbegin}}...{{refend}}` |
+| マーカー | コンテンツタイプ |
+|----------|------------------|
+| `[CODEBLOCK]` | ソースコードブロック |
+| `[TABLE]` | Wikiテーブル |
+| `[INFOBOX]` | 情報ボックス |
+| `[NAVBOX]` | ナビゲーションボックス |
+| `[GALLERY]` | 画像ギャラリー |
+| `[REFERENCES]` | 参考文献リスト |
+| `[SCORE]` | 楽譜 |
+| `[TIMELINE]` | タイムライングラフィック |
+| `[GRAPH]` | グラフ/チャート |
+| `[SIDEBAR]` | サイドバーテンプレート |
+| `[MAPFRAME]` | インタラクティブ地図 |
+| `[IMAGEMAP]` | クリッカブル画像マップ |
 
-`--markers`でマーカーを設定：
+`--markers`で設定：
 
-    $ wp2txt --lang=en --markers=all -o ./text        # 全マーカー（デフォルト）
-    $ wp2txt --lang=en --markers=math,code -o ./text  # MATHとCODEマーカーのみ
+    $ wp2txt --lang=ja --markers=all -o ./text        # 全マーカー（デフォルト）
+    $ wp2txt --lang=ja --markers=math,code -o ./text  # MATHとCODEのみ
 
-**注意**: `--markers=none`オプションは非推奨です。特殊コンテンツの完全な削除は、周囲のテキストを意味不明にする可能性があります（例：「アインシュタインが発見した。」ではなく「アインシュタインが[MATH]を発見した。」）。
+**注意**: `--markers=none`は非推奨です。特殊コンテンツの完全な削除は周囲のテキストを意味不明にする可能性があります。
 
-### 引用抽出 (v2.0+)
+### テンプレート展開
 
-デフォルトでは、`{{cite book}}`のような引用テンプレートは削除されます。代わりにフォーマットされた引用を抽出するには`--extract-citations`を使用：
+一般的なMediaWikiテンプレートは自動的に展開されます（デフォルトで有効）：
 
-    $ wp2txt --lang=en --extract-citations -o ./text
+| テンプレート | 出力 |
+|--------------|------|
+| `{{birth date\|1990\|5\|15}}` | May 15, 1990 |
+| `{{convert\|100\|km\|mi}}` | 100 km (62 mi) |
+| `{{coord\|35\|41\|N\|139\|41\|E}}` | 35°41′N 139°41′E |
+| `{{lang\|ja\|日本語}}` | 日本語 |
+| `{{nihongo\|Tokyo\|東京\|Tōkyō}}` | Tokyo (東京, Tōkyō) |
+| `{{frac\|1\|2}}` | 1/2 |
+| `{{circa\|1900}}` | c. 1900 |
 
-Ruby APIを使用する場合、`extract_citations`オプションでも有効にできます：
+サポート対象：日付/年齢テンプレート、単位変換、座標、言語タグ、引用、分数など。パーサー関数（`{{#if:}}`、`{{#switch:}}`）とマジックワード（`{{PAGENAME}}`、`{{CURRENTYEAR}}`）もサポート。
 
-```ruby
-require 'wp2txt'
-include Wp2txt
+`--no-expand-templates`で無効化。
 
-# デフォルト: 引用は削除される
-text = "{{cite book |last=Smith |title=The Book |year=2020}}"
-format_wiki(text)
-# => ""
+### 引用抽出
 
-# extract_citations: true の場合
-format_wiki(text, extract_citations: true)
-# => "Smith. \"The Book\". 2020."
+デフォルトでは引用テンプレートは削除されます。`--extract-citations`でフォーマットされた引用を抽出：
 
-# refbegin/refendブロックでも動作
-bibliography = "{{refbegin}}\n* {{cite book |last=Author |title=Book |year=2021}}\n{{refend}}"
-format_wiki(bibliography, extract_citations: true)
-# => "* Author. \"Book\". 2021."
-```
+    $ wp2txt --lang=ja --extract-citations -o ./text
 
-サポートされる引用テンプレート：
-- `{{cite book}}`, `{{cite web}}`, `{{cite news}}`, `{{cite journal}}`
-- `{{cite magazine}}`, `{{cite conference}}`, `{{Citation}}`
-
-### テンプレート展開 (v2.0+)
-
-wp2txtは一般的なWikipediaテンプレートを可読テキストに展開します。この機能はデフォルトで有効です：
-
-```bash
-# テンプレート展開付き（デフォルト）
-wp2txt --lang=en -o ./text
-
-# テンプレート展開を無効化
-wp2txt --lang=en --no-expand-templates -o ./text
-```
-
-**サポートされるテンプレートタイプ：**
-
-| テンプレート | 入力例 | 出力 |
-|--------------|--------|------|
-| 生年月日 | `{{birth date|1990|5|15}}` | "May 15, 1990" |
-| 単位変換 | `{{convert|100|km|mi}}` | "100 km (62 mi)" |
-| 座標 | `{{coord|35|41|N|139|41|E}}` | "35°41′N 139°41′E" |
-| 言語 | `{{lang|ja|日本語}}` | "日本語" |
-| 引用 | `{{blockquote|text}}` | "text" |
-| 略語 | `{{abbr|HTML|HyperText Markup Language}}` | "HTML" |
-| 仮名 | `{{nihongo|Tokyo|東京|Tōkyō}}` | "Tokyo (東京, Tōkyō)" |
-
-**パーサー関数サポート：**
-- 条件分岐: `{{#if:}}`, `{{#ifeq:}}`, `{{#switch:}}`
-- 式評価: `{{#expr:}}`
-- テキスト操作: `{{lc:}}`, `{{uc:}}`, `{{ucfirst:}}`
-
-**マジックワードサポート：**
-- `{{PAGENAME}}`, `{{CURRENTYEAR}}`, `{{NAMESPACE}}`
+サポート対象：`{{cite book}}`、`{{cite web}}`、`{{cite news}}`、`{{cite journal}}`、`{{Citation}}`など。
 
 ## コマンドラインオプション
 
-コマンドラインオプションは以下の通りです：
-
     Usage: wp2txt [options]
 
-    入力ソース (--input または --lang のいずれかが必須):
+    入力ソース（--input または --lang のいずれかが必須）:
       -i, --input=<s>                  圧縮ファイル(bz2)またはXMLファイルへのパス
-      -L, --lang=<s>                   自動ダウンロード用Wikipedia言語コード（例: ja, en, de）
-      -A, --articles=<s>               抽出する特定の記事タイトル（カンマ区切り、--lang必須）
-      -G, --from-category=<s>          Wikipediaカテゴリから記事を抽出（--lang必須）
-      -D, --depth=<i>                  --from-categoryのサブカテゴリ再帰深度（デフォルト: 0）
-      -y, --yes                        カテゴリ抽出の確認プロンプトをスキップ
-      --dry-run                        ダウンロードせずにカテゴリ抽出をプレビュー
+      -L, --lang=<s>                   Wikipedia言語コード（例: ja, en, de）
+      -A, --articles=<s>               特定の記事タイトル（カンマ区切り）
+      -G, --from-category=<s>          Wikipediaカテゴリから記事を抽出
+      -D, --depth=<i>                  サブカテゴリ再帰深度（デフォルト: 0）
+      -y, --yes                        確認プロンプトをスキップ
+      --dry-run                        カテゴリ抽出をプレビュー
 
     出力オプション:
-      -o, --output-dir=<s>             出力ディレクトリへのパス（デフォルト: カレントディレクトリ）
-      -j, --format=<s>                 出力形式: text または json (JSONL)（デフォルト: text）
+      -o, --output-dir=<s>             出力ディレクトリ（デフォルト: カレント）
+      -j, --format=<s>                 出力形式: text または json（デフォルト: text）
 
     キャッシュ管理:
-      --cache-dir=<s>                  ダウンロードダンプのキャッシュディレクトリ（デフォルト: ~/.wp2txt/cache）
+      --cache-dir=<s>                  キャッシュディレクトリ（デフォルト: ~/.wp2txt/cache）
       --cache-status                   キャッシュ状態を表示して終了
-      --cache-clear                    キャッシュをクリアして終了（--langで特定言語を指定）
-      -U, --update-cache               キャッシュダンプファイルを強制更新（古さを無視）
+      --cache-clear                    キャッシュをクリアして終了
+      -U, --update-cache               キャッシュファイルを強制更新
 
     設定:
-      --config-init                    デフォルト設定ファイルを作成（~/.wp2txt/config.yml）
+      --config-init                    デフォルト設定を作成（~/.wp2txt/config.yml）
       --config-path=<s>                設定ファイルへのパス
 
     処理オプション:
-      -a, --category, --no-category    記事のカテゴリ情報を表示（デフォルト: true）
-      -g, --category-only              記事タイトルとカテゴリのみを抽出
-      -s, --summary-only               記事タイトル、カテゴリ、最初の見出し前のサマリーテキストのみを抽出
-      -f, --file-size=<i>              各出力ファイルの概算サイズ（MB）（0で単一ファイル）（デフォルト: 10）
-      -n, --num-procs                  同時実行プロセス数（最大8）（デフォルト: 利用可能CPUコア数-2）
-      -t, --title, --no-title          出力にページタイトルを保持（デフォルト: true）
-      -d, --heading, --no-heading      出力にセクションタイトルを保持（デフォルト: true）
-      -l, --list                       未処理のリスト項目を出力に保持
-      -r, --ref                        参照表記を[ref]...[/ref]形式で保持
+      -a, --category, --no-category    カテゴリ情報を表示（デフォルト: true）
+      -g, --category-only              タイトルとカテゴリのみ抽出
+      -s, --summary-only               タイトル、カテゴリ、サマリーを抽出
+      -f, --file-size=<i>              出力ファイルサイズ（MB）（デフォルト: 10, 0=単一）
+      -n, --num-procs                  並列プロセス数（最大8, デフォルト: 自動）
+      -t, --title, --no-title          ページタイトルを保持（デフォルト: true）
+      -d, --heading, --no-heading      セクションタイトルを保持（デフォルト: true）
+      -l, --list                       リスト項目を保持
+      -r, --ref                        参照を[ref]...[/ref]形式で保持
       -e, --redirect                   リダイレクト先を表示
-      -m, --marker, --no-marker        リスト項目や定義などのプレフィックス記号を表示（デフォルト: true）
-      -k, --markers=<s>                コンテンツタイプマーカー: math,code,chem,table,score,timeline,graph,ipa または 'all'（デフォルト: all）
-      -C, --extract-citations          引用を削除せずにフォーマットして抽出
-      -E, --expand-templates           一般的なテンプレートを可読テキストに展開（デフォルト: true）
-      -b, --bz2-gem                    システムコマンドの代わりにRubyのbzip2-ruby gemを使用
-      -v, --version                    バージョンを表示して終了
-      -h, --help                       このメッセージを表示
+      -m, --marker, --no-marker        リストマーカーを表示（デフォルト: true）
+      -k, --markers=<s>                コンテンツマーカー（デフォルト: all）
+      -C, --extract-citations          フォーマットされた引用を抽出
+      -E, --expand-templates           テンプレートを展開（デフォルト: true）
+          --no-expand-templates        テンプレート展開を無効化
+      -b, --bz2-gem                    bzip2-ruby gemを使用
+      -v, --version                    バージョンを表示
+      -h, --help                       ヘルプを表示
 
 ## 設定ファイル
 
-wp2txtは永続的な設定のためにYAML設定ファイルをサポートしています。デフォルト設定を作成：
+永続的な設定を作成：
 
     $ wp2txt --config-init
 
-これにより`~/.wp2txt/config.yml`が作成されます：
+`~/.wp2txt/config.yml`が作成されます：
 
 ```yaml
 cache:
-  # ダンプファイルが古いと見なされるまでの日数（1-365）
-  dump_expiry_days: 30
-  # カテゴリキャッシュの有効期限（1-90）
-  category_expiry_days: 7
-  # キャッシュディレクトリ
+  dump_expiry_days: 30      # ダンプが古いと見なされるまでの日数（1-365）
+  category_expiry_days: 7   # カテゴリキャッシュの有効期限（1-90）
   directory: ~/.wp2txt/cache
 
 defaults:
-  # デフォルト出力形式: text または json
-  format: text
-  # デフォルトサブカテゴリ再帰深度（0-10）
-  depth: 0
+  format: text              # デフォルト出力形式
+  depth: 0                  # デフォルトサブカテゴリ深度
 ```
 
 コマンドラインオプションは設定ファイルの設定を上書きします。
 
 ## 注意事項
 
-* 数式、コードブロック、化学式などの特殊コンテンツは、デフォルトでプレースホルダー（例：`[MATH]`、`[CODE]`、`[CHEM]`）でマークされます。特定のマーカーのみを表示するには`--markers=math,code`を使用してください。
-* さまざまな理由（開始/終了タグの不正なマッチング、言語固有のフォーマットルールなど）により、一部のテキストデータが正しく抽出されない場合があります。
-* 変換プロセスには予想以上の時間がかかる場合があります。低スペック環境で英語Wikipediaのような巨大なデータセットを扱う場合、数時間以上かかることがあります。
+* 特殊コンテンツ（数式、コードなど）はデフォルトでプレースホルダーでマークされます。
+* マークアップのバリエーションや言語固有のフォーマットにより、一部のテキストが正しく抽出されない場合があります。
+* 大規模ダンプ（例：英語Wikipedia）の処理は、低スペック環境では数時間かかることがあります。
+
+## 変更履歴
+
+詳細なリリースノートは[CHANGELOG.md](CHANGELOG.md)を参照してください。
+
+**v2.0.0（2026年1月）**: 自動ダウンロードモード、カテゴリベース抽出、タイトル指定抽出、JSON出力、コンテンツマーカー、テンプレート展開、ストリーミング処理、Ruby 4.0サポート。
 
 ## 便利なリンク
 
@@ -427,7 +324,7 @@ defaults:
 * Yoichiro HASEBE. 2006. [Method for using Wikipedia as Japanese corpus.](http://ci.nii.ac.jp/naid/110006226727) _Doshisha Studies in Language and Culture_ 9(2), 373-403.
 * 長谷部陽一郎. 2006. [Wikipedia日本語版をコーパスとして用いた言語研究の手法](http://ci.nii.ac.jp/naid/110006226727). 『言語文化』9(2), 373-403.
 
-または以下のBibTeXエントリを使用：
+BibTeX:
 
 ```
 @misc{wp2txt_2026,

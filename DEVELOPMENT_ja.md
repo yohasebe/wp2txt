@@ -42,9 +42,18 @@ WP2TXTはWikipediaダンプを処理するためにストリーミングアー�
 | `DumpManager` | `lib/wp2txt/multistream.rb` | ダンプをダウンロード・キャッシュ |
 | `MultistreamIndex` | `lib/wp2txt/multistream.rb` | ランダムアクセス用に記事をインデックス化 |
 | `MultistreamReader` | `lib/wp2txt/multistream.rb` | 記事を抽出（並列抽出対応） |
+| `CategoryFetcher` | `lib/wp2txt/multistream.rb` | Wikipedia APIからカテゴリメンバーを取得 |
 | `MemoryMonitor` | `lib/wp2txt/memory_monitor.rb` | クロスプラットフォームメモリ監視 |
 | `Bz2Validator` | `lib/wp2txt/bz2_validator.rb` | bz2ファイルの整合性を検証 |
 | `CLI` | `lib/wp2txt/cli.rb` | コマンドラインオプションのパース |
+
+### キャッシュクラス
+
+| クラス | ファイル | 目的 |
+|--------|----------|------|
+| `GlobalDataCache` | `lib/wp2txt/global_data_cache.rb` | パース済みJSONデータファイルのSQLiteキャッシュ |
+| `CategoryCache` | `lib/wp2txt/category_cache.rb` | Wikipediaカテゴリ階層のSQLiteキャッシュ |
+| `IndexCache` | `lib/wp2txt/index_cache.rb` | マルチストリームインデックスエントリのSQLiteキャッシュ |
 
 ### 要素タイプ
 
@@ -109,6 +118,77 @@ MARKER_TYPES = %i[math code chem table score timeline graph ipa].freeze
 
 ```ruby
 result = format_wiki(text, title: "記事名", dump_date: Time.now)
+```
+
+## キャッシングインフラストラクチャ
+
+WP2TXTはSQLiteベースのキャッシュを使用して、繰り返し実行時のパフォーマンスを向上させています。すべてのキャッシュは `~/.wp2txt/cache/` に保存されます。
+
+### GlobalDataCache
+
+パース済みJSONデータファイル（テンプレート、MediaWikiエイリアス、HTMLエンティティ）をキャッシュし、パースのオーバーヘッドを削減：
+
+```ruby
+# 自動 - データ読み込みメソッドは透過的にキャッシュを使用
+data = Wp2txt.load_mediawiki_data  # 有効であればキャッシュを使用
+
+# 手動キャッシュ操作
+Wp2txt::GlobalDataCache.clear!     # キャッシュをすべてクリア
+Wp2txt::GlobalDataCache.stats      # キャッシュ統計を取得
+```
+
+キャッシュ検証：ソースファイルの変更時刻とサイズをチェックします。ソースファイルが変更されると自動的にキャッシュは無効化されます。
+
+### CategoryCache
+
+Wikipedia APIからのカテゴリ階層をキャッシュし、カテゴリベースの記事抽出を高速化：
+
+```ruby
+cache = Wp2txt::CategoryCache.new("en", cache_dir: "/path/to/cache")
+
+# カテゴリデータを保存
+cache.save("カテゴリ名", ["記事1", "記事2"], ["サブカテゴリ1"])
+
+# カテゴリデータを取得
+data = cache.get("カテゴリ名")  # { pages: [...], subcats: [...] }
+
+# カテゴリツリー内のすべてのページを取得
+pages = cache.get_all_pages("ルートカテゴリ", max_depth: 2)
+
+# 統計とメンテナンス
+cache.stats              # キャッシュ統計
+cache.cleanup_expired!   # 古いエントリを削除
+cache.clear!             # すべてクリア
+```
+
+### IndexCache
+
+パース済みマルチストリームインデックスエントリをキャッシュし、記事の高速検索を実現：
+
+```ruby
+cache = Wp2txt::IndexCache.new("/path/to/index.txt", cache_dir: "/path/to/cache")
+
+# キャッシュの有効性を確認
+cache.valid?  # キャッシュが存在しソースファイルと一致する場合 true
+
+# 保存/読み込み操作（MultistreamIndexで内部的に使用）
+cache.save(entries_by_title, stream_offsets)
+data = cache.load  # { entries_by_title: {}, entries_by_id: {}, stream_offsets: [] }
+
+# バッチ検索
+results = cache.find_by_titles(["記事1", "記事2"])
+```
+
+### キャッシュの場所
+
+すべてのキャッシュは `~/.wp2txt/cache/` に保存されます：
+
+```
+~/.wp2txt/cache/
+├── global_data.sqlite3           # GlobalDataCache
+├── categories_en.sqlite3         # CategoryCache（英語）
+├── categories_ja.sqlite3         # CategoryCache（日本語）
+└── enwiki_*_index.sqlite3        # IndexCache（ダンプファイルごと）
 ```
 
 ## テストシステム

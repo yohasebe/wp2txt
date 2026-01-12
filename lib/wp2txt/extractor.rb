@@ -42,10 +42,20 @@ module Wp2txt
 
       # Step 2: Load index and find articles
       print_header("Locating articles", step: 2, total_steps: total_steps)
-      spinner = create_spinner("Parsing index...")
-      spinner.auto_spin
-      index = Wp2txt::MultistreamIndex.new(index_path)
-      spinner.success(pastel.green("#{index.size} articles indexed"))
+
+      # Use SQLite cache for fast repeated access
+      # Early termination: stop parsing when all target articles are found (if not using cache)
+      index = Wp2txt::MultistreamIndex.new(
+        index_path,
+        cache_dir: cache_dir,
+        target_titles: article_titles
+      )
+
+      if index.loaded_from_cache?
+        puts "  Index loaded from cache (#{index.size} entries)"
+      elsif index.early_terminated?
+        puts "  Early termination: found all #{article_titles.size} articles"
+      end
       puts
 
       # Find requested articles
@@ -74,8 +84,8 @@ module Wp2txt
       print_header("Downloading data (#{streams_needed.size} streams)", step: 3, total_steps: total_steps)
       multistream_path = download_partial_streams(manager, index, streams_needed, force: force_update)
 
-      # Create multistream reader
-      reader = Wp2txt::MultistreamReader.new(multistream_path, index_path)
+      # Create multistream reader, reusing the existing index (avoids double parsing)
+      reader = Wp2txt::MultistreamReader.new(multistream_path, index)
 
       # Build config for processing
       format = opts[:format].to_s.downcase.to_sym
@@ -399,10 +409,15 @@ module Wp2txt
 
       # Step 4: Load index and locate articles
       print_header("Locating articles in dump", step: 4, total_steps: total_steps)
-      spinner = create_spinner("Parsing index...")
-      spinner.auto_spin
-      index = Wp2txt::MultistreamIndex.new(index_path)
-      spinner.success(pastel.green("#{index.size} articles indexed"))
+
+      # Use SQLite cache for fast repeated access
+      index = Wp2txt::MultistreamIndex.new(index_path, cache_dir: cache_dir)
+
+      if index.loaded_from_cache?
+        puts "  Index loaded from cache (#{index.size} entries)"
+      else
+        puts "  Index parsed (#{index.size} entries)"
+      end
 
       # Find articles in index
       found_articles = []
@@ -430,8 +445,8 @@ module Wp2txt
       print_header("Downloading data (#{streams_needed.size} streams)", step: 5, total_steps: total_steps)
       multistream_path = download_partial_streams(manager, index, streams_needed, force: force_update)
 
-      # Create multistream reader
-      reader = Wp2txt::MultistreamReader.new(multistream_path, index_path)
+      # Create multistream reader, reusing the existing index (avoids double parsing)
+      reader = Wp2txt::MultistreamReader.new(multistream_path, index)
 
       # Build config
       format = opts[:format].to_s.downcase.to_sym

@@ -29,4 +29,5 @@ Gem::Specification.new do |s|
   s.add_dependency "pastel"
   s.add_dependency "tty-progressbar"
   s.add_dependency "tty-spinner"
+  s.add_dependency "sqlite3"
 end

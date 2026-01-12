@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- **SQLite-based caching infrastructure**: New high-performance caching using SQLite for faster startup and repeated operations:
+  - `GlobalDataCache`: Caches parsed JSON data files (templates, MediaWiki aliases, HTML entities)
+    - Eliminates ~500KB JSON parsing overhead on each startup
+    - Validates cache against source file modification time and size
+    - Location: `~/.wp2txt/cache/global_data.sqlite3`
+  - `CategoryCache`: Caches Wikipedia category hierarchy from API
+    - Stores category members (pages and subcategories) in SQLite tables
+    - Supports recursive tree traversal and bulk page retrieval
+    - Per-language cache files: `~/.wp2txt/cache/categories_en.sqlite3`
+    - Configurable expiry (default: 7 days)
+  - `IndexCache`: Caches parsed multistream index (already existed, now with SQLite3 2.x compatibility)
+    - Reduces index parsing from ~10 minutes to seconds on subsequent runs
+  - All caches use WAL mode for concurrent read access during parallel processing
+
 - **Ractor parallel processing (Ruby 4.0+)**: New `--ractor` option for thread-based parallelism:
   - Requires Ruby 4.0 or later for stable operation
   - Uses map-join-value pattern for reliable Ractor orchestration

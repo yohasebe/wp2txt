@@ -396,26 +396,19 @@ RSpec.describe "Wp2txt Multistream" do
 
       after { FileUtils.rm_rf(temp_cache) if File.exist?(temp_cache) }
 
-      it "generates correct cache path" do
-        path = fetcher_with_cache.send(:cache_path, "Test_Category")
-        expect(path).to include("category_en_Test_Category.json")
+      it "creates CategoryCache when cache enabled" do
+        expect(fetcher_with_cache.cache).to be_a(Wp2txt::CategoryCache)
       end
 
-      it "returns nil for cache_path when cache disabled" do
+      it "returns nil for cache when cache disabled" do
         fetcher_no_cache = described_class.new("en", "Test")
-        path = fetcher_no_cache.send(:cache_path, "Test")
-        expect(path).to be_nil
+        expect(fetcher_no_cache.cache).to be_nil
       end
 
-      it "handles special characters in category name" do
-        path = fetcher_with_cache.send(:cache_path, "Test/Category:With<Special>Chars")
-        expect(path).to include("category_en_")
-        filename = File.basename(path)
-        # Filename should not contain special chars (they're replaced with _)
-        expect(filename).not_to include("/")
-        expect(filename).not_to include(":")
-        expect(filename).not_to include("<")
-        expect(filename).not_to include(">")
+      it "uses SQLite-based cache file" do
+        fetcher_with_cache.cache
+        cache_files = Dir.glob(File.join(temp_cache, "categories_*.sqlite3"))
+        expect(cache_files.size).to eq 1
       end
 
       it "saves and loads from cache" do
@@ -425,8 +418,8 @@ RSpec.describe "Wp2txt Multistream" do
         fetcher_with_cache.send(:save_to_cache, category, members)
         loaded = fetcher_with_cache.send(:load_from_cache, category)
 
-        expect(loaded[:pages]).to eq(["Article1", "Article2"])
-        expect(loaded[:subcats]).to eq(["SubCat1"])
+        expect(loaded[:pages]).to contain_exactly("Article1", "Article2")
+        expect(loaded[:subcats]).to contain_exactly("SubCat1")
       end
 
       it "returns nil for non-existent cache" do

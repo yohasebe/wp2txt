@@ -42,9 +42,18 @@ Input (bz2/xml) → StreamProcessor → Article Parser → OutputWriter → Outp
 | `DumpManager` | `lib/wp2txt/multistream.rb` | Downloads and caches dumps |
 | `MultistreamIndex` | `lib/wp2txt/multistream.rb` | Indexes articles for random access |
 | `MultistreamReader` | `lib/wp2txt/multistream.rb` | Extracts articles (supports parallel extraction) |
+| `CategoryFetcher` | `lib/wp2txt/multistream.rb` | Fetches category members from Wikipedia API |
 | `MemoryMonitor` | `lib/wp2txt/memory_monitor.rb` | Cross-platform memory monitoring |
 | `Bz2Validator` | `lib/wp2txt/bz2_validator.rb` | Validates bz2 file integrity |
 | `CLI` | `lib/wp2txt/cli.rb` | Command-line option parsing |
+
+### Cache Classes
+
+| Class | File | Purpose |
+|-------|------|---------|
+| `GlobalDataCache` | `lib/wp2txt/global_data_cache.rb` | SQLite cache for parsed JSON data files |
+| `CategoryCache` | `lib/wp2txt/category_cache.rb` | SQLite cache for Wikipedia category hierarchy |
+| `IndexCache` | `lib/wp2txt/index_cache.rb` | SQLite cache for multistream index entries |
 
 ### Element Types
 
@@ -109,6 +118,77 @@ Magic words are expanded early in the `format_wiki()` pipeline when a title is p
 
 ```ruby
 result = format_wiki(text, title: "Article Name", dump_date: Time.now)
+```
+
+## Caching Infrastructure
+
+WP2TXT uses SQLite-based caching to improve performance for repeated operations. All caches are stored in `~/.wp2txt/cache/`.
+
+### GlobalDataCache
+
+Caches parsed JSON data files (templates, MediaWiki aliases, HTML entities) to eliminate parsing overhead:
+
+```ruby
+# Automatic - data loading methods use cache transparently
+data = Wp2txt.load_mediawiki_data  # Uses cache if valid
+
+# Manual cache operations
+Wp2txt::GlobalDataCache.clear!     # Clear all cached data
+Wp2txt::GlobalDataCache.stats      # Get cache statistics
+```
+
+Cache validation: Checks source file modification time and size. Cache is automatically invalidated when source files change.
+
+### CategoryCache
+
+Caches Wikipedia category hierarchy from API for faster category-based article extraction:
+
+```ruby
+cache = Wp2txt::CategoryCache.new("en", cache_dir: "/path/to/cache")
+
+# Save category data
+cache.save("Category Name", ["Article1", "Article2"], ["Subcategory1"])
+
+# Retrieve category data
+data = cache.get("Category Name")  # { pages: [...], subcats: [...] }
+
+# Get all pages in category tree
+pages = cache.get_all_pages("Root Category", max_depth: 2)
+
+# Statistics and maintenance
+cache.stats              # Cache statistics
+cache.cleanup_expired!   # Remove stale entries
+cache.clear!             # Clear all data
+```
+
+### IndexCache
+
+Caches parsed multistream index entries for fast article lookup:
+
+```ruby
+cache = Wp2txt::IndexCache.new("/path/to/index.txt", cache_dir: "/path/to/cache")
+
+# Check cache validity
+cache.valid?  # true if cache exists and matches source file
+
+# Save/load operations (used internally by MultistreamIndex)
+cache.save(entries_by_title, stream_offsets)
+data = cache.load  # { entries_by_title: {}, entries_by_id: {}, stream_offsets: [] }
+
+# Batch lookup
+results = cache.find_by_titles(["Article1", "Article2"])
+```
+
+### Cache Location
+
+All caches are stored in `~/.wp2txt/cache/`:
+
+```
+~/.wp2txt/cache/
+├── global_data.sqlite3           # GlobalDataCache
+├── categories_en.sqlite3         # CategoryCache (English)
+├── categories_ja.sqlite3         # CategoryCache (Japanese)
+└── enwiki_*_index.sqlite3        # IndexCache (per dump file)
 ```
 
 ## Test System

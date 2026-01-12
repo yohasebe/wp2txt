@@ -369,7 +369,7 @@ RSpec.describe Wp2txt::CategoryFetcher do
       FileUtils.rm_rf(cache_dir)
     end
 
-    it "caches category members to disk" do
+    it "caches category members to SQLite database" do
       f = described_class.new("en", "Test Category")
       f.enable_cache(cache_dir)
 
@@ -385,8 +385,8 @@ RSpec.describe Wp2txt::CategoryFetcher do
 
       f.fetch_articles
 
-      # Cache file should exist
-      cache_files = Dir.glob(File.join(cache_dir, "category_*.json"))
+      # SQLite cache file should exist
+      cache_files = Dir.glob(File.join(cache_dir, "categories_*.sqlite3"))
       expect(cache_files.size).to eq 1
     end
 
@@ -394,9 +394,10 @@ RSpec.describe Wp2txt::CategoryFetcher do
       f = described_class.new("en", "Test Category")
       f.enable_cache(cache_dir)
 
-      # Pre-populate cache
-      cache_path = File.join(cache_dir, "category_en_Test_Category.json")
-      File.write(cache_path, { pages: ["Cached Article"], subcats: [] }.to_json)
+      # Pre-populate cache using CategoryCache
+      cache = Wp2txt::CategoryCache.new("en", cache_dir: cache_dir)
+      cache.save("Test Category", ["Cached Article"], [])
+      cache.close
 
       # Should not make API request
       articles = f.fetch_articles
@@ -408,10 +409,16 @@ RSpec.describe Wp2txt::CategoryFetcher do
       f = described_class.new("en", "Test Category")
       f.enable_cache(cache_dir)
 
-      # Pre-populate stale cache (8 days old)
-      cache_path = File.join(cache_dir, "category_en_Test_Category.json")
-      File.write(cache_path, { pages: ["Old Article"], subcats: [] }.to_json)
-      File.utime(Time.now - (8 * 24 * 3600), Time.now - (8 * 24 * 3600), cache_path)
+      # Pre-populate cache using CategoryCache
+      cache = Wp2txt::CategoryCache.new("en", cache_dir: cache_dir, expiry_days: 7)
+      cache.save("Test Category", ["Old Article"], [])
+
+      # Manually update cached_at to make it old (8 days ago)
+      cache.instance_variable_get(:@db).execute(
+        "UPDATE categories SET cached_at = ? WHERE name = ?",
+        [Time.now.to_i - (8 * 24 * 3600), "Test Category"]
+      )
+      cache.close
 
       stub_request(:get, /en\.wikipedia\.org/)
         .to_return(

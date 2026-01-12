@@ -6,7 +6,10 @@ require "net/http"
 require "uri"
 require "openssl"
 require "parallel"
+require "set"
 require_relative "constants"
+require_relative "index_cache"
+require_relative "category_cache"
 
 module Wp2txt
   # SSL-safe HTTP helper to handle CRL verification issues in some environments
@@ -29,15 +32,52 @@ module Wp2txt
     http.request(request)
   end
   # Manages multistream index for random access to Wikipedia dumps
+  # Supports SQLite caching for fast repeated access
   class MultistreamIndex
     attr_reader :index_path, :entries_by_title, :entries_by_id, :stream_offsets
 
-    def initialize(index_path)
+    # Initialize index with optional SQLite caching and early termination
+    # @param index_path [String] Path to the bz2 index file
+    # @param use_cache [Boolean] Whether to use SQLite cache (default: true)
+    # @param cache_dir [String, nil] Directory for SQLite cache (default: ~/.wp2txt/cache)
+    # @param target_titles [Array<String>, nil] If provided, stop parsing when all titles found
+    # @param show_progress [Boolean] Whether to show progress during parsing (default: true)
+    def initialize(index_path, use_cache: true, cache_dir: nil, target_titles: nil, show_progress: true)
       @index_path = index_path
       @entries_by_title = {}
       @entries_by_id = {}
       @stream_offsets = []
+      @show_progress = show_progress
+      @target_titles = target_titles ? Set.new(target_titles) : nil
+      @found_targets = Set.new if @target_titles
+
+      # Try to load from cache first
+      if use_cache && @target_titles.nil?
+        @cache = IndexCache.new(index_path, cache_dir: cache_dir)
+        if load_from_cache
+          return
+        end
+      else
+        @cache = nil
+      end
+
+      # Parse index file
       load_index
+
+      # Save to cache for future use (only if full parse completed)
+      if @cache && @target_titles.nil?
+        save_to_cache
+      end
+    end
+
+    # Check if this index was loaded from cache
+    def loaded_from_cache?
+      @loaded_from_cache == true
+    end
+
+    # Check if early termination was triggered
+    def early_terminated?
+      @early_terminated == true
     end
 
     def find_by_title(title)
@@ -76,10 +116,40 @@ module Wp2txt
 
     private
 
+    def load_from_cache
+      return false unless @cache&.valid?
+
+      print "  Loading index from cache..." if @show_progress
+      $stdout.flush
+
+      data = @cache.load
+      return false unless data
+
+      @entries_by_title = data[:entries_by_title]
+      @entries_by_id = data[:entries_by_id]
+      @stream_offsets = data[:stream_offsets]
+      @loaded_from_cache = true
+
+      puts " #{@entries_by_title.size} entries loaded" if @show_progress
+      true
+    end
+
+    def save_to_cache
+      return unless @cache
+
+      print "  Saving index to cache..." if @show_progress
+      $stdout.flush
+
+      @cache.save(@entries_by_title, @stream_offsets)
+
+      puts " done" if @show_progress
+    rescue StandardError => e
+      puts " failed (#{e.message})" if @show_progress
+      # Non-fatal: continue without cache
+    end
+
     def load_index
       return unless File.exist?(@index_path)
-
-      current_offset = nil
 
       # Handle both .bz2 and plain text index files
       if @index_path.end_with?(".bz2")
@@ -115,13 +185,24 @@ module Wp2txt
           @stream_offsets << offset
         end
 
+        # Early termination: check if we found all target titles
+        if @target_titles
+          @found_targets << title if @target_titles.include?(title)
+          if @found_targets.size == @target_titles.size
+            @early_terminated = true
+            print "\r  Found all #{@target_titles.size} target articles" if @show_progress
+            puts if @show_progress
+            break
+          end
+        end
+
         count += 1
-        if count % 500_000 == 0
+        if @show_progress && count % 500_000 == 0
           print "\r  Parsed #{count / 1_000_000.0}M entries..."
           $stdout.flush
         end
       end
-      print "\r" + " " * 40 + "\r" if count >= 500_000  # Clear progress line
+      print "\r" + " " * 40 + "\r" if @show_progress && count >= 500_000 && !@early_terminated
     end
   end
 
@@ -129,9 +210,20 @@ module Wp2txt
   class MultistreamReader
     attr_reader :multistream_path, :index
 
-    def initialize(multistream_path, index_path)
+    # Initialize reader with multistream file and index
+    # @param multistream_path [String] Path to the multistream bz2 file
+    # @param index_or_path [MultistreamIndex, String] Either an existing index instance or path to index file
+    # @param use_cache [Boolean] Whether to use SQLite cache for index (default: true, only used if index_or_path is a path)
+    # @param cache_dir [String, nil] Directory for SQLite cache (only used if index_or_path is a path)
+    def initialize(multistream_path, index_or_path, use_cache: true, cache_dir: nil)
       @multistream_path = multistream_path
-      @index = MultistreamIndex.new(index_path)
+
+      # Accept either an existing index or a path to create one
+      if index_or_path.is_a?(MultistreamIndex)
+        @index = index_or_path
+      else
+        @index = MultistreamIndex.new(index_or_path, use_cache: use_cache, cache_dir: cache_dir)
+      end
     end
 
     # Extract a single article by title
@@ -391,7 +483,7 @@ module Wp2txt
       if max_streams
         # Partial download: need index first to know byte range
         index_path = download_index
-        index = MultistreamIndex.new(index_path)
+        index = MultistreamIndex.new(index_path, cache_dir: @cache_dir)
 
         if index.stream_offsets.size >= max_streams
           # Get byte range for first N streams
@@ -482,7 +574,7 @@ module Wp2txt
 
       # Verify file size matches expected offset
       index_path = download_index
-      index = MultistreamIndex.new(index_path)
+      index = MultistreamIndex.new(index_path, cache_dir: @cache_dir)
 
       expected_size = if partial_info[:stream_count] < index.stream_offsets.size
                         index.stream_offsets[partial_info[:stream_count]]
@@ -557,7 +649,7 @@ module Wp2txt
 
       # Calculate remaining download size
       index_path = cached_index_path
-      index = MultistreamIndex.new(index_path)
+      index = MultistreamIndex.new(index_path, cache_dir: @cache_dir)
 
       # Get total file size from HTTP HEAD request
       url = multistream_url
@@ -1046,6 +1138,7 @@ module Wp2txt
   end
 
   # Fetches category members from Wikipedia API
+  # Uses SQLite-based CategoryCache for efficient repeated access
   class CategoryFetcher
     API_ENDPOINT = "https://%s.wikipedia.org/w/api.php"
     MAX_LIMIT = 500
@@ -1053,18 +1146,30 @@ module Wp2txt
 
     attr_reader :lang, :category, :max_depth, :cache_expiry_days
 
-    def initialize(lang, category, max_depth: 0, cache_expiry_days: nil)
+    def initialize(lang, category, max_depth: 0, cache_expiry_days: nil, cache_dir: nil)
       @lang = lang.to_s
       @category = normalize_category_name(category)
       @max_depth = max_depth
       @cache_expiry_days = cache_expiry_days || Wp2txt::DEFAULT_CATEGORY_CACHE_EXPIRY_DAYS
-      @cache_dir = nil
+      @cache_dir = cache_dir
+      @cache = nil
       @visited_categories = Set.new
     end
 
     # Enable caching of category member lists
+    # @param cache_dir [String] Directory for cache files
     def enable_cache(cache_dir)
       @cache_dir = cache_dir
+      @cache = CategoryCache.new(@lang, cache_dir: cache_dir, expiry_days: @cache_expiry_days)
+    end
+
+    # Get the category cache instance
+    # Creates one if caching is enabled but cache not yet initialized
+    def cache
+      return @cache if @cache
+      return nil unless @cache_dir
+
+      @cache = CategoryCache.new(@lang, cache_dir: @cache_dir, expiry_days: @cache_expiry_days)
     end
 
     # Preview mode - returns statistics without full article list
@@ -1232,34 +1337,18 @@ module Wp2txt
       nil
     end
 
-    def cache_path(category_name)
-      return nil unless @cache_dir
-
-      safe_name = category_name.gsub(/[^a-zA-Z0-9_\-]/, "_")
-      File.join(@cache_dir, "category_#{@lang}_#{safe_name}.json")
-    end
-
     def load_from_cache(category_name)
-      path = cache_path(category_name)
-      return nil unless path && File.exist?(path)
+      return nil unless cache
 
-      # Check cache freshness using shared helper
-      return nil unless Wp2txt.file_fresh?(path, @cache_expiry_days)
-
-      data = JSON.parse(File.read(path), symbolize_names: true)
-      data
-    rescue IOError, Errno::ENOENT, Errno::EACCES, JSON::ParserError
-      nil
+      cache.get(category_name)
     end
 
     def save_to_cache(category_name, members)
-      path = cache_path(category_name)
-      return unless path
+      return unless cache
 
-      FileUtils.mkdir_p(File.dirname(path))
-      File.write(path, JSON.generate(members))
-    rescue IOError, Errno::ENOENT, Errno::EACCES, Errno::ENOSPC
-      # Ignore cache write failures (disk full, permission denied, etc.)
+      pages = members[:pages] || members["pages"] || []
+      subcats = members[:subcats] || members["subcats"] || []
+      cache.save(category_name, pages, subcats)
     end
   end
 end
