@@ -27,3 +27,9 @@ CLAUDE.md
 error_log.txt
 spec/examples.txt
 IMPROVEMENTS.md
+
+# Generated data
+benchmark_results/
+
+# Developer-specific Ruby version
+.ruby-version
