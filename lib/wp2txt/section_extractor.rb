@@ -325,5 +325,29 @@ module Wp2txt
       require "json"
       JSON.pretty_generate(to_hash(top_n: top_n))
     end
+
+    # Merge another collector's results into this one
+    # Used for combining results from parallel processing
+    # @param other [SectionStatsCollector, Hash] Another collector or hash with results
+    def merge(other)
+      if other.is_a?(SectionStatsCollector)
+        @total_articles += other.total_articles
+        other.section_counts.each { |name, count| @section_counts[name] += count }
+      elsif other.is_a?(Hash)
+        @total_articles += other[:total_articles] || other["total_articles"] || 0
+        counts = other[:section_counts] || other["section_counts"] || {}
+        counts.each { |name, count| @section_counts[name] += count }
+      end
+      self
+    end
+
+    # Export current state as a hash (for parallel processing)
+    # @return [Hash] Hash with total_articles and section_counts
+    def to_mergeable_hash
+      {
+        total_articles: @total_articles,
+        section_counts: @section_counts.dup
+      }
+    end
   end
 end

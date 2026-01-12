@@ -463,10 +463,21 @@ class WpApp
     require_relative "../lib/wp2txt/section_extractor"
 
     bz2_gem = config[:bz2_gem]
+    no_turbo = config[:no_turbo]
+    num_processes = config[:num_procs]
 
+    # Use turbo mode for bz2 files unless disabled
+    if input_path.end_with?(".bz2") && !no_turbo
+      process_section_stats_turbo(input_path, bz2_gem, num_processes)
+    else
+      process_section_stats_stream(input_path, bz2_gem)
+    end
+  end
+
+  def process_section_stats_stream(input_path, bz2_gem)
     print_mode_banner("Section Statistics", {
       "Input" => File.basename(input_path),
-      "Mode" => "Statistics collection (headings only)"
+      "Mode" => "Statistics collection (streaming)"
     })
 
     puts pastel.cyan("Collecting section statistics...")
@@ -500,9 +511,130 @@ class WpApp
       end
     end
 
+    output_section_stats_result(collector, time_start)
+  end
+
+  def process_section_stats_turbo(input_path, bz2_gem, num_processes)
+    require "tmpdir"
+    require "fileutils"
+
+    print_mode_banner("Section Statistics (Turbo)", {
+      "Input" => File.basename(input_path),
+      "Mode" => "Statistics collection (parallel)",
+      "CPU cores" => num_processes.to_s
+    })
+
+    time_start = Time.now
+
+    # Create temp directory for split XML files
+    temp_dir = Dir.mktmpdir("wp2txt_stats_")
+    puts pastel.cyan("Phase 1: Splitting bz2 file...")
+    puts pastel.dim("  Temp directory: #{temp_dir}")
+    puts
+
+    begin
+      # Phase 1: Split bz2 into XML files
+      $stdout.sync = true
+      splitter = Splitter.new(input_path, temp_dir, 10, bz2_gem) do |bytes_read, file_count|
+        size_str = format_size(bytes_read)
+        elapsed = Time.now - time_start
+        rate = bytes_read / elapsed / 1024 / 1024
+        puts pastel.dim(format("  [%s] Decompressed: %s | %.1f MB/s | %d XML files",
+                               Time.now.strftime("%H:%M:%S"),
+                               size_str, rate, file_count))
+      end
+      splitter.split_file
+      xml_files = Dir.glob(File.join(temp_dir, "*.xml")).sort
+
+      split_time = Time.now - time_start
+      final_size = splitter.size_read || 0
+      puts
+      puts pastel.green("#{ICONS[:success]} Split complete: #{xml_files.size} XML files, #{format_size(final_size)} (#{format_duration(split_time)})")
+      puts
+
+      # Phase 2: Process XML files in parallel
+      puts pastel.cyan("Phase 2: Collecting statistics in parallel...")
+      puts
+
+      processed_count = 0
+      last_report_time = Time.now
+
+      # Process XML files in parallel and collect stats
+      partial_results = Parallel.map(
+        xml_files,
+        in_processes: num_processes,
+        finish: lambda { |_item, _index, _result|
+          processed_count += 1
+          now = Time.now
+          if now - last_report_time >= 5 || processed_count == xml_files.size
+            last_report_time = now
+            percent = (processed_count.to_f / xml_files.size * 100).round(1)
+            elapsed = now - time_start
+            rate = processed_count / elapsed
+            remaining = xml_files.size - processed_count
+            eta = remaining > 0 && rate > 0 ? remaining / rate : 0
+            puts pastel.dim(format("  [%d/%d] %.1f%% | %.1f files/sec | ETA: %s",
+                                   processed_count, xml_files.size,
+                                   percent, rate, format_duration(eta)))
+          end
+        }
+      ) do |xml_file|
+        process_xml_file_for_stats(xml_file)
+      end
+
+      # Merge all partial results
+      puts
+      puts pastel.cyan("Merging results...")
+
+      collector = Wp2txt::SectionStatsCollector.new
+      partial_results.each { |result| collector.merge(result) }
+
+      output_section_stats_result(collector, time_start)
+    ensure
+      FileUtils.rm_rf(temp_dir) if File.exist?(temp_dir)
+    end
+  end
+
+  # Process a single XML file for section stats (used by turbo mode)
+  def process_xml_file_for_stats(xml_file)
+    collector = Wp2txt::SectionStatsCollector.new
+    runner = Runner.new(xml_file, File.dirname(xml_file), false, false)
+
+    while (page_xml = runner.get_page)
+      begin
+        # Fast regex extraction
+        title_match = TITLE_REGEX.match(page_xml)
+        next unless title_match
+
+        title = title_match[1]
+        next if title.nil? || title.empty? || title.include?(":")
+
+        text_match = TEXT_REGEX.match(page_xml)
+        next unless text_match
+
+        text_start = text_match.begin(1)
+        text_end_match = TEXT_END_REGEX.match(page_xml, text_start)
+        next unless text_end_match
+
+        text = page_xml[text_start...text_end_match.begin(0)]
+        next if text.nil? || text.empty?
+
+        text = text.gsub("&lt;", "<").gsub("&gt;", ">").gsub("&amp;", "&").gsub("&quot;", '"')
+        next if redirect_page?(text)
+
+        article = Article.new(text, title, false)
+        collector.process(article)
+      rescue StandardError
+        next
+      end
+    end
+
+    collector.to_mergeable_hash
+  end
+
+  def output_section_stats_result(collector, time_start)
     time_elapsed = Time.now - time_start
 
-    # Output results
     puts
     puts pastel.green("#{ICONS[:success]} Statistics collection complete!")
     puts
@@ -606,7 +738,8 @@ class WpApp
       num_procs: num_processes,
       file_size: opts[:file_size],
       bz2_gem: opts[:bz2_gem],
-      use_ractor: opts[:ractor]
+      use_ractor: opts[:ractor],
+      no_turbo: opts[:no_turbo]
     }
 
     %i[title list heading table redirect multiline category category_only
