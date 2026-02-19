@@ -17,18 +17,23 @@ module Wp2txt
 
   # Modify a file using block/yield mechanism
   def file_mod(file_path, backup = false)
-    File.open(file_path, "r") do |fr|
-      str = fr.read
-      newstr = yield(str)
-      str = newstr unless newstr.nil?
-      File.open("temp", "w") do |tf|
-        tf.write(str)
-      end
-    end
+    str = File.read(file_path)
+    newstr = yield(str)
+    str = newstr unless newstr.nil?
 
-    File.rename(file_path, file_path + ".bak")
-    File.rename("temp", file_path)
-    File.unlink(file_path + ".bak") unless backup
+    require "tempfile"
+    dir = File.dirname(file_path)
+    temp = Tempfile.new(["wp2txt_", File.extname(file_path)], dir)
+    begin
+      temp.write(str)
+      temp.close
+      File.rename(file_path, file_path + ".bak")
+      File.rename(temp.path, file_path)
+      File.unlink(file_path + ".bak") unless backup
+    rescue StandardError
+      temp.close! rescue nil # rubocop:disable Style/RescueModifier
+      raise
+    end
   end
 
   # Modify files under a directory (recursive)

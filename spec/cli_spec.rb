@@ -209,6 +209,237 @@ RSpec.describe Wp2txt::CLI do
       end
     end
 
+    context "extraction mode mutual exclusion" do
+      it "rejects --category-only with --summary-only" do
+        Dir.mktmpdir do |dir|
+          suppress_stderr do
+            expect do
+              described_class.parse_options([
+                "--lang=en",
+                "--category-only",
+                "--summary-only",
+                "-o", dir
+              ])
+            end.to raise_error(SystemExit)
+          end
+        end
+      end
+
+      it "rejects --category-only with --metadata-only" do
+        Dir.mktmpdir do |dir|
+          suppress_stderr do
+            expect do
+              described_class.parse_options([
+                "--lang=en",
+                "--category-only",
+                "--metadata-only",
+                "-o", dir
+              ])
+            end.to raise_error(SystemExit)
+          end
+        end
+      end
+
+      it "rejects --summary-only with --metadata-only" do
+        Dir.mktmpdir do |dir|
+          suppress_stderr do
+            expect do
+              described_class.parse_options([
+                "--lang=en",
+                "--summary-only",
+                "--metadata-only",
+                "-o", dir
+              ])
+            end.to raise_error(SystemExit)
+          end
+        end
+      end
+
+      it "rejects all three extraction modes combined" do
+        Dir.mktmpdir do |dir|
+          suppress_stderr do
+            expect do
+              described_class.parse_options([
+                "--lang=en",
+                "--category-only",
+                "--summary-only",
+                "--metadata-only",
+                "-o", dir
+              ])
+            end.to raise_error(SystemExit)
+          end
+        end
+      end
+
+      it "rejects --sections with --category-only" do
+        Dir.mktmpdir do |dir|
+          suppress_stderr do
+            expect do
+              described_class.parse_options([
+                "--lang=en",
+                "--category-only",
+                "--sections=Plot",
+                "-o", dir
+              ])
+            end.to raise_error(SystemExit)
+          end
+        end
+      end
+
+      it "rejects --sections with --summary-only" do
+        Dir.mktmpdir do |dir|
+          suppress_stderr do
+            expect do
+              described_class.parse_options([
+                "--lang=en",
+                "--summary-only",
+                "--sections=Plot",
+                "-o", dir
+              ])
+            end.to raise_error(SystemExit)
+          end
+        end
+      end
+
+      it "rejects --sections with --metadata-only" do
+        Dir.mktmpdir do |dir|
+          suppress_stderr do
+            expect do
+              described_class.parse_options([
+                "--lang=en",
+                "--metadata-only",
+                "--sections=Plot",
+                "-o", dir
+              ])
+            end.to raise_error(SystemExit)
+          end
+        end
+      end
+
+      it "rejects --section-stats with --category-only" do
+        Dir.mktmpdir do |dir|
+          suppress_stderr do
+            expect do
+              described_class.parse_options([
+                "--lang=en",
+                "--section-stats",
+                "--category-only",
+                "-o", dir
+              ])
+            end.to raise_error(SystemExit)
+          end
+        end
+      end
+
+      it "rejects --section-stats with --summary-only" do
+        Dir.mktmpdir do |dir|
+          suppress_stderr do
+            expect do
+              described_class.parse_options([
+                "--lang=en",
+                "--section-stats",
+                "--summary-only",
+                "-o", dir
+              ])
+            end.to raise_error(SystemExit)
+          end
+        end
+      end
+
+      it "allows single extraction mode" do
+        Dir.mktmpdir do |dir|
+          opts = described_class.parse_options([
+            "--lang=en",
+            "--category-only",
+            "-o", dir
+          ])
+          expect(opts[:category_only]).to be true
+        end
+      end
+    end
+
+    context "with content filtering options" do
+      it "parses --table option (defaults to false)" do
+        Dir.mktmpdir do |dir|
+          opts = described_class.parse_options([
+            "--lang=en",
+            "-o", dir
+          ])
+          expect(opts[:table]).to be false
+        end
+      end
+
+      it "enables --table option" do
+        Dir.mktmpdir do |dir|
+          opts = described_class.parse_options([
+            "--lang=en",
+            "--table",
+            "-o", dir
+          ])
+          expect(opts[:table]).to be true
+        end
+      end
+
+      it "parses --pre option (defaults to false)" do
+        Dir.mktmpdir do |dir|
+          opts = described_class.parse_options([
+            "--lang=en",
+            "-o", dir
+          ])
+          expect(opts[:pre]).to be false
+        end
+      end
+
+      it "enables --pre option with short form -p" do
+        Dir.mktmpdir do |dir|
+          opts = described_class.parse_options([
+            "--lang=en",
+            "-p",
+            "-o", dir
+          ])
+          expect(opts[:pre]).to be true
+        end
+      end
+
+      it "parses --multiline option (defaults to false)" do
+        Dir.mktmpdir do |dir|
+          opts = described_class.parse_options([
+            "--lang=en",
+            "-o", dir
+          ])
+          expect(opts[:multiline]).to be false
+        end
+      end
+
+      it "enables --multiline option" do
+        Dir.mktmpdir do |dir|
+          opts = described_class.parse_options([
+            "--lang=en",
+            "--multiline",
+            "-o", dir
+          ])
+          expect(opts[:multiline]).to be true
+        end
+      end
+
+      it "allows combining content filtering options" do
+        Dir.mktmpdir do |dir|
+          opts = described_class.parse_options([
+            "--lang=en",
+            "--table",
+            "--pre",
+            "--multiline",
+            "--list",
+            "-o", dir
+          ])
+          expect(opts[:table]).to be true
+          expect(opts[:pre]).to be true
+          expect(opts[:multiline]).to be true
+          expect(opts[:list]).to be true
+        end
+      end
+    end
+
     context "with section extraction options" do
       it "parses --sections option" do
         Dir.mktmpdir do |dir|

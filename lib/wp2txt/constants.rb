@@ -45,6 +45,24 @@ module Wp2txt
   DEFAULT_CATEGORY_CACHE_EXPIRY_DAYS = 7
 
   # ---------------------------------------------------------------------------
+  # Network Settings
+  # ---------------------------------------------------------------------------
+  # Default timeout for HTTP requests (seconds)
+  DEFAULT_HTTP_TIMEOUT = 30
+
+  # Default progress reporting interval (seconds)
+  DEFAULT_PROGRESS_INTERVAL = 10
+
+  # Index parsing progress reporting threshold (entries)
+  INDEX_PROGRESS_THRESHOLD = 500_000
+
+  # Default number of top section headings to include in stats output
+  DEFAULT_TOP_N_SECTIONS = 50
+
+  # Download resume metadata max age (days)
+  RESUME_METADATA_MAX_AGE_DAYS = 7
+
+  # ---------------------------------------------------------------------------
   # Processing Limits
   # ---------------------------------------------------------------------------
   # Safety limit for deeply nested structure processing (templates, tables, etc.)

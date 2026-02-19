@@ -114,6 +114,15 @@ Preview without downloading (shows article counts):
     # Summary only (title + categories + opening paragraphs)
     $ wp2txt -s --lang=ja -o ./summary
 
+    # Metadata only (title + section headings + categories)
+    $ wp2txt -M --lang=ja --format json -o ./metadata
+
+    # Extract specific sections (comma-separated, 'summary' for lead text)
+    $ wp2txt --lang=en --sections="summary,Plot,Reception" --format json -o ./sections
+
+    # Section heading statistics
+    $ wp2txt --lang=ja --section-stats -o ./stats
+
     # JSON/JSONL output
     $ wp2txt --format json --lang=ja -o ./json
 
@@ -241,38 +250,64 @@ Supported: `{{cite book}}`, `{{cite web}}`, `{{cite news}}`, `{{cite journal}}`,
       -D, --depth=<i>                  Subcategory recursion depth (default: 0)
       -y, --yes                        Skip confirmation prompt
       --dry-run                        Preview category extraction
+      -U, --update-cache               Force refresh of cached files
 
     Output options:
       -o, --output-dir=<s>             Output directory (default: current)
       -j, --format=<s>                 Output format: text or json (default: text)
+      -f, --file-size=<i>              Output file size in MB (default: 10, 0=single)
 
     Cache management:
       --cache-dir=<s>                  Cache directory (default: ~/.wp2txt/cache)
       --cache-status                   Show cache status and exit
       --cache-clear                    Clear cache and exit
-      -U, --update-cache               Force refresh of cached files
 
     Configuration:
       --config-init                    Create default config (~/.wp2txt/config.yml)
       --config-path=<s>                Path to configuration file
 
-    Processing options:
-      -a, --category, --no-category    Show category info (default: true)
+    Extraction modes (mutually exclusive):
       -g, --category-only              Extract only title and categories
       -s, --summary-only               Extract title, categories, and summary
-      -f, --file-size=<i>              Output file size in MB (default: 10, 0=single)
-      -n, --num-procs                  Parallel processes (max 8, default: auto)
+      -M, --metadata-only              Extract only title, headings, and categories
+
+    Section extraction:
+      -S, --sections=<s>               Extract specific sections (comma-separated)
+      --section-output=<s>             Output mode: structured or combined (default: structured)
+      --min-section-length=<i>         Minimum section length in characters (default: 0)
+      --skip-empty                     Skip articles with no matching sections
+      --alias-file=<s>                 Custom section alias definitions file (YAML)
+      --no-section-aliases             Disable section alias matching (exact match only)
+      --section-stats                  Collect and output section heading statistics (JSON)
+      --show-matched-sections          Include matched_sections field in JSON output
+
+    Content filtering:
+      -a, --category, --no-category    Show category info (default: true)
       -t, --title, --no-title          Keep page titles (default: true)
       -d, --heading, --no-heading      Keep section titles (default: true)
-      -l, --list                       Keep list items
-      -r, --ref                        Keep references as [ref]...[/ref]
-      -e, --redirect                   Show redirect destination
+      -l, --list                       Keep list items (default: false)
+      --table                          Keep wiki table content (default: false)
+      -p, --pre                        Keep preformatted text blocks (default: false)
+      -r, --ref                        Keep references as [ref]...[/ref] (default: false)
+      --multiline                      Keep multi-line templates (default: false)
+      -e, --redirect                   Show redirect destination (default: false)
       -m, --marker, --no-marker        Show list markers (default: true)
       -k, --markers=<s>                Content markers (default: all)
       -C, --extract-citations          Extract formatted citations
       -E, --expand-templates           Expand templates (default: true)
           --no-expand-templates        Disable template expansion
-      -b, --bz2-gem                    Use bzip2-ruby gem
+
+    Performance:
+      -n, --num-procs=<i>              Parallel processes (default: auto)
+      --no-turbo                       Disable turbo mode (saves disk space, slower)
+      -R, --ractor                     Use Ractor parallelism (Ruby 4.0+, streaming only)
+      -b, --bz2-gem                    Use bzip2-ruby gem instead of system command
+
+    Output control:
+      -q, --quiet                      Suppress progress output (errors only)
+      --no-color                       Disable colored output
+
+    Info:
       -v, --version                    Print version
       -h, --help                       Show help
 
@@ -297,11 +332,21 @@ defaults:
 
 Command-line options override configuration file settings.
 
+## Performance
+
+Benchmark results on MacBook Air M4 (7 parallel processes, turbo mode, excluding download time):
+
+| Wikipedia | Dump Size | Articles | Processing Time | Output |
+|-----------|-----------|----------|-----------------|--------|
+| Japanese  | 4.37 GB   | 1,485,937 | ~27 min        | 463 files (4.5 GB) |
+| English   | 24.2 GB   | ~6.8M    | ~2 hours        | 2,000 files (20 GB) |
+
+Turbo mode (default) splits bz2 into XML chunks first, then processes in parallel. Use `--no-turbo` to save disk space at the cost of slower processing.
+
 ## Caveats
 
 * Special content (math, code, etc.) is marked with placeholders by default.
 * Some text may not be extracted correctly due to markup variations or language-specific formatting.
-* Processing large dumps (e.g., English Wikipedia) can take several hours on low-spec systems.
 
 ## Changelog
 

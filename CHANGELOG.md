@@ -100,6 +100,55 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - `--markers=none` now shows a warning and behaves like `--markers=all`
   - Use `--markers=math,code` to show only specific marker types
 
+- **CLI option validation**: Extraction modes are now mutually exclusive with clear error messages:
+  - `--category-only`, `--summary-only`, `--metadata-only` cannot be combined
+  - `--sections` cannot be used with extraction modes
+  - `--section-stats` cannot be combined with extraction modes or `--sections`
+
+- **Network retry with exponential backoff**: HTTP requests now retry on transient errors:
+  - Retries up to 3 times with exponential backoff (2, 4, 8 seconds)
+  - Handles timeouts, connection resets, and DNS failures
+  - CategoryFetcher API requests now log failures instead of silently returning nil
+
+- **Disk full error handling**: OutputWriter now handles `Errno::ENOSPC` gracefully:
+  - Raises `Wp2txt::FileIOError` with descriptive message on disk full or I/O errors
+  - Properly closes file handles before raising
+
+- **File rotation at article boundaries**: OutputWriter `write_from_file` now rotates output files only at blank lines (article boundaries):
+  - Prevents articles from being split across output files
+  - Eliminates UTF-8 character corruption at file boundaries (e.g., 3-byte Japanese characters split mid-byte)
+  - Uses line-by-line reading (`each_line` with `"r:UTF-8"`) instead of fixed-size byte chunks
+  - Verified with full Japanese Wikipedia (1.49M articles) and English Wikipedia (24.2 GB) dumps
+
+- **HTTP timeout consistency**: All HTTP methods in `DumpManager` now use `DEFAULT_HTTP_TIMEOUT`:
+  - Added `open_timeout`/`read_timeout` to `download_incremental`, `get_remote_file_size`, `download_file_with_progress`, `download_file_range`
+  - Previously these methods had no timeout, risking indefinite hangs on network issues
+
+- **Security: Command injection prevention**: All `IO.popen` calls now use array form:
+  - Fixed unsafe string interpolation in `wp2txt.rb`, `stream_processor.rb`, `bz2_validator.rb`, `memory_monitor.rb`
+  - Prevents shell metacharacter interpretation in file paths
+
+- **Security: SSL certificate verification**: Restored proper TLS certificate validation:
+  - Removed `verify_callback` that unconditionally returned `true` (7 locations in `multistream.rb`)
+  - `VERIFY_PEER` now performs actual certificate verification
+
+- **Security: Temp file handling**: `file_mod` now uses `Tempfile` instead of hardcoded `"temp"` filename:
+  - Prevents predictable file names and potential race conditions
+  - Temp files created in same directory as target file
+
+- **CLI option fixes**:
+  - Added missing `--table` option (keep wiki table content)
+  - Added missing `--multiline` option (keep multi-line templates)
+  - Added missing `--pre` option (keep preformatted text blocks)
+  - Fixed `--ref` option not being transferred to processing config
+  - Reference removal is now conditional (respects `--ref` flag)
+
+- **Ractor turbo mode warning**: Shows explicit warning when `--ractor` is used with turbo mode (unsupported combination)
+
+- **Constants extraction**: Replaced magic numbers with named constants:
+  - `DEFAULT_HTTP_TIMEOUT`, `DEFAULT_PROGRESS_INTERVAL`, `INDEX_PROGRESS_THRESHOLD`
+  - `DEFAULT_TOP_N_SECTIONS`, `RESUME_METADATA_MAX_AGE_DAYS`, `MAX_HTTP_RETRIES`
+
 - **Marker classification**: Markers now categorized as inline or block
   - **Inline markers** (`[MATH]`, `[CODE]`, `[CHEM]`, `[IPA]`): Content that appears mid-sentence; removal would break grammar
   - **Block markers** (`[TABLE]`, `[CODEBLOCK]`, `[INFOBOX]`, etc.): Standalone content that can be safely removed

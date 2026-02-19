@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require "yaml"
+require_relative "constants"
 
 module Wp2txt
   # SectionExtractor handles extraction of sections from Wikipedia articles
@@ -42,7 +43,7 @@ module Wp2txt
     def self.load_aliases_from_file(file_path)
       return {} unless file_path && File.exist?(file_path)
 
-      data = YAML.load_file(file_path)
+      data = YAML.safe_load(File.read(file_path), permitted_classes: [Symbol])
       return {} unless data.is_a?(Hash)
 
       # Normalize: ensure values are arrays
@@ -310,7 +311,7 @@ module Wp2txt
     # Generate statistics output as a hash
     # @param top_n [Integer] Number of top sections to include
     # @return [Hash] Statistics hash
-    def to_hash(top_n: 50)
+    def to_hash(top_n: DEFAULT_TOP_N_SECTIONS)
       {
         "total_articles" => @total_articles,
         "section_counts" => @section_counts.sort_by { |_k, v| -v }.to_h,
@@ -321,7 +322,7 @@ module Wp2txt
     # Generate JSON output
     # @param top_n [Integer] Number of top sections to include
     # @return [String] JSON string
-    def to_json(top_n: 50)
+    def to_json(top_n: DEFAULT_TOP_N_SECTIONS)
       require "json"
       JSON.pretty_generate(to_hash(top_n: top_n))
     end

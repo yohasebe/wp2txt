@@ -186,6 +186,185 @@ RSpec.describe Wp2txt::OutputWriter do
     end
   end
 
+  describe "#write_raw" do
+    it "writes raw content directly" do
+      writer = described_class.new(
+        output_dir: temp_dir,
+        base_name: "output",
+        format: :text,
+        file_size_mb: 0
+      )
+
+      writer.write_raw("raw line 1\n")
+      writer.write_raw("raw line 2\n")
+      files = writer.close
+
+      content = File.read(files.first)
+      expect(content).to eq("raw line 1\nraw line 2\n")
+    end
+
+    it "ignores nil and empty content" do
+      writer = described_class.new(
+        output_dir: temp_dir,
+        base_name: "output",
+        format: :text,
+        file_size_mb: 0
+      )
+
+      writer.write_raw(nil)
+      writer.write_raw("")
+      writer.write_raw("valid\n")
+      files = writer.close
+
+      content = File.read(files.first)
+      expect(content).to eq("valid\n")
+    end
+  end
+
+  describe "#write_from_file" do
+    it "streams content from source file" do
+      source = File.join(temp_dir, "source.txt")
+      File.write(source, "source content\n")
+
+      writer = described_class.new(
+        output_dir: temp_dir,
+        base_name: "output",
+        format: :text,
+        file_size_mb: 0
+      )
+
+      writer.write_from_file(source)
+      files = writer.close
+
+      content = File.read(files.first)
+      expect(content).to eq("source content\n")
+    end
+
+    it "ignores non-existent source file" do
+      writer = described_class.new(
+        output_dir: temp_dir,
+        base_name: "output",
+        format: :text,
+        file_size_mb: 0
+      )
+
+      writer.write_from_file("/nonexistent/file.txt")
+      files = writer.close
+
+      expect(files).to be_empty
+    end
+
+    it "rotates files only at article boundaries (blank lines)" do
+      # Build a source file with two articles separated by a blank line,
+      # where each article is larger than the rotation threshold
+      article1 = "Title: Article 1\n" + ("A" * 600 + "\n") * 10
+      article2 = "Title: Article 2\n" + ("B" * 600 + "\n") * 10
+
+      source = File.join(temp_dir, "source.txt")
+      File.write(source, article1 + "\n" + article2 + "\n")
+
+      writer = described_class.new(
+        output_dir: File.join(temp_dir, "out"),
+        base_name: "output",
+        format: :text,
+        file_size_mb: 0.005 # ~5KB threshold to force rotation
+      )
+
+      writer.write_from_file(source)
+      files = writer.close
+
+      expect(files.size).to be >= 2
+
+      # Article 1 should be entirely in the first file (not split mid-article)
+      first_content = File.read(files.first)
+      expect(first_content).to include("Title: Article 1")
+      expect(first_content.lines.last.strip).to eq("") # ends at blank line
+
+      # Article 2 should start in a subsequent file
+      remaining = files[1..].map { |f| File.read(f) }.join
+      expect(remaining).to include("Title: Article 2")
+    end
+
+    it "handles UTF-8 content without encoding errors" do
+      source = File.join(temp_dir, "source_utf8.txt")
+      utf8_content = "タイトル: 日本語記事\n" \
+                      "本文テキスト。漢字、ひらがな、カタカナ。\n" \
+                      "\n" \
+                      "Title: English Article\n" \
+                      "Body text with accents: café, naïve, résumé.\n"
+      File.write(source, utf8_content)
+
+      writer = described_class.new(
+        output_dir: temp_dir,
+        base_name: "output",
+        format: :text,
+        file_size_mb: 0
+      )
+
+      expect { writer.write_from_file(source) }.not_to raise_error
+      files = writer.close
+
+      content = File.read(files.first)
+      expect(content).to include("日本語記事")
+      expect(content).to include("café")
+    end
+  end
+
+  describe "error handling" do
+    it "raises FileIOError on disk full (ENOSPC) in write" do
+      writer = described_class.new(
+        output_dir: temp_dir,
+        base_name: "output",
+        format: :text,
+        file_size_mb: 0
+      )
+
+      # Force ENOSPC by stubbing File#write
+      allow_any_instance_of(File).to receive(:write).and_raise(Errno::ENOSPC)
+
+      expect { writer.write("content") }.to raise_error(Wp2txt::FileIOError, /Disk full/)
+    end
+
+    it "raises FileIOError on disk full (ENOSPC) in write_raw" do
+      writer = described_class.new(
+        output_dir: temp_dir,
+        base_name: "output",
+        format: :text,
+        file_size_mb: 0
+      )
+
+      allow_any_instance_of(File).to receive(:write).and_raise(Errno::ENOSPC)
+
+      expect { writer.write_raw("content") }.to raise_error(Wp2txt::FileIOError, /Disk full/)
+    end
+
+    it "raises FileIOError on I/O error in write" do
+      writer = described_class.new(
+        output_dir: temp_dir,
+        base_name: "output",
+        format: :text,
+        file_size_mb: 0
+      )
+
+      allow_any_instance_of(File).to receive(:write).and_raise(IOError, "stream closed")
+
+      expect { writer.write("content") }.to raise_error(Wp2txt::FileIOError, /Write failed/)
+    end
+
+    it "includes output directory in error message" do
+      writer = described_class.new(
+        output_dir: temp_dir,
+        base_name: "output",
+        format: :text,
+        file_size_mb: 0
+      )
+
+      allow_any_instance_of(File).to receive(:write).and_raise(Errno::ENOSPC)
+
+      expect { writer.write("content") }.to raise_error(Wp2txt::FileIOError, /#{Regexp.escape(temp_dir)}/)
+    end
+  end
+
   describe "#close" do
     it "removes empty files" do
       writer = described_class.new(

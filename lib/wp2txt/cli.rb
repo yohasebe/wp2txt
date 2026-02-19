@@ -128,10 +128,14 @@ module Wp2txt
               default: true, short: "-d"
           opt :list, "Keep unprocessed list items in output",
               default: false, short: "-l"
+          opt :table, "Keep wiki table content in output",
+              default: false
           opt :pre, "Keep preformatted text blocks in output",
               default: false, short: "-p"
           opt :ref, "Keep reference notations [ref]...[/ref]",
               default: false, short: "-r"
+          opt :multiline, "Keep multi-line templates in output",
+              default: false
           opt :redirect, "Show redirect destination",
               default: false, short: "-e"
           opt :marker, "Show symbols prefixed to list items",
@@ -256,10 +260,24 @@ module Wp2txt
           end
           begin
             require "yaml"
-            YAML.load_file(opts[:alias_file])
+            YAML.safe_load(File.read(opts[:alias_file]), permitted_classes: [Symbol])
           rescue Psych::SyntaxError => e
             Optimist.die :alias_file, "invalid YAML syntax: #{e.message}"
           end
+        end
+
+        # Extraction modes are mutually exclusive
+        extraction_modes = []
+        extraction_modes << "--category-only" if opts[:category_only]
+        extraction_modes << "--summary-only" if opts[:summary_only]
+        extraction_modes << "--metadata-only" if opts[:metadata_only]
+        if extraction_modes.size > 1
+          Optimist.die "#{extraction_modes.join(', ')} cannot be combined (choose one extraction mode)"
+        end
+
+        # --sections conflicts with extraction modes
+        if opts[:sections] && extraction_modes.any?
+          Optimist.die "--sections cannot be used with #{extraction_modes.first}"
         end
 
         # --section-stats is a standalone mode
@@ -267,8 +285,8 @@ module Wp2txt
           if opts[:sections]
             Optimist.die "--section-stats cannot be used with --sections"
           end
-          if opts[:metadata_only]
-            Optimist.die "--section-stats cannot be used with --metadata-only"
+          if extraction_modes.any?
+            Optimist.die "--section-stats cannot be used with #{extraction_modes.first}"
           end
         end
 

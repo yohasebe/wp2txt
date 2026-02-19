@@ -12,24 +12,39 @@ require_relative "index_cache"
 require_relative "category_cache"
 
 module Wp2txt
-  # SSL-safe HTTP helper to handle CRL verification issues in some environments
+  # Maximum number of retries for transient network errors
+  MAX_HTTP_RETRIES = 3
+
+  # HTTPS-aware HTTP GET helper with proper SSL verification and retry
   # @param uri [URI] The URI to request
-  # @param timeout [Integer] Timeout in seconds (default: 30)
+  # @param timeout [Integer] Timeout in seconds
+  # @param retries [Integer] Maximum number of retries on transient errors
   # @return [Net::HTTPResponse] The HTTP response
-  def self.ssl_safe_get(uri, timeout: 30)
-    http = Net::HTTP.new(uri.host, uri.port)
-    http.use_ssl = (uri.scheme == "https")
-    http.open_timeout = timeout
-    http.read_timeout = timeout
+  def self.ssl_safe_get(uri, timeout: DEFAULT_HTTP_TIMEOUT, retries: MAX_HTTP_RETRIES)
+    attempts = 0
+    begin
+      attempts += 1
+      http = Net::HTTP.new(uri.host, uri.port)
+      http.use_ssl = (uri.scheme == "https")
+      http.open_timeout = timeout
+      http.read_timeout = timeout
 
-    if http.use_ssl?
-      # Skip CRL verification which can fail in some bundled environments
-      http.verify_mode = OpenSSL::SSL::VERIFY_PEER
-      http.verify_callback = ->(_preverify_ok, _store_ctx) { true }
+      if http.use_ssl?
+        http.verify_mode = OpenSSL::SSL::VERIFY_PEER
+      end
+
+      request = Net::HTTP::Get.new(uri)
+      http.request(request)
+    rescue Net::OpenTimeout, Net::ReadTimeout, SocketError, Errno::ECONNRESET,
+           Errno::ECONNREFUSED, Errno::EHOSTUNREACH, OpenSSL::SSL::SSLError => e
+      if attempts <= retries
+        delay = 2**attempts # Exponential backoff: 2, 4, 8 seconds
+        warn "  Network error (attempt #{attempts}/#{retries + 1}): #{e.message}. Retrying in #{delay}s..."
+        sleep delay
+        retry
+      end
+      raise
     end
-
-    request = Net::HTTP::Get.new(uri)
-    http.request(request)
   end
   # Manages multistream index for random access to Wikipedia dumps
   # Supports SQLite caching for fast repeated access
@@ -197,12 +212,12 @@ module Wp2txt
         end
 
         count += 1
-        if @show_progress && count % 500_000 == 0
+        if @show_progress && count % INDEX_PROGRESS_THRESHOLD == 0
           print "\r  Parsed #{count / 1_000_000.0}M entries..."
           $stdout.flush
         end
       end
-      print "\r" + " " * 40 + "\r" if @show_progress && count >= 500_000 && !@early_terminated
+      print "\r" + " " * 40 + "\r" if @show_progress && count >= INDEX_PROGRESS_THRESHOLD && !@early_terminated
     end
   end
 
@@ -719,9 +734,10 @@ module Wp2txt
       uri = URI(url)
       http = Net::HTTP.new(uri.host, uri.port)
       http.use_ssl = (uri.scheme == "https")
+      http.open_timeout = DEFAULT_HTTP_TIMEOUT
+      http.read_timeout = DEFAULT_HTTP_TIMEOUT
       if http.use_ssl?
         http.verify_mode = OpenSSL::SSL::VERIFY_PEER
-        http.verify_callback = ->(_preverify_ok, _store_ctx) { true }
       end
 
       request = Net::HTTP::Get.new(uri)
@@ -778,9 +794,10 @@ module Wp2txt
       uri = URI(url)
       http = Net::HTTP.new(uri.host, uri.port)
       http.use_ssl = (uri.scheme == "https")
+      http.open_timeout = DEFAULT_HTTP_TIMEOUT
+      http.read_timeout = DEFAULT_HTTP_TIMEOUT
       if http.use_ssl?
         http.verify_mode = OpenSSL::SSL::VERIFY_PEER
-        http.verify_callback = ->(_preverify_ok, _store_ctx) { true }
       end
 
       request = Net::HTTP::Head.new(uri)
@@ -914,11 +931,10 @@ module Wp2txt
       uri = URI(url)
       http = Net::HTTP.new(uri.host, uri.port)
       http.use_ssl = (uri.scheme == "https")
-      http.open_timeout = 30
-      http.read_timeout = 30
+      http.open_timeout = DEFAULT_HTTP_TIMEOUT
+      http.read_timeout = DEFAULT_HTTP_TIMEOUT
       if http.use_ssl?
         http.verify_mode = OpenSSL::SSL::VERIFY_PEER
-        http.verify_callback = ->(_preverify_ok, _store_ctx) { true }
       end
 
       request = Net::HTTP::Head.new(uri)
@@ -970,8 +986,8 @@ module Wp2txt
       # Check if metadata is not too old (max 7 days)
       if meta[:started_at]
         started = Time.parse(meta[:started_at]) rescue nil
-        if started && (Time.now - started) > 7 * 24 * 3600
-          puts "  Partial download is too old (>7 days). Starting fresh."
+        if started && (Time.now - started) > days_to_seconds(RESUME_METADATA_MAX_AGE_DAYS)
+          puts "  Partial download is too old (>#{RESUME_METADATA_MAX_AGE_DAYS} days). Starting fresh."
           return false
         end
       end
@@ -1035,9 +1051,10 @@ module Wp2txt
 
       http = Net::HTTP.new(uri.host, uri.port)
       http.use_ssl = (uri.scheme == "https")
+      http.open_timeout = DEFAULT_HTTP_TIMEOUT
+      http.read_timeout = DEFAULT_HTTP_TIMEOUT
       if http.use_ssl?
         http.verify_mode = OpenSSL::SSL::VERIFY_PEER
-        http.verify_callback = ->(_preverify_ok, _store_ctx) { true }
       end
 
       request = Net::HTTP::Get.new(uri)
@@ -1105,9 +1122,10 @@ module Wp2txt
 
       http = Net::HTTP.new(uri.host, uri.port)
       http.use_ssl = (uri.scheme == "https")
+      http.open_timeout = DEFAULT_HTTP_TIMEOUT
+      http.read_timeout = DEFAULT_HTTP_TIMEOUT
       if http.use_ssl?
         http.verify_mode = OpenSSL::SSL::VERIFY_PEER
-        http.verify_callback = ->(_preverify_ok, _store_ctx) { true }
       end
 
       request = Net::HTTP::Get.new(uri)
@@ -1318,23 +1336,34 @@ module Wp2txt
       params[:cmcontinue] = continue_token if continue_token
       uri.query = URI.encode_www_form(params)
 
-      # Use custom HTTP client to handle SSL certificate issues
-      # Some environments have CRL verification issues with certain certificates
-      http = Net::HTTP.new(uri.host, uri.port)
-      http.use_ssl = true
-      http.open_timeout = 30
-      http.read_timeout = 30
-      # Skip CRL verification which can fail in some environments
-      http.verify_mode = OpenSSL::SSL::VERIFY_PEER
-      http.verify_callback = ->(_preverify_ok, _store_ctx) { true }
+      attempts = 0
+      begin
+        attempts += 1
+        http = Net::HTTP.new(uri.host, uri.port)
+        http.use_ssl = true
+        http.open_timeout = DEFAULT_HTTP_TIMEOUT
+        http.read_timeout = DEFAULT_HTTP_TIMEOUT
+        http.verify_mode = OpenSSL::SSL::VERIFY_PEER
 
-      request = Net::HTTP::Get.new(uri)
-      response = http.request(request)
-      return nil unless response.is_a?(Net::HTTPSuccess)
+        request = Net::HTTP::Get.new(uri)
+        response = http.request(request)
+        return nil unless response.is_a?(Net::HTTPSuccess)
 
-      JSON.parse(response.body)
-    rescue Net::OpenTimeout, Net::ReadTimeout, SocketError, Errno::ECONNREFUSED, JSON::ParserError, OpenSSL::SSL::SSLError
-      nil
+        JSON.parse(response.body)
+      rescue Net::OpenTimeout, Net::ReadTimeout, SocketError, Errno::ECONNRESET,
+             Errno::ECONNREFUSED, Errno::EHOSTUNREACH, OpenSSL::SSL::SSLError => e
+        if attempts <= MAX_HTTP_RETRIES
+          delay = 2**attempts
+          warn "  API request failed (attempt #{attempts}/#{MAX_HTTP_RETRIES + 1}): #{e.message}. Retrying in #{delay}s..."
+          sleep delay
+          retry
+        end
+        warn "  API request failed after #{attempts} attempts for category '#{category_name}': #{e.message}"
+        nil
+      rescue JSON::ParserError => e
+        warn "  Invalid JSON response for category '#{category_name}': #{e.message}"
+        nil
+      end
     end
 
     def load_from_cache(category_name)

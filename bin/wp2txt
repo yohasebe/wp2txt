@@ -135,7 +135,7 @@ class WpApp
         finish: lambda { |_item, _index, _result|
           processed_count += 1
           now = Time.now
-          if now - last_report_time >= 5 || processed_count == xml_files.size
+          if now - last_report_time >= Wp2txt::DEFAULT_PROGRESS_INTERVAL || processed_count == xml_files.size
             last_report_time = now
             percent = (processed_count.to_f / xml_files.size * 100).round(1)
             elapsed = now - time_start
@@ -337,7 +337,7 @@ class WpApp
     batch_count = 0
 
     # Progress reporting interval (seconds)
-    progress_interval = 10
+    progress_interval = Wp2txt::DEFAULT_PROGRESS_INTERVAL
 
     # Process in batches for memory efficiency
     batch_size = num_processes * 100
@@ -490,7 +490,7 @@ class WpApp
 
     time_start = Time.now
     last_progress_time = time_start
-    progress_interval = 10 # seconds
+    progress_interval = Wp2txt::DEFAULT_PROGRESS_INTERVAL
 
     # Process pages without full text processing (just extract headings)
     stream.each_page do |title, text|
@@ -566,7 +566,7 @@ class WpApp
         finish: lambda { |_item, _index, _result|
           processed_count += 1
           now = Time.now
-          if now - last_report_time >= 5 || processed_count == xml_files.size
+          if now - last_report_time >= Wp2txt::DEFAULT_PROGRESS_INTERVAL || processed_count == xml_files.size
             last_report_time = now
             percent = (processed_count.to_f / xml_files.size * 100).round(1)
             elapsed = now - time_start
@@ -646,7 +646,7 @@ class WpApp
     $stderr.puts
 
     # Output JSON to stdout
-    puts collector.to_json(top_n: 50)
+    puts collector.to_json(top_n: Wp2txt::DEFAULT_TOP_N_SECTIONS)
 
     EXIT_SUCCESS
   end

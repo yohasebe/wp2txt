@@ -29,6 +29,32 @@ RSpec.describe "Wp2txt Constants" do
 
   end
 
+  describe "Network Settings" do
+    it "defines DEFAULT_HTTP_TIMEOUT" do
+      expect(Wp2txt::DEFAULT_HTTP_TIMEOUT).to eq(30)
+    end
+
+    it "defines DEFAULT_PROGRESS_INTERVAL" do
+      expect(Wp2txt::DEFAULT_PROGRESS_INTERVAL).to eq(10)
+    end
+
+    it "defines INDEX_PROGRESS_THRESHOLD" do
+      expect(Wp2txt::INDEX_PROGRESS_THRESHOLD).to eq(500_000)
+    end
+
+    it "defines DEFAULT_TOP_N_SECTIONS" do
+      expect(Wp2txt::DEFAULT_TOP_N_SECTIONS).to eq(50)
+    end
+
+    it "defines RESUME_METADATA_MAX_AGE_DAYS" do
+      expect(Wp2txt::RESUME_METADATA_MAX_AGE_DAYS).to eq(7)
+    end
+
+    it "defines MAX_HTTP_RETRIES" do
+      expect(Wp2txt::MAX_HTTP_RETRIES).to eq(3)
+    end
+  end
+
   describe "Processing Limits" do
     it "defines MAX_NESTING_ITERATIONS" do
       expect(Wp2txt::MAX_NESTING_ITERATIONS).to eq(50_000)
