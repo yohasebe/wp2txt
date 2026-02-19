@@ -161,18 +161,6 @@ CATEGORIES: カテゴリ1, カテゴリ2, カテゴリ3
 
 キャッシュが有効期限（デフォルト: 30日）を超えると、wp2txtは警告を表示しますが、キャッシュされたデータの使用は許可されます。
 
-## Wikipediaダンプファイル（手動ダウンロード）
-
-手動でダウンロードする場合：
-
-    https://dumps.wikimedia.org/jawiki/latest/jawiki-latest-pages-articles.xml.bz2
-
-`jawiki`を対象言語に置き換えてください（例：英語は`enwiki`）。ファイル名の形式：
-
-    xxwiki-yyyymmdd-pages-articles.xml.bz2
-
-`xx`は言語コード、`yyyymmdd`は作成日です。
-
 ## 詳細オプション
 
 ### コンテンツタイプマーカー

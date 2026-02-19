@@ -161,18 +161,6 @@ For redirect articles:
 
 When cache exceeds the expiry period (default: 30 days), wp2txt displays a warning but allows using cached data.
 
-## Wikipedia Dump File (Manual Download)
-
-If you prefer to download manually:
-
-    https://dumps.wikimedia.org/enwiki/latest/enwiki-latest-pages-articles.xml.bz2
-
-Replace `enwiki` with your target language (e.g., `jawiki` for Japanese). Files are named:
-
-    xxwiki-yyyymmdd-pages-articles.xml.bz2
-
-where `xx` is the language code and `yyyymmdd` is the creation date.
-
 ## Advanced Options
 
 ### Content Type Markers
