@@ -35,7 +35,6 @@ module Wp2txt
       text = text.gsub(/\|\n\n+/m) { "|\n" }
       text = remove_html(text)
       text = make_reference(text)
-      text = remove_ref(text)
       parse text
     end
 
@@ -43,10 +42,80 @@ module Wp2txt
       [tpx, text]
     end
 
+    # Create a heading element with level information
+    # @param text [String] The heading text (with or without = markers)
+    # @param level [Integer] The heading level (2 for ==, 3 for ===, etc.)
+    # @return [Array] [:mw_heading, text, level]
+    def create_heading_element(text, level)
+      [:mw_heading, text, level]
+    end
+
+    # Extract heading level from line with = markers
+    # @param line [String] The heading line (e.g., "== Heading ==")
+    # @return [Integer] The heading level (count of = signs)
+    def extract_heading_level(line)
+      match = line.match(/^(=+)/)
+      match ? match[1].length : 2
+    end
+
+    # Extract clean heading text without = markers
+    # @param line [String] The heading line
+    # @return [String] The heading text without = markers
+    def extract_heading_text(line)
+      line.gsub(/^=+\s*/, "").gsub(/\s*=+$/, "").strip
+    end
+
+    # Check if a line has unbalanced [[ ]] brackets
+    # Returns true if there are more [[ than ]] (indicating multi-line link)
+    def has_unbalanced_link_brackets?(line)
+      open_count = line.scan(/\[\[/).size
+      close_count = line.scan(/\]\]/).size
+      open_count > close_count
+    end
+
+    # Process a line in multi-line template mode, tracking brace depth
+    # Updates @brace_depth and returns remaining content after }} if template closed, nil otherwise
+    def process_ml_template_line(line)
+      pos = 0
+      close_pos = nil
+
+      while pos < line.length
+        open_idx = line.index("{{", pos)
+        close_idx = line.index("}}", pos)
+
+        if open_idx && (!close_idx || open_idx < close_idx)
+          @brace_depth += 1
+          pos = open_idx + 2
+        elsif close_idx
+          @brace_depth -= 1
+          pos = close_idx + 2
+          if @brace_depth == 0
+            close_pos = close_idx + 2
+            break
+          end
+        else
+          break
+        end
+      end
+
+      if close_pos
+        # Template closed at close_pos
+        template_part = line[0...close_pos]
+        remaining = line[close_pos..]
+        @elements.last.last << template_part
+        remaining
+      else
+        # Template continues
+        @elements.last.last << line
+        nil
+      end
+    end
+
     def parse(source)
       @elements = []
       @categories = []
       mode = nil
+      @brace_depth = 0
       source.each_line do |line|
         # Collect categories without deduplicating on each line (O(n²) → O(n))
         matched = line.scan(CATEGORY_REGEX)
@@ -54,10 +123,16 @@ module Wp2txt
 
         case mode
         when :mw_ml_template
-          scanner = StringScanner.new(line)
-          str = process_nested_structure(scanner, "{{", "}}") { "" }
-          mode = nil if ML_TEMPLATE_END_REGEX =~ str
-          @elements.last.last << line
+          # Track brace depth to find where template actually ends
+          remaining = process_ml_template_line(line)
+          if remaining
+            # Template closed, remaining content needs to be processed
+            mode = nil
+            # Process remaining content if any
+            unless remaining.strip.empty?
+              @elements << create_element(:mw_paragraph, "\n" + remaining)
+            end
+          end
           next
         when :mw_ml_link
           scanner = StringScanner.new(line)
@@ -97,16 +172,26 @@ module Wp2txt
         when REDIRECT_REGEX
           @elements << create_element(:mw_redirect, line)
         when IN_HEADING_REGEX
-          line = line.sub(HEADING_ONSET_REGEX) { $1 }.sub(HEADING_CODA_REGEX) { $1 }
-          @elements << create_element(:mw_heading, "\n" + line + "\n")
+          level = extract_heading_level(line)
+          # Keep original format for backward compatibility, but also store level
+          formatted_line = line.sub(HEADING_ONSET_REGEX) { $1 }.sub(HEADING_CODA_REGEX) { $1 }
+          @elements << create_heading_element("\n" + formatted_line + "\n", level)
         when IN_INPUTBOX_REGEX
           @elements << create_element(:mw_inputbox, line)
         when ML_TEMPLATE_ONSET_REGEX
           @elements << create_element(:mw_ml_template, line)
           mode = :mw_ml_template
+          # Count initial braces: count {{ minus }} in this line
+          @brace_depth = line.scan(/\{\{/).size - line.scan(/\}\}/).size
         when ML_LINK_ONSET_REGEX
-          @elements << create_element(:mw_ml_link, line)
-          mode = :mw_ml_link
+          # Only treat as multi-line link if brackets are actually unbalanced
+          if has_unbalanced_link_brackets?(line)
+            @elements << create_element(:mw_ml_link, line)
+            mode = :mw_ml_link
+          else
+            # Brackets are balanced, treat as paragraph
+            @elements << create_element(:mw_paragraph, "\n" + line)
+          end
         when IN_INPUTBOX_REGEX1
           mode = :mw_inputbox
           @elements << create_element(:mw_inputbox, line)

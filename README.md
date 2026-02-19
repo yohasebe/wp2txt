@@ -2,211 +2,145 @@
 
 A command-line toolkit to extract text content and category data from Wikipedia dump files
 
-## Why wp2txt?
+English | [日本語](README_ja.md)
 
-There are several tools for extracting plain text from Wikipedia dumps. [WikiExtractor](https://github.com/attardi/wikiextractor) is a popular Python-based tool known for its speed. However, **wp2txt offers unique features that WikiExtractor does not provide**:
+## Quick Start
 
-| Feature | wp2txt | WikiExtractor |
-|---------|--------|---------------|
-| Plain text extraction | ✅ | ✅ |
-| **Category metadata extraction** | ✅ | ❌ |
-| Category-only output (`-g`) | ✅ | ❌ |
-| Section headings | `==Title==` (customizable) | `Title.` (fixed format) |
-| Multilingual categories | ✅ (30+ languages) | — |
-| Processing speed | Slower | ~10x faster |
+```bash
+# Install
+gem install wp2txt
 
-### When to use wp2txt
+# Extract text from Japanese Wikipedia (auto-download)
+wp2txt --lang=ja -o ./output
 
-- You need **article category information** for classification or knowledge graphs
-- You want to preserve or customize section heading format
-- You're building topic classifiers using categories as labels
-- Processing time is not your primary constraint
+# Extract specific articles
+wp2txt --lang=ja --articles="東京,京都" -o ./articles
 
-### When to use WikiExtractor
-
-- You only need plain text content (no metadata)
-- Processing speed is critical
-- Working with full Wikipedia dumps (20GB+)
+# Extract articles from a category
+wp2txt --lang=ja --from-category="日本の都市" -o ./cities
+```
 
 ## About
 
-WP2TXT extracts text and category data from Wikipedia dump files (encoded in XML / compressed with Bzip2), removing MediaWiki markup and other metadata.
+WP2TXT extracts plain text and category information from Wikipedia dump files. It processes XML dumps (compressed with bzip2), removes MediaWiki markup, and outputs clean text suitable for corpus linguistics, text mining, and other research purposes.
 
-## Changelog
+## Key Features
 
-See [CHANGELOG.md](CHANGELOG.md) for detailed release notes.
+- **Auto-download** - Automatically download dumps by language code
+- **Article extraction by title** - Extract specific articles without downloading full dumps
+- **Category-based extraction** - Extract all articles from a specific Wikipedia category
+- **Category metadata extraction** - Preserves article category information in output
+- **Template expansion** - Expands common templates (dates, units, coordinates) to readable text
+- **Multilingual support** - Category and redirect detection for 350+ Wikipedia languages
+- **Streaming processing** - Process large dumps without intermediate files
+- **JSON output** - Machine-readable JSONL format for data pipelines
 
-**January 2026 (v2.0.0)**
+## Use Cases
 
-- **NEW: JSON/JSONL output format** (`--format json`) for machine-readable output
-- **NEW: Streaming processing** - no intermediate XML files, reduced disk I/O
-- Full Ruby 4.0 compatibility
-- Multilingual support for category extraction (30+ languages including Japanese, Chinese, German, French, Russian, etc.)
-- Multilingual support for redirect detection (25+ languages)
-- Fixed Unicode handling for emoji and supplementary plane characters
-- Fixed encoding error handling (no longer crashes on invalid UTF-8)
-- Improved handling of File/Image links in article output
-- Performance optimizations (reduced memory allocations, regex caching)
-- Comprehensive test suite (252 tests, 83%+ coverage)
-- Deprecated: `--convert` and `--del-interfile` options (no longer needed)
+wp2txt is particularly suited for:
 
-**May 2023**
+- Building domain-specific corpora using category information
+- Comparative linguistic research across topic areas
+- Extracting Wikipedia text with metadata for NLP tasks
+- Cross-linguistic studies using parallel category structures
 
-- Problems caused by too many parallel processors are addressed by setting the upper limit on the number of processors to 8.
+## Data Access
 
-**April 2023**
-
-- File split/delete issues fixed
-
-**January 2023**
-
-- Bug related to command line arguments fixed
-
-**December 2022**
-
-- Docker images available via Docker Hub
-
-**November 2022**
-
-- Code added to suppress "Invalid byte sequence error" when an ilegal UTF-8 character is input.
-
-**August 2022**
-
-- A new option `--category-only` has been added. When this option is enabled, only the title and category information of the article is extracted.
-- A new option `--summary-only` has been added. If this option is enabled, only the title, category information, and opening paragraphs of the article will be extracted.
-- Text conversion with the current version of WP2TXT is *more than 2x times faster* than the previous version due to parallel processing of multiple files (the rate of speedup depends on the CPU cores used for processing).
-
-## Screenshot
-
-<img src='https://raw.githubusercontent.com/yohasebe/wp2txt/master/image/screenshot.png' width="800" />
-
-**Environment**
-
-- WP2TXT 1.0.1
-- MacBook Pro (2021 Apple M1 Pro)
-- enwiki-20220720-pages-articles.xml.bz2 (19.98 GB)
-
-In the above environment, the process (decompression, splitting, extraction, and conversion) to obtain the plain text data of the English Wikipedia takes less than 1.5 hours.
-
-## Features
-
-- Converts Wikipedia dump files in various languages
-- **Extracts category information of the article** (unique feature)
-- **JSON/JSONL output format** for machine-readable data pipelines
-- **Streaming processing** - processes bz2 files directly without intermediate files
-- Creates output files of specified size
-- Allows specifying elements (page titles, section headers, paragraphs, list items) to be extracted
-- Allows extracting opening paragraphs of the article
-
-## Setting Up
-
-### WP2TXT on Docker
-
-1. Install [Docker Desktop](https://www.docker.com/products/docker-desktop/) (Mac/Windows/Linux)
-2. Execute `docker` command in a terminal:
-
-```shell
-docker run -it -v /Users/me/localdata:/data yohasebe/wp2txt
-```
-
-- Make sure to Replace `/Users/me/localdata` with the full path to the data directory in your local computer
-
-3. The Docker image will begin downloading and a bash prompt will appear when finished.
-4. The `wp2txt` command will be avalable anywhare in the Docker container. Use the `/data` directory as the location of the input dump files and the output text files.
-
-**IMPORTANT:**
-
-- Configure Docker Desktop resource settings (number of cores, amount of memory, etc.) to get the best performance possible.
-- When running the `wp2txt` command inside a Docker container, be sure to set the output directory to somewhere in the mounted local directory specified by the `docker run` command.
-
-### WP2TXT on MacOS and Linux
-
-WP2TXT requires that one of the following commands be installed on the system in order to decompress `bz2` files:
-
-- `lbzip2` (recommended)
-- `pbzip2`
-- `bzip2`
-
-In most cases, the `bzip2` command is pre-installed on the system. However, since `lbzip2` can use multiple CPU cores and is faster than `bzip2`, it is recommended that you install it additionally. WP2TXT will attempt to find the decompression command available on your system in the order listed above.
-
-If you are using MacOS with Homebrew installed, you can install `lbzip2` with the following command:
-
-    $ brew install lbzip2
-
-### WP2TXT on Windows
-
-Install [Bzip2 for Windows](http://gnuwin32.sourceforge.net/packages/bzip2.htm) and set the path so that WP2TXT can use the bunzip2.exe command. Alternatively, you can extract the Wikipedia dump file in your own way and process the resulting XML file with WP2TXT.
+wp2txt uses [official Wikipedia dump files](https://meta.wikimedia.org/wiki/Data_dumps), the recommended method for bulk data access. This approach respects Wikimedia's infrastructure guidelines.
 
 ## Installation
 
-### WP2TXT command
+### Install wp2txt
 
     $ gem install wp2txt
 
-## Wikipedia Dump File
+### System Requirements
 
-Download the latest Wikipedia dump file for the desired language at a URL such as
+WP2TXT requires one of the following commands to decompress `bz2` files:
 
-    https://dumps.wikimedia.org/enwiki/latest/enwiki-latest-pages-articles.xml.bz2
+- `lbzip2` (recommended - uses multiple CPU cores)
+- `pbzip2`
+- `bzip2` (pre-installed on most systems)
 
-Here, `enwiki` refers to the English Wikipedia. To get the Japanese Wikipedia dump file, for instance, change this to `jawiki` (Japanese). In doing so, note that there are two instances of `enwiki` in the URL above.
+On macOS with Homebrew:
 
-Alternatively, you can also select Wikipedia dump files created on a specific date from [here](http://dumps.wikimedia.org/backup-index.html). Make sure to download a file named in the following format:
+    $ brew install lbzip2
 
-    xxwiki-yyyymmdd-pages-articles.xml.bz2
+On Windows: Install [Bzip2 for Windows](http://gnuwin32.sourceforge.net/packages/bzip2.htm) and add to PATH.
 
-where `xx` is language code such as `en` (English)" or `ja` (japanese), and  `yyyymmdd` is the date of creation (e.g. `20220801`).
+### Docker (Alternative)
+
+```shell
+docker run -it -v /path/to/localdata:/data yohasebe/wp2txt
+```
+
+The `wp2txt` command is available inside the container. Use `/data` for input/output files.
 
 ## Basic Usage
 
-### Extract plain text from Wikipedia dump
+### Auto-download and process (Recommended)
+
+    $ wp2txt --lang=ja -o ./text
+
+This automatically downloads the Japanese Wikipedia dump and extracts plain text. Downloads are cached in `~/.wp2txt/cache/`.
+
+### Extract specific articles by title
+
+    $ wp2txt --lang=ja --articles="認知言語学,生成文法" -o ./articles
+
+Only the index file and necessary data streams are downloaded, making it much faster than processing the full dump.
+
+### Extract articles from a category
+
+    $ wp2txt --lang=ja --from-category="日本の都市" -o ./cities
+
+Include subcategories with `--depth`:
+
+    $ wp2txt --lang=ja --from-category="日本の都市" --depth=2 -o ./cities
+
+Preview without downloading (shows article counts):
+
+    $ wp2txt --lang=ja --from-category="日本の都市" --dry-run
+
+### Process local dump file
 
     $ wp2txt -i ./enwiki-20220801-pages-articles.xml.bz2 -o ./text
 
-This will stream the compressed dump file directly, extracting plain text without creating intermediate files.
+### Other extraction modes
 
-### Extract only category info
+    # Category info only (title + categories)
+    $ wp2txt -g --lang=ja -o ./category
 
-    $ wp2txt -g -i ./enwiki-20220801-pages-articles.xml.bz2 -o ./category
+    # Summary only (title + categories + opening paragraphs)
+    $ wp2txt -s --lang=ja -o ./summary
 
-### Extract opening paragraphs (summary)
+    # Metadata only (title + section headings + categories)
+    $ wp2txt -M --lang=ja --format json -o ./metadata
 
-    $ wp2txt -s -i ./enwiki-20220801-pages-articles.xml.bz2 -o ./summary
+    # Extract specific sections (comma-separated, 'summary' for lead text)
+    $ wp2txt --lang=en --sections="summary,Plot,Reception" --format json -o ./sections
 
-### Output as JSON/JSONL
+    # Section heading statistics
+    $ wp2txt --lang=ja --section-stats -o ./stats
 
-    $ wp2txt --format json -i ./enwiki-20220801-pages-articles.xml.bz2 -o ./json
+    # JSON/JSONL output
+    $ wp2txt --format json --lang=ja -o ./json
 
 ## Sample Output
 
-Output contains title, category info, paragraphs
+### Text Output
 
-    $ wp2txt -i ./input -o /output
+```
+[[Article Title]]
 
-- [English Wikipedia](https://raw.githubusercontent.com/yohasebe/wp2txt/master/data/output_samples/testdata_en.txt)
-- [Japanese Wikipedia](https://raw.githubusercontent.com/yohasebe/wp2txt/master/data/output_samples/testdata_ja.txt)
+Article content goes here with sections and paragraphs...
 
-Output containing title and category only
+CATEGORIES: Category1, Category2, Category3
+```
 
-    $ wp2txt -g -i ./input -o /output
+### JSON/JSONL Output
 
-- [English Wikipedia](https://raw.githubusercontent.com/yohasebe/wp2txt/master/data/output_samples/testdata_en_category.txt)
-- [Japanese Wikipedia](https://raw.githubusercontent.com/yohasebe/wp2txt/master/data/output_samples/testdata_ja_category.txt)
-
-Output containing title, category, and summary
-
-    $ wp2txt -s -i ./input -o /output
-
-- [English Wikipedia](https://raw.githubusercontent.com/yohasebe/wp2txt/master/data/output_samples/testdata_en_summary.txt)
-- [Japanese Wikipedia](https://raw.githubusercontent.com/yohasebe/wp2txt/master/data/output_samples/testdata_ja_summary.txt)
-
-### JSON/JSONL Output (v2.0+)
-
-Output in JSONL format (one JSON object per line):
-
-    $ wp2txt --format json -i ./input -o /output
-
-Each line contains:
+Each line contains one JSON object:
 
 ```json
 {"title": "Article Title", "categories": ["Cat1", "Cat2"], "text": "...", "redirect": null}
@@ -218,35 +152,207 @@ For redirect articles:
 {"title": "NYC", "categories": [], "text": "", "redirect": "New York City"}
 ```
 
+## Cache Management
+
+    $ wp2txt --cache-status           # Show cache status
+    $ wp2txt --cache-clear            # Clear all cache
+    $ wp2txt --cache-clear --lang=ja  # Clear cache for Japanese only
+    $ wp2txt --update-cache           # Force fresh download
+
+When cache exceeds the expiry period (default: 30 days), wp2txt displays a warning but allows using cached data.
+
+## Wikipedia Dump File (Manual Download)
+
+If you prefer to download manually:
+
+    https://dumps.wikimedia.org/enwiki/latest/enwiki-latest-pages-articles.xml.bz2
+
+Replace `enwiki` with your target language (e.g., `jawiki` for Japanese). Files are named:
+
+    xxwiki-yyyymmdd-pages-articles.xml.bz2
+
+where `xx` is the language code and `yyyymmdd` is the creation date.
+
+## Advanced Options
+
+### Content Type Markers
+
+Special content is replaced with marker placeholders by default:
+
+**Inline markers** (appear within sentences):
+
+| Marker | Content Type |
+|--------|--------------|
+| `[MATH]` | Mathematical formulas |
+| `[CODE]` | Inline code |
+| `[CHEM]` | Chemical formulas |
+| `[IPA]` | IPA phonetic notation |
+
+**Block markers** (standalone content):
+
+| Marker | Content Type |
+|--------|--------------|
+| `[CODEBLOCK]` | Source code blocks |
+| `[TABLE]` | Wiki tables |
+| `[INFOBOX]` | Information boxes |
+| `[NAVBOX]` | Navigation boxes |
+| `[GALLERY]` | Image galleries |
+| `[REFERENCES]` | Reference lists |
+| `[SCORE]` | Musical scores |
+| `[TIMELINE]` | Timeline graphics |
+| `[GRAPH]` | Graphs/charts |
+| `[SIDEBAR]` | Sidebar templates |
+| `[MAPFRAME]` | Interactive maps |
+| `[IMAGEMAP]` | Clickable image maps |
+
+Configure with `--markers`:
+
+    $ wp2txt --lang=en --markers=all -o ./text        # All markers (default)
+    $ wp2txt --lang=en --markers=math,code -o ./text  # Only MATH and CODE
+
+**Note**: `--markers=none` is deprecated as removing special content can make surrounding text nonsensical.
+
+### Template Expansion
+
+Common MediaWiki templates are automatically expanded (enabled by default):
+
+| Template | Output |
+|----------|--------|
+| `{{birth date\|1990\|5\|15}}` | May 15, 1990 |
+| `{{convert\|100\|km\|mi}}` | 100 km (62 mi) |
+| `{{coord\|35\|41\|N\|139\|41\|E}}` | 35°41′N 139°41′E |
+| `{{lang\|ja\|日本語}}` | 日本語 |
+| `{{nihongo\|Tokyo\|東京\|Tōkyō}}` | Tokyo (東京, Tōkyō) |
+| `{{frac\|1\|2}}` | 1/2 |
+| `{{circa\|1900}}` | c. 1900 |
+
+Supported: date/age templates, unit conversion, coordinates, language tags, quotes, fractions, and more. Parser functions (`{{#if:}}`, `{{#switch:}}`) and magic words (`{{PAGENAME}}`, `{{CURRENTYEAR}}`) are also supported.
+
+Disable with `--no-expand-templates`.
+
+### Citation Extraction
+
+By default, citation templates are removed. Use `--extract-citations` to extract formatted citations:
+
+    $ wp2txt --lang=en --extract-citations -o ./text
+
+Supported: `{{cite book}}`, `{{cite web}}`, `{{cite news}}`, `{{cite journal}}`, `{{Citation}}`, etc.
+
 ## Command Line Options
 
-Command line options are as follows:
-
     Usage: wp2txt [options]
-    where [options] are:
-      -i, --input                      Path to compressed file (bz2) or XML file, or path to directory containing XML files
-      -o, --output-dir=<s>             Path to output directory
-      -j, --format=<s>                 Output format: text or json (JSONL) (default: text)
-      -a, --category, --no-category    Show article category information (default: true)
-      -g, --category-only              Extract only article title and categories
-      -s, --summary-only               Extract only article title, categories, and summary text before first heading
-      -f, --file-size=<i>              Approximate size (in MB) of each output file (0 for single file) (default: 10)
-      -n, --num-procs                  Number of processes (up to 8) to be run concurrently (default: max num of available CPU cores minus two)
-      -t, --title, --no-title          Keep page titles in output (default: true)
-      -d, --heading, --no-heading      Keep section titles in output (default: true)
-      -l, --list                       Keep unprocessed list items in output
-      -r, --ref                        Keep reference notations in the format [ref]...[/ref]
-      -e, --redirect                   Show redirect destination
-      -m, --marker, --no-marker        Show symbols prefixed to list items, definitions, etc. (default: true)
-      -b, --bz2-gem                    Use Ruby's bzip2-ruby gem instead of a system command
-      -v, --version                    Print version and exit
-      -h, --help                       Show this message
+
+    Input source (one of --input or --lang required):
+      -i, --input=<s>                  Path to compressed file (bz2) or XML file
+      -L, --lang=<s>                   Wikipedia language code (e.g., ja, en, de)
+      -A, --articles=<s>               Specific article titles (comma-separated)
+      -G, --from-category=<s>          Extract articles from Wikipedia category
+      -D, --depth=<i>                  Subcategory recursion depth (default: 0)
+      -y, --yes                        Skip confirmation prompt
+      --dry-run                        Preview category extraction
+      -U, --update-cache               Force refresh of cached files
+
+    Output options:
+      -o, --output-dir=<s>             Output directory (default: current)
+      -j, --format=<s>                 Output format: text or json (default: text)
+      -f, --file-size=<i>              Output file size in MB (default: 10, 0=single)
+
+    Cache management:
+      --cache-dir=<s>                  Cache directory (default: ~/.wp2txt/cache)
+      --cache-status                   Show cache status and exit
+      --cache-clear                    Clear cache and exit
+
+    Configuration:
+      --config-init                    Create default config (~/.wp2txt/config.yml)
+      --config-path=<s>                Path to configuration file
+
+    Extraction modes (mutually exclusive):
+      -g, --category-only              Extract only title and categories
+      -s, --summary-only               Extract title, categories, and summary
+      -M, --metadata-only              Extract only title, headings, and categories
+
+    Section extraction:
+      -S, --sections=<s>               Extract specific sections (comma-separated)
+      --section-output=<s>             Output mode: structured or combined (default: structured)
+      --min-section-length=<i>         Minimum section length in characters (default: 0)
+      --skip-empty                     Skip articles with no matching sections
+      --alias-file=<s>                 Custom section alias definitions file (YAML)
+      --no-section-aliases             Disable section alias matching (exact match only)
+      --section-stats                  Collect and output section heading statistics (JSON)
+      --show-matched-sections          Include matched_sections field in JSON output
+
+    Content filtering:
+      -a, --category, --no-category    Show category info (default: true)
+      -t, --title, --no-title          Keep page titles (default: true)
+      -d, --heading, --no-heading      Keep section titles (default: true)
+      -l, --list                       Keep list items (default: false)
+      --table                          Keep wiki table content (default: false)
+      -p, --pre                        Keep preformatted text blocks (default: false)
+      -r, --ref                        Keep references as [ref]...[/ref] (default: false)
+      --multiline                      Keep multi-line templates (default: false)
+      -e, --redirect                   Show redirect destination (default: false)
+      -m, --marker, --no-marker        Show list markers (default: true)
+      -k, --markers=<s>                Content markers (default: all)
+      -C, --extract-citations          Extract formatted citations
+      -E, --expand-templates           Expand templates (default: true)
+          --no-expand-templates        Disable template expansion
+
+    Performance:
+      -n, --num-procs=<i>              Parallel processes (default: auto)
+      --no-turbo                       Disable turbo mode (saves disk space, slower)
+      -R, --ractor                     Use Ractor parallelism (Ruby 4.0+, streaming only)
+      -b, --bz2-gem                    Use bzip2-ruby gem instead of system command
+
+    Output control:
+      -q, --quiet                      Suppress progress output (errors only)
+      --no-color                       Disable colored output
+
+    Info:
+      -v, --version                    Print version
+      -h, --help                       Show help
+
+## Configuration File
+
+Create persistent settings with:
+
+    $ wp2txt --config-init
+
+This creates `~/.wp2txt/config.yml`:
+
+```yaml
+cache:
+  dump_expiry_days: 30      # Days before dumps are stale (1-365)
+  category_expiry_days: 7   # Category cache expiry (1-90)
+  directory: ~/.wp2txt/cache
+
+defaults:
+  format: text              # Default output format
+  depth: 0                  # Default subcategory depth
+```
+
+Command-line options override configuration file settings.
+
+## Performance
+
+Benchmark results on MacBook Air M4 (7 parallel processes, turbo mode, excluding download time):
+
+| Wikipedia | Dump Size | Articles | Processing Time | Output |
+|-----------|-----------|----------|-----------------|--------|
+| Japanese  | 4.37 GB   | 1,485,937 | ~27 min        | 463 files (4.5 GB) |
+| English   | 24.2 GB   | ~6.8M    | ~2 hours        | 2,000 files (20 GB) |
+
+Turbo mode (default) splits bz2 into XML chunks first, then processes in parallel. Use `--no-turbo` to save disk space at the cost of slower processing.
 
 ## Caveats
 
-* Some data, such as mathematical formulas and computer source code, will not be converted correctly.
-* Some text data may not be extracted correctly for various reasons (incorrect matching of begin/end tags, language-specific formatting rules, etc.).
-* The conversion process can take longer than expected. When dealing with a huge data set such as the English Wikipedia on a low-spec environment, it can take several hours or more.
+* Special content (math, code, etc.) is marked with placeholders by default.
+* Some text may not be extracted correctly due to markup variations or language-specific formatting.
+
+## Changelog
+
+See [CHANGELOG.md](CHANGELOG.md) for detailed release notes.
+
+**v2.0.0 (January 2026)**: Auto-download mode, category-based extraction, article extraction by title, JSON output, content markers, template expansion, streaming processing, Ruby 4.0 support.
 
 ## Useful Links
 
@@ -263,7 +369,7 @@ The author will appreciate your mentioning one of these in your research.
 * Yoichiro HASEBE. 2006. [Method for using Wikipedia as Japanese corpus.](http://ci.nii.ac.jp/naid/110006226727) _Doshisha Studies in Language and Culture_ 9(2), 373-403.
 * 長谷部陽一郎. 2006. [Wikipedia日本語版をコーパスとして用いた言語研究の手法](http://ci.nii.ac.jp/naid/110006226727). 『言語文化』9(2), 373-403.
 
-Or use this BibTeX entry:
+BibTeX:
 
 ```
 @misc{wp2txt_2026,

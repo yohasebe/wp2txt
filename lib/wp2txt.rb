@@ -9,13 +9,18 @@ require_relative "wp2txt/output_writer"
 module Wp2txt
   class Splitter
     include Wp2txt
-    def initialize(input_file, output_dir = ".", tfile_size = 10, bz2_gem = false)
+
+    attr_reader :size_read, :file_index
+
+    def initialize(input_file, output_dir = ".", tfile_size = 10, bz2_gem = false, &progress_callback)
       @fp = nil
       @input_file = input_file
       @output_dir = output_dir
       @tfile_size = tfile_size
       require "bzip2-ruby" if bz2_gem
       @bz2_gem = bz2_gem
+      @progress_callback = progress_callback
+      @last_progress_time = Time.now
       prepare
     end
 
@@ -28,7 +33,7 @@ module Wp2txt
       loop do
         begin
           a = file.read(unit)
-        rescue StandardError
+        rescue IOError, Errno::EIO, Errno::ENOENT
           a = nil
         end
         break unless a
@@ -63,7 +68,7 @@ module Wp2txt
           puts "detected [#{path}]"
           path
         end
-      rescue StandardError
+      rescue Errno::ENOENT, Errno::EPIPE, IOError
         puts "#{basename} not found"
         false
       end
@@ -79,9 +84,9 @@ module Wp2txt
         if @bz2_gem
           file = Bzip2::Reader.new File.open(@input_file, "r:UTF-8")
         elsif Gem.win_platform?
-          file = IO.popen("bunzip2.exe -c #{@input_file}")
+          file = IO.popen(["bunzip2.exe", "-c", @input_file])
         elsif (bzpath = command_exist?("lbzip2") || command_exist?("pbzip2") || command_exist?("bzip2"))
-          file = IO.popen("#{bzpath} -c -d #{@input_file}")
+          file = IO.popen([bzpath, "-c", "-d", @input_file])
         end
       else # meaning that it is a text file
         @infile_size = File.stat(@input_file).size
@@ -105,7 +110,7 @@ module Wp2txt
       loop do
         begin
           new_lines = @file_pointer.read(10_485_760)
-        rescue StandardError
+        rescue IOError, Errno::EIO, Errno::ENOENT, Errno::EPIPE
           return nil
         end
         return nil unless new_lines
@@ -149,6 +154,10 @@ module Wp2txt
         @total_size += text.bytesize
         output_text << text
         end_flag = true if @total_size > (@tfile_size * 1024 * 1024)
+
+        # Report progress every 5 seconds
+        report_progress
+
         # never close the file until the end of the page even if end_flag is on
         next unless end_flag && %r{</page} =~ text
 
@@ -171,6 +180,18 @@ module Wp2txt
       end
 
       rename(@outfiles, "xml")
+    end
+
+    private
+
+    def report_progress
+      return unless @progress_callback
+
+      now = Time.now
+      return if now - @last_progress_time < 5 # Report every 5 seconds
+
+      @last_progress_time = now
+      @progress_callback.call(@size_read, @file_index)
     end
   end
 
@@ -199,7 +220,7 @@ module Wp2txt
       loop do
         begin
           new_lines = @file_pointer.read(10_485_760)
-        rescue StandardError
+        rescue IOError, Errno::EIO, Errno::ENOENT, Errno::EPIPE
           return nil
         end
         return nil unless new_lines
@@ -253,7 +274,7 @@ module Wp2txt
       else
         page.force_encoding("utf-8")
       end
-    rescue StandardError
+    rescue ::Encoding::InvalidByteSequenceError, ::Encoding::UndefinedConversionError
       page
     end
 

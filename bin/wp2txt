@@ -2,9 +2,18 @@
 
 # frozen_string_literal: true
 
+# Enable YJIT for better performance (Ruby 3.3+)
+RubyVM::YJIT.enable if defined?(RubyVM::YJIT) && RubyVM::YJIT.respond_to?(:enable)
+
 require_relative "../lib/wp2txt"
 require_relative "../lib/wp2txt/utils"
 require_relative "../lib/wp2txt/version"
+require_relative "../lib/wp2txt/cli"
+require_relative "../lib/wp2txt/multistream"
+require_relative "../lib/wp2txt/cli_ui"
+require_relative "../lib/wp2txt/formatter"
+require_relative "../lib/wp2txt/extractor"
+require_relative "../lib/wp2txt/ractor_worker"
 
 require "etc"
 require "json"
@@ -12,12 +21,14 @@ require "optimist"
 require "parallel"
 require "pastel"
 require "tty-spinner"
+require "tty-progressbar"
 
 class WpApp
   include Wp2txt
+  include Wp2txt::CliUI
+  include Wp2txt::Formatter
+  include Wp2txt::Extractor
 
-  # Maximum number of processors that can be used for parallel processing
-  MAX_PROCESSORS = 8
   # Debug mode flag
   DEBUG_MODE = false
 
@@ -28,183 +39,235 @@ class WpApp
   private
 
   # Calculate the number of processes to be used for parallel processing
+  # Uses MemoryMonitor to determine optimal parallelism based on CPU and memory
   def calculate_num_processes(opts)
-    num_processors = Etc.nprocessors
-    if opts[:num_procs] && opts[:num_procs].to_i <= num_processors && opts[:num_procs].to_i <= MAX_PROCESSORS
-      opts[:num_procs]
+    optimal = Wp2txt::MemoryMonitor.optimal_processes
+
+    if opts[:num_procs]
+      # User specified a value - use it if reasonable
+      requested = opts[:num_procs].to_i
+      max_allowed = Etc.nprocessors
+      [requested, max_allowed, 1].max == requested ? requested : optimal
     else
-      minus2 = num_processors - 2
-      minus2 < MAX_PROCESSORS ? minus2 : MAX_PROCESSORS
+      optimal
     end.tap { |n| n = 1 if n < 1 }
   end
 
-  # Format article based on configuration and output format
-  def format_article(article, config)
-    article.title = format_wiki(article.title, config)
+  # Process articles using turbo mode (split-first architecture from v1.x)
+  # This splits the bz2 file into XML chunks first, then processes in parallel
+  # Much faster for large dumps due to parallel decompression benefit
+  def process_with_turbo(input_path, output_dir, config)
+    require "tmpdir"
+    require "fileutils"
 
-    if config[:format] == :json
-      format_article_json(article, config)
-    else
-      format_article_text(article, config)
+    num_processes = config[:num_procs]
+    file_size_mb = config[:file_size]
+    format = config[:format]
+    bz2_gem = config[:bz2_gem]
+
+    # Determine base name for output files
+    base_name = File.basename(input_path, ".*")
+    base_name = base_name.sub(/\.xml$/, "") # Handle .xml.bz2
+
+    # Get input file size for display
+    input_size = File.size(input_path) rescue 0
+    input_size_str = input_size > 0 ? format_size(input_size) : "unknown"
+
+    print_mode_banner("Turbo Mode Processing", {
+      "Input" => File.basename(input_path),
+      "Size" => input_size_str,
+      "Format" => format.to_s,
+      "CPU cores" => num_processes.to_s,
+      "Mode" => "Split-first (parallel decompression)"
+    })
+
+    time_start = Time.now
+
+    # Create temp directory for split XML files
+    temp_dir = Dir.mktmpdir("wp2txt_turbo_")
+    puts pastel.cyan("Phase 1: Splitting bz2 file into XML chunks...")
+    puts pastel.dim("  Temp directory: #{temp_dir}")
+    puts
+
+    begin
+      # Phase 1: Split bz2 into XML files using Splitter
+      # Split into 10MB chunks for good parallelism
+      $stdout.sync = true
+      splitter = Splitter.new(input_path, temp_dir, 10, bz2_gem) do |bytes_read, file_count|
+        # Progress callback - called every 5 seconds
+        size_str = format_size(bytes_read)
+        elapsed = Time.now - time_start
+        rate = bytes_read / elapsed / 1024 / 1024  # MB/s
+        puts pastel.dim(format("  [%s] Decompressed: %s | %.1f MB/s | %d XML files created",
+                               Time.now.strftime("%H:%M:%S"),
+                               size_str,
+                               rate,
+                               file_count))
+      end
+      splitter.split_file
+      xml_files = Dir.glob(File.join(temp_dir, "*.xml")).sort
+
+      split_time = Time.now - time_start
+      final_size = splitter.size_read || 0
+      puts
+      puts pastel.green("#{ICONS[:success]} Split complete: #{xml_files.size} XML files, #{format_size(final_size)} decompressed (#{format_duration(split_time)})")
+      puts
+
+      # Phase 2: Process XML files in parallel and write output directly
+      puts pastel.cyan("Phase 2: Processing XML files in parallel...")
+      puts pastel.dim("  Using #{num_processes} parallel processes")
+      puts
+
+      strip_tmarker = !config[:marker]
+
+      # Each parallel process writes to its own temp output file
+      # This avoids memory accumulation and enables streaming output
+      $stdout.sync = true
+      processed_count = 0
+      last_report_time = Time.now
+      temp_output_dir = File.join(temp_dir, "output")
+      FileUtils.mkdir_p(temp_output_dir)
+
+      # Process XML files in parallel - each writes its own output
+      article_counts = Parallel.map(
+        xml_files.each_with_index.to_a,
+        in_processes: num_processes,
+        finish: lambda { |_item, _index, _result|
+          processed_count += 1
+          now = Time.now
+          if now - last_report_time >= Wp2txt::DEFAULT_PROGRESS_INTERVAL || processed_count == xml_files.size
+            last_report_time = now
+            percent = (processed_count.to_f / xml_files.size * 100).round(1)
+            elapsed = now - time_start
+            rate = processed_count / elapsed
+            remaining = xml_files.size - processed_count
+            eta = remaining > 0 && rate > 0 ? remaining / rate : 0
+            puts pastel.dim(format("  [%d/%d] %.1f%% | %.1f files/sec | ETA: %s",
+                                   processed_count, xml_files.size,
+                                   percent, rate,
+                                   format_duration(eta)))
+          end
+        }
+      ) do |xml_file, idx|
+        # Each process writes directly to its own temp file
+        temp_output_file = File.join(temp_output_dir, "part_#{idx.to_s.rjust(5, '0')}.txt")
+        process_xml_file_and_write(xml_file, temp_output_file, config, strip_tmarker, format)
+      end
+
+      total_articles = article_counts.sum
+
+      # Phase 3: Merge temp output files into final output (streaming)
+      puts
+      puts pastel.cyan("Merging output files...")
+
+      temp_files = Dir.glob(File.join(temp_output_dir, "part_*.txt")).sort
+      writer = OutputWriter.new(
+        output_dir: output_dir,
+        base_name: base_name,
+        format: format,
+        file_size_mb: file_size_mb
+      )
+
+      temp_files.each do |temp_file|
+        next if File.size(temp_file).zero?
+        # Stream copy instead of loading entire file into memory
+        writer.write_from_file(temp_file)
+      end
+
+      output_files = writer.close
+
+      time_elapsed = Time.now - time_start
+      puts
+      puts pastel.green("#{ICONS[:success]} Processing complete!")
+
+      print_summary("Turbo Processing Complete", {
+        "XML files processed" => xml_files.size.to_s,
+        "Articles" => total_articles.to_s,
+        "Output files" => output_files.size.to_s,
+        "Time" => format_duration(time_elapsed)
+      }, status: :success)
+
+      puts
+      puts pastel.dim("Output files:")
+      output_files.each { |f| print_list_item(f, status: :success) }
+    ensure
+      # Cleanup temp directory
+      FileUtils.rm_rf(temp_dir) if File.exist?(temp_dir)
     end
   end
 
-  # Format article as JSON hash
-  def format_article_json(article, config)
-    result = { "title" => article.title }
+  # Regex patterns for fast XML extraction (avoid full DOM parsing)
+  TITLE_REGEX = %r{<title>([^<]*)</title>}m
+  TEXT_REGEX = %r{<text[^>]*>(.*)$}m
+  TEXT_END_REGEX = %r{</text>}
 
-    # Categories
-    if config[:category]
-      result["categories"] = article.categories.flatten
-    else
-      result["categories"] = nil
-    end
+  # Process a single XML file and write directly to output file
+  # Returns the number of articles processed
+  def process_xml_file_and_write(xml_file, output_file, config, strip_tmarker, format)
+    article_count = 0
+    runner = Runner.new(xml_file, File.dirname(xml_file), strip_tmarker, false)
 
-    # Text content
-    if config[:category_only]
-      result["text"] = nil
-    else
-      text = build_text_content(article, config)
-      result["text"] = text.strip
-    end
+    File.open(output_file, "w") do |out|
+      while (page_xml = runner.get_page)
+        begin
+          # Fast regex extraction instead of full Nokogiri DOM parsing
+          title_match = TITLE_REGEX.match(page_xml)
+          next unless title_match
 
-    # Redirect
-    redirect_target = extract_redirect(article)
-    result["redirect"] = redirect_target
+          title = title_match[1]
+          next if title.nil? || title.empty? || title.include?(":")
 
-    result
-  end
+          # Extract text content
+          text_match = TEXT_REGEX.match(page_xml)
+          next unless text_match
 
-  # Extract redirect target from article if it's a redirect
-  def extract_redirect(article)
-    article.elements.each do |type, content|
-      if type == :mw_redirect
-        match = content.match(REDIRECT_REGEX)
-        return match[1] if match
+          # Find end of text and extract content
+          text_start = text_match.begin(1)
+          text_end_match = TEXT_END_REGEX.match(page_xml, text_start)
+          next unless text_end_match
+
+          text = page_xml[text_start...text_end_match.begin(0)]
+          next if text.nil? || text.empty?
+
+          # Decode XML entities
+          text = text.gsub("&lt;", "<").gsub("&gt;", ">").gsub("&amp;", "&").gsub("&quot;", '"')
+
+          # Remove HTML comments
+          text.gsub!(/<!--(.*?)-->/m) do |content|
+            num_of_newlines = content.count("\n")
+            num_of_newlines.zero? ? +"" : "\n" * num_of_newlines
+          end
+
+          next if redirect_page?(text)
+
+          article = Article.new(text, title, strip_tmarker)
+          result = format_article(article, config)
+          next unless result
+
+          # Write directly to file
+          if format == :json
+            out.puts(result.to_json)
+          else
+            out.puts(result)
+          end
+          article_count += 1
+        rescue StandardError
+          next
+        end
       end
     end
-    nil
+
+    article_count
   end
 
-  # Format article as text string
-  def format_article_text(article, config)
-    if config[:category_only]
-      format_category_only(article)
-    elsif config[:category] && !article.categories.empty?
-      format_with_categories(article, config)
-    else
-      format_full_article(article, config)
-    end
-  end
-
-  # Build text content from article elements
-  def build_text_content(article, config)
-    contents = +""
-    article.elements.each do |e|
-      line = process_element(e, config)
-      contents << line if line
-    end
-    # Apply cleanup to remove leftover markup, normalize whitespace, etc.
-    cleanup(contents)
-  end
-
-  # Format article with only category information (text format)
-  def format_category_only(article)
-    title = "#{article.title}\t"
-    contents = article.categories.join(", ")
-    contents << "\n"
-    title + contents
-  end
-
-  # Format article with categories (includes body text)
-  def format_with_categories(article, config)
-    title = "\n[[#{article.title}]]\n\n"
-    contents = build_text_content(article, config)
-
-    # Add categories at the end
-    contents << "\nCATEGORIES: "
-    contents << article.categories.join(", ")
-    contents << "\n\n"
-
-    config[:title] ? title + contents : contents
-  end
-
-  # Format full article content
-  def format_full_article(article, config)
-    title = "\n[[#{article.title}]]\n\n"
-    contents = build_text_content(article, config)
-
-    config[:title] ? title + contents : contents
-  end
-
-  # Process individual element of the article
-  def process_element(element, config)
-    type, content = element
-    case type
-    when :mw_heading
-      return nil if config[:summary_only]
-      return nil unless config[:heading]
-
-      content = format_wiki(content, config)
-      content += "+HEADING+" if DEBUG_MODE
-      content + "\n"
-    when :mw_paragraph
-      content = format_wiki(content, config)
-      content += "+PARAGRAPH+" if DEBUG_MODE
-      content + "\n"
-    when :mw_table, :mw_htable
-      return nil unless config[:table]
-
-      content += "+TABLE+" if DEBUG_MODE
-      content + "\n"
-    when :mw_pre
-      return nil unless config[:pre]
-
-      content += "+PRE+" if DEBUG_MODE
-      content + "\n"
-    when :mw_quote
-      content += "+QUOTE+" if DEBUG_MODE
-      content + "\n"
-    when :mw_unordered, :mw_ordered, :mw_definition
-      return nil unless config[:list]
-
-      content += "+LIST+" if DEBUG_MODE
-      content + "\n"
-    when :mw_ml_template
-      return nil unless config[:multiline]
-
-      content += "+MLTEMPLATE+" if DEBUG_MODE
-      content + "\n"
-    when :mw_link
-      content = format_wiki(content, config)
-      return nil if content.strip.empty?
-
-      content += "+LINK+" if DEBUG_MODE
-      content + "\n"
-    when :mw_ml_link
-      content = format_wiki(content, config)
-      return nil if content.strip.empty?
-
-      content += "+MLLINK+" if DEBUG_MODE
-      content + "\n"
-    when :mw_redirect
-      return nil unless config[:redirect]
-
-      content += "+REDIRECT+" if DEBUG_MODE
-      content + "\n\n"
-    when :mw_isolated_template
-      return nil unless config[:multiline]
-
-      content += "+ISOLATED_TEMPLATE+" if DEBUG_MODE
-      content + "\n"
-    when :mw_isolated_tag
-      nil
-    else
-      return nil unless DEBUG_MODE
-
-      content += "+OTHER+"
-      content + "\n"
-    end
+  # Fast redirect detection (same as in stream_processor)
+  def redirect_page?(text)
+    return false if text.nil? || text.empty?
+    first_part = text[0, 200]
+    return false unless first_part
+    stripped = first_part.lstrip
+    return false unless stripped.start_with?("#", "＃")
+    stripped.include?("[[")
   end
 
   # Process articles using streaming (new architecture)
@@ -233,37 +296,113 @@ class WpApp
     pages = []
     page_count = 0
 
-    puts @pastel.red.bold("Processing")
-    puts "Input: #{@pastel.bold(input_path)}"
-    puts "Output format: #{@pastel.bold(format.to_s)}"
-    puts "CPU cores: #{@pastel.bold(num_processes.to_s)}"
+    # Determine parallelism mode
+    use_ractor = config[:use_ractor] && Wp2txt::RactorWorker.available?
+    parallel_mode = use_ractor ? "Ractor (experimental)" : "Parallel (processes)"
 
-    # Initialize progress spinner
-    spinner = TTY::Spinner.new(
-      "[:spinner] Processing articles... :title",
-      format: :dots,
-      hide_cursor: true
-    )
-    spinner.auto_spin
+    # Show warning for experimental Ractor mode
+    if config[:use_ractor]
+      if use_ractor
+        print_warning("Ractor mode is experimental and may be unstable.")
+        puts pastel.yellow("  If processing hangs, restart without --ractor option.") unless quiet?
+      else
+        print_warning("Ractor not available on this Ruby version. Using Parallel gem.")
+      end
+    end
+
+    # Get input file size for progress estimation
+    input_size = File.size(input_path) rescue 0
+    input_size_str = input_size > 0 ? format_size(input_size) : "unknown"
+
+    # Estimate total articles for ETA calculation
+    estimated_total = estimate_total_articles(input_path)
+    estimated_total_str = estimated_total ? "~#{(estimated_total / 1_000_000.0).round(1)}M" : "unknown"
+
+    print_mode_banner("Full Dump Processing", {
+      "Input" => File.basename(input_path),
+      "Size" => input_size_str,
+      "Articles (est.)" => estimated_total_str,
+      "Format" => format.to_s,
+      "CPU cores" => num_processes.to_s,
+      "Parallel" => parallel_mode,
+      "Skip redirects" => "yes"
+    })
+
+    # Ensure output is not buffered (important for piped output)
+    $stdout.sync = true
 
     time_start = Time.now
+    last_progress_time = time_start
+    last_progress_count = 0
+    batch_count = 0
+
+    # Progress reporting interval (seconds)
+    progress_interval = Wp2txt::DEFAULT_PROGRESS_INTERVAL
 
     # Process in batches for memory efficiency
     batch_size = num_processes * 100
     strip_tmarker = !config[:marker]
 
+    # Show initial progress message
+    puts pastel.cyan("Processing started at #{time_start.strftime('%H:%M:%S')}")
+    if estimated_total
+      puts pastel.dim("Progress updates every #{progress_interval} seconds (with ETA)...")
+    else
+      puts pastel.dim("Progress updates every #{progress_interval} seconds...")
+    end
+    puts
+
     stream.each_page do |title, text|
       pages << [title, text]
       page_count += 1
-
-      # Update spinner with current article
-      spinner.update(title: "(#{page_count} articles)")
 
       # Process batch when full
       next unless pages.size >= batch_size
 
       process_batch(pages, writer, config, strip_tmarker, num_processes)
       pages.clear
+      batch_count += 1
+
+      # Show progress every N seconds
+      now = Time.now
+      elapsed_since_update = now - last_progress_time
+      if elapsed_since_update >= progress_interval
+        elapsed_total = now - time_start
+        articles_per_sec = (page_count - last_progress_count) / elapsed_since_update
+        output_count = writer.file_count rescue batch_count
+
+        # Calculate ETA
+        eta_seconds = calculate_eta(page_count, estimated_total, elapsed_total)
+        eta_str = format_eta(eta_seconds)
+
+        # Calculate progress percentage if total is known
+        if estimated_total && estimated_total > 0
+          percent = (page_count.to_f / estimated_total * 100).round(1)
+          progress_line = format(
+            "  [%s] %s articles (%s%%) | %s/sec | %s files | Elapsed: %s | ETA: %s",
+            now.strftime("%H:%M:%S"),
+            page_count.to_s.rjust(8),
+            percent.to_s.rjust(5),
+            articles_per_sec.round(1).to_s.rjust(6),
+            output_count.to_s.rjust(4),
+            format_duration(elapsed_total),
+            eta_str
+          )
+        else
+          progress_line = format(
+            "  [%s] %s articles | %s/sec | %s files | Elapsed: %s",
+            now.strftime("%H:%M:%S"),
+            page_count.to_s.rjust(8),
+            articles_per_sec.round(1).to_s.rjust(6),
+            output_count.to_s.rjust(4),
+            format_duration(elapsed_total)
+          )
+        end
+        puts pastel.dim(progress_line)
+
+        last_progress_time = now
+        last_progress_count = page_count
+      end
     end
 
     # Process remaining pages
@@ -272,110 +411,323 @@ class WpApp
     # Close output
     output_files = writer.close
 
-    time_elapsed = Time.now - time_start
-    spinner.success("Done!")
+    # Get redirect skip count
+    redirects_skipped = stream.redirects_skipped
 
-    puts "\nProcessed #{@pastel.bold(page_count.to_s)} articles in #{@pastel.bold(format_time(time_elapsed))}"
-    puts "Output files: #{output_files.size}"
-    output_files.each { |f| puts "  - #{f}" }
+    time_elapsed = Time.now - time_start
+    puts
+    puts pastel.green("#{ICONS[:success]} Processing complete!")
+
+    # Summary
+    summary_data = {
+      "Articles" => page_count.to_s,
+      "Output files" => output_files.size.to_s,
+      "Time" => format_duration(time_elapsed)
+    }
+    summary_data["Redirects skipped"] = redirects_skipped.to_s if redirects_skipped > 0
+
+    print_summary("Processing Complete", summary_data, status: :success)
+
+    puts
+    puts pastel.dim("Output files:")
+    output_files.each { |f| print_list_item(f, status: :success) }
   end
 
   # Process a batch of pages in parallel
+  # Uses Ractor for true parallelism when enabled, otherwise falls back to Parallel gem
   def process_batch(pages, writer, config, strip_tmarker, num_processes)
-    results = Parallel.map(pages, in_processes: num_processes) do |title, text|
-      article = Article.new(text, title, strip_tmarker)
-      format_article(article, config)
-    end
+    results = if config[:use_ractor] && Wp2txt::RactorWorker.available?
+                # Use Ractor-based parallel processing (true parallelism)
+                Wp2txt::RactorWorker.process_articles(
+                  pages,
+                  config: config,
+                  strip_tmarker: strip_tmarker,
+                  num_workers: num_processes
+                )
+              else
+                # Fall back to Parallel gem (process-based parallelism)
+                Parallel.map(pages, in_processes: num_processes) do |title, text|
+                  article = Article.new(text, title, strip_tmarker)
+                  format_article(article, config)
+                end
+              end
 
     results.each do |result|
-      writer.write(result)
+      writer.write(result) if result
     end
   end
 
-  # Format elapsed time
-  def format_time(seconds)
-    if seconds < 60
-      format("%.1f seconds", seconds)
-    elsif seconds < 3600
-      minutes = (seconds / 60).to_i
-      secs = (seconds % 60).to_i
-      "#{minutes}m #{secs}s"
+  # Process section statistics mode
+  # Collects section heading statistics and outputs JSON to stdout
+  def process_section_stats(input_path, config)
+    require_relative "../lib/wp2txt/section_extractor"
+
+    bz2_gem = config[:bz2_gem]
+    no_turbo = config[:no_turbo]
+    num_processes = config[:num_procs]
+
+    # Use turbo mode for bz2 files unless disabled
+    if input_path.end_with?(".bz2") && !no_turbo
+      process_section_stats_turbo(input_path, bz2_gem, num_processes)
     else
-      hours = (seconds / 3600).to_i
-      minutes = ((seconds % 3600) / 60).to_i
-      "#{hours}h #{minutes}m"
+      process_section_stats_stream(input_path, bz2_gem)
+    end
+  end
+
+  def process_section_stats_stream(input_path, bz2_gem)
+    print_mode_banner("Section Statistics", {
+      "Input" => File.basename(input_path),
+      "Mode" => "Statistics collection (streaming)"
+    })
+
+    puts pastel.cyan("Collecting section statistics...")
+    puts pastel.dim("This may take a while for large dumps.")
+    puts
+
+    # Create stream processor and stats collector
+    stream = StreamProcessor.new(input_path, bz2_gem: bz2_gem)
+    collector = Wp2txt::SectionStatsCollector.new
+
+    time_start = Time.now
+    last_progress_time = time_start
+    progress_interval = Wp2txt::DEFAULT_PROGRESS_INTERVAL
+
+    # Process pages without full text processing (just extract headings)
+    stream.each_page do |title, text|
+      # Create minimal article just for heading extraction
+      article = Article.new(text, title, false)
+      collector.process(article)
+
+      # Show progress periodically
+      now = Time.now
+      if now - last_progress_time >= progress_interval
+        elapsed = now - time_start
+        rate = collector.total_articles / elapsed
+        puts pastel.dim(format("  [%s] %d articles processed (%.1f/sec)",
+                               now.strftime("%H:%M:%S"),
+                               collector.total_articles,
+                               rate))
+        last_progress_time = now
+      end
+    end
+
+    output_section_stats_result(collector, time_start)
+  end
+
+  def process_section_stats_turbo(input_path, bz2_gem, num_processes)
+    require "tmpdir"
+    require "fileutils"
+
+    print_mode_banner("Section Statistics (Turbo)", {
+      "Input" => File.basename(input_path),
+      "Mode" => "Statistics collection (parallel)",
+      "CPU cores" => num_processes.to_s
+    })
+
+    time_start = Time.now
+
+    # Create temp directory for split XML files
+    temp_dir = Dir.mktmpdir("wp2txt_stats_")
+    puts pastel.cyan("Phase 1: Splitting bz2 file...")
+    puts pastel.dim("  Temp directory: #{temp_dir}")
+    puts
+
+    begin
+      # Phase 1: Split bz2 into XML files
+      $stdout.sync = true
+      splitter = Splitter.new(input_path, temp_dir, 10, bz2_gem) do |bytes_read, file_count|
+        size_str = format_size(bytes_read)
+        elapsed = Time.now - time_start
+        rate = bytes_read / elapsed / 1024 / 1024
+        puts pastel.dim(format("  [%s] Decompressed: %s | %.1f MB/s | %d XML files",
+                               Time.now.strftime("%H:%M:%S"),
+                               size_str, rate, file_count))
+      end
+      splitter.split_file
+      xml_files = Dir.glob(File.join(temp_dir, "*.xml")).sort
+
+      split_time = Time.now - time_start
+      final_size = splitter.size_read || 0
+      puts
+      puts pastel.green("#{ICONS[:success]} Split complete: #{xml_files.size} XML files, #{format_size(final_size)} (#{format_duration(split_time)})")
+      puts
+
+      # Phase 2: Process XML files in parallel
+      puts pastel.cyan("Phase 2: Collecting statistics in parallel...")
+      puts
+
+      processed_count = 0
+      last_report_time = Time.now
+
+      # Process XML files in parallel and collect stats
+      partial_results = Parallel.map(
+        xml_files,
+        in_processes: num_processes,
+        finish: lambda { |_item, _index, _result|
+          processed_count += 1
+          now = Time.now
+          if now - last_report_time >= Wp2txt::DEFAULT_PROGRESS_INTERVAL || processed_count == xml_files.size
+            last_report_time = now
+            percent = (processed_count.to_f / xml_files.size * 100).round(1)
+            elapsed = now - time_start
+            rate = processed_count / elapsed
+            remaining = xml_files.size - processed_count
+            eta = remaining > 0 && rate > 0 ? remaining / rate : 0
+            puts pastel.dim(format("  [%d/%d] %.1f%% | %.1f files/sec | ETA: %s",
+                                   processed_count, xml_files.size,
+                                   percent, rate, format_duration(eta)))
+          end
+        }
+      ) do |xml_file|
+        process_xml_file_for_stats(xml_file)
+      end
+
+      # Merge all partial results
+      puts
+      puts pastel.cyan("Merging results...")
+
+      collector = Wp2txt::SectionStatsCollector.new
+      partial_results.each { |result| collector.merge(result) }
+
+      output_section_stats_result(collector, time_start)
+    ensure
+      FileUtils.rm_rf(temp_dir) if File.exist?(temp_dir)
+    end
+  end
+
+  # Process a single XML file for section stats (used by turbo mode)
+  def process_xml_file_for_stats(xml_file)
+    collector = Wp2txt::SectionStatsCollector.new
+    runner = Runner.new(xml_file, File.dirname(xml_file), false, false)
+
+    while (page_xml = runner.get_page)
+      begin
+        # Fast regex extraction
+        title_match = TITLE_REGEX.match(page_xml)
+        next unless title_match
+
+        title = title_match[1]
+        next if title.nil? || title.empty? || title.include?(":")
+
+        text_match = TEXT_REGEX.match(page_xml)
+        next unless text_match
+
+        text_start = text_match.begin(1)
+        text_end_match = TEXT_END_REGEX.match(page_xml, text_start)
+        next unless text_end_match
+
+        text = page_xml[text_start...text_end_match.begin(0)]
+        next if text.nil? || text.empty?
+
+        text = text.gsub("&lt;", "<").gsub("&gt;", ">").gsub("&amp;", "&").gsub("&quot;", '"')
+        next if redirect_page?(text)
+
+        article = Article.new(text, title, false)
+        collector.process(article)
+      rescue StandardError
+        next
+      end
+    end
+
+    collector.to_mergeable_hash
+  end
+
+  def output_section_stats_result(collector, time_start)
+    time_elapsed = Time.now - time_start
+
+    puts
+    puts pastel.green("#{ICONS[:success]} Statistics collection complete!")
+    puts
+
+    # Print summary to stderr so JSON goes to stdout cleanly
+    $stderr.puts pastel.dim("Total articles: #{collector.total_articles}")
+    $stderr.puts pastel.dim("Unique sections: #{collector.section_counts.size}")
+    $stderr.puts pastel.dim("Time: #{format_duration(time_elapsed)}")
+    $stderr.puts
+
+    # Output JSON to stdout
+    puts collector.to_json(top_n: Wp2txt::DEFAULT_TOP_N_SECTIONS)
+
+    EXIT_SUCCESS
+  end
+
+  # Parse --markers option value
+  # "all" -> true (all markers enabled)
+  # "none" -> DEPRECATED (now treated as "all" with warning)
+  # "math,code,chem" -> [:math, :code, :chem]
+  def parse_markers_option(value)
+    case value.to_s.downcase.strip
+    when "all", "true", ""
+      true
+    when "none", "false"
+      # Deprecation warning - none/false no longer removes content completely
+      puts @pastel.yellow("Warning: --markers=none is deprecated and will be removed in a future version.")
+      puts @pastel.yellow("         Complete removal of special content can make surrounding text nonsensical.")
+      puts @pastel.yellow("         Using --markers=all instead. Markers will be shown for all special content.")
+      puts
+      true  # Treat as "all" instead of removing content
+    else
+      # Parse comma-separated list
+      value.split(",").map { |m| m.strip.downcase.to_sym }.select do |m|
+        Wp2txt::MARKER_TYPES.include?(m)
+      end
     end
   end
 
   public
 
   # Main execution method
+  # @return [Integer] Exit code (0=success, 1=error, 2=partial)
   def run
-    # Parse command line options
-    opts = Optimist.options do
-      version Wp2txt::VERSION
-      banner <<~BANNER
-        WP2TXT extracts plain text data from Wikipedia dump file (encoded in XML/compressed with Bzip2)
-        stripping all the MediaWiki markups and other metadata.
+    # Parse command line options using CLI module
+    opts = Wp2txt::CLI.parse_options(ARGV)
 
-        Usage: wp2txt [options]
-        where [options] are:
-      BANNER
+    # Configure UI settings (color, quiet mode)
+    configure_ui(no_color: opts[:no_color], quiet: opts[:quiet])
+    reset_pastel!  # Reset pastel to apply color settings
+    @pastel = pastel  # Reinitialize with new settings
 
-      opt :input, "Path to compressed file (bz2) or XML file, or path to directory containing XML files",
-          type: String, required: true, short: "-i"
-      opt :output_dir, "Path to output directory",
-          default: Dir.pwd, type: String, short: "-o"
-      opt :format, "Output format: text or json (JSONL)",
-          default: "text", short: "-j"
-      opt :category, "Show article category information",
-          default: true, short: "-a"
-      opt :category_only, "Extract only article title and categories",
-          default: false, short: "-g"
-      opt :summary_only, "Extract only article title, categories, and summary text before first heading",
-          default: false, short: "-s"
-      opt :file_size, "Approximate size (in MB) of each output file (0 for single file)",
-          default: 10, short: "-f"
-      opt :num_procs, "Number of processes (up to #{MAX_PROCESSORS}) to be run concurrently",
-          type: Integer, short: "-n"
-      opt :title, "Keep page titles in output",
-          default: true, short: "-t"
-      opt :heading, "Keep section titles in output",
-          default: true, short: "-d"
-      opt :list, "Keep unprocessed list items in output",
-          default: false, short: "-l"
-      opt :ref, "Keep reference notations in the format [ref]...[/ref]",
-          default: false, short: "-r"
-      opt :redirect, "Show redirect destination",
-          default: false, short: "-e"
-      opt :marker, "Show symbols prefixed to list items, definitions, etc.",
-          default: true, short: "-m"
-      opt :bz2_gem, "Use Ruby's bzip2-ruby gem instead of a system command",
-          default: false, short: "-b"
-      # Deprecated options (kept for backward compatibility)
-      opt :convert, "[DEPRECATED] This option is no longer needed",
-          default: true, short: "-c"
-      opt :del_interfile, "[DEPRECATED] Intermediate files are no longer created",
-          short: "-x", default: false
+    # Handle config-init
+    if opts[:config_init]
+      init_config
+      return EXIT_SUCCESS
     end
 
-    # Validate command line options
-    Optimist.die :file_size, "must be 0 or larger" unless opts[:file_size] >= 0
-    Optimist.die :input, "must exist" unless File.exist?(opts[:input])
-    Optimist.die :output_dir, "must exist" unless File.exist?(opts[:output_dir])
+    # Handle cache operations
+    if opts[:cache_status]
+      show_cache_status(opts[:cache_dir])
+      return EXIT_SUCCESS
+    end
+
+    if opts[:cache_clear]
+      clear_cache(opts[:cache_dir], opts[:lang])
+      return EXIT_SUCCESS
+    end
+
+    # Determine input source
+    if opts[:from_category] && opts[:lang]
+      # Category extraction mode
+      return extract_category_articles(opts)
+    end
+
+    if opts[:articles] && opts[:lang]
+      # Article extraction mode
+      return extract_specific_articles(opts)
+    end
+
+    input_path = if opts[:lang]
+                   download_dump(opts[:lang], opts[:cache_dir])
+                 else
+                   opts[:input]
+                 end
 
     # Validate format option
-    format = opts[:format].to_s.downcase
-    unless %w[text json].include?(format)
-      Optimist.die :format, "must be 'text' or 'json'"
-    end
-    format = format.to_sym
+    format = opts[:format].to_s.downcase.to_sym
 
     # Show deprecation warnings
     if opts[:convert_given] || opts[:del_interfile_given]
-      puts @pastel.yellow("Note: --convert and --del-interfile options are deprecated and will be ignored.")
-      puts @pastel.yellow("      Intermediate files are no longer created in v2.0+")
-      puts
+      print_warning("--convert and --del-interfile options are deprecated and will be ignored.")
+      puts pastel.yellow("  Intermediate files are no longer created in v2.0+") unless quiet?
     end
 
     num_processes = calculate_num_processes(opts)
@@ -385,20 +737,158 @@ class WpApp
       format: format,
       num_procs: num_processes,
       file_size: opts[:file_size],
-      bz2_gem: opts[:bz2_gem]
+      bz2_gem: opts[:bz2_gem],
+      use_ractor: opts[:ractor],
+      no_turbo: opts[:no_turbo]
     }
 
-    %i[title list heading table redirect multiline category category_only
-       summary_only marker].each do |opt|
+    %i[title list heading table pre ref redirect multiline category category_only
+       summary_only metadata_only marker extract_citations expand_templates
+       section_output min_section_length skip_empty
+       alias_file no_section_aliases section_stats show_matched_sections].each do |opt|
       config[opt] = opts[opt]
     end
 
-    # Process input
-    process_stream(opts[:input], opts[:output_dir], config)
+    # Parse sections option (comma-separated string to array)
+    if opts[:sections]
+      config[:sections] = opts[:sections].split(",").map(&:strip).reject(&:empty?)
+    end
 
-    puts @pastel.blue.bold("\nComplete!")
+    # Parse markers option
+    config[:markers] = parse_markers_option(opts[:markers])
+
+    # Handle section-stats mode (standalone, outputs to stdout)
+    if opts[:section_stats]
+      return process_section_stats(input_path, config)
+    end
+
+    # Process input - turbo mode is default for bz2 files (faster parallel decompression)
+    # Use --no-turbo to disable (saves disk space but much slower)
+    if input_path.end_with?(".bz2") && !opts[:no_turbo]
+      if config[:use_ractor]
+        puts pastel.yellow("Note: --ractor is not supported with turbo mode. Using parallel gem instead.")
+        puts pastel.yellow("  Use --no-turbo to enable Ractor-based processing.")
+        puts
+      end
+      process_with_turbo(input_path, opts[:output_dir], config)
+    else
+      process_stream(input_path, opts[:output_dir], config)
+    end
+
+    EXIT_SUCCESS
+  end
+
+  # Show cache status
+  def show_cache_status(cache_dir)
+    print_mode_banner("Cache Status", { "Directory" => cache_dir })
+
+    status = Wp2txt::DumpManager.all_cache_status(cache_dir)
+
+    if status.empty?
+      print_info_message("No cached dumps found.")
+      return
+    end
+
+    status.each do |lang, info|
+      if info[:error]
+        print_list_item("#{lang}: Error - #{info[:error]}", status: :error)
+      else
+        index_size = info[:index_size] > 0 ? format_size(info[:index_size]) : pastel.dim("not downloaded")
+        multistream_size = info[:multistream_size] > 0 ? format_size(info[:multistream_size]) : pastel.dim("not downloaded")
+        status_icon = info[:fresh] ? :success : :warning
+
+        puts pastel.bold(lang.to_s.upcase)
+        print_list_item("Index: #{index_size}", status: status_icon)
+        print_list_item("Multistream: #{multistream_size}", status: status_icon)
+        print_info("Date", info[:dump_date] || "unknown", indent: 1)
+        puts
+      end
+    end
+  end
+
+  # Clear cache
+  def clear_cache(cache_dir, lang = nil)
+    if lang
+      spinner = create_spinner("Clearing cache for #{lang}...")
+      spinner.auto_spin
+      manager = Wp2txt::DumpManager.new(lang, cache_dir: cache_dir)
+      manager.clear_cache!
+      spinner.success(pastel.green("Done!"))
+      print_success("Cache cleared for #{lang}.")
+    else
+      spinner = create_spinner("Clearing all cache...")
+      spinner.auto_spin
+      Wp2txt::DumpManager.clear_all_cache!(cache_dir)
+      spinner.success(pastel.green("Done!"))
+      print_success("All cache cleared.")
+    end
+  end
+
+  # Initialize configuration file
+  def init_config
+    config_path = Wp2txt::Config.default_path
+
+    if File.exist?(config_path)
+      print_warning("Configuration file already exists: #{config_path}")
+
+      unless confirm?("Overwrite?")
+        puts "Cancelled."
+        return
+      end
+    end
+
+    Wp2txt::Config.create_default(config_path, force: true)
+    print_success("Configuration file created: #{config_path}")
+    puts
+    puts pastel.dim("Available settings:")
+    print_list_item("cache.dump_expiry_days - Days before dump cache expires (default: 30)")
+    print_list_item("cache.category_expiry_days - Days before category cache expires (default: 7)")
+    print_list_item("cache.directory - Cache directory location")
+    print_list_item("defaults.format - Default output format (text/json)")
+    print_list_item("defaults.depth - Default subcategory recursion depth")
+  end
+
+  # Download dump for a language
+  def download_dump(lang, cache_dir)
+    app_config = Wp2txt::CLI.config
+
+    print_mode_banner("Auto-Download", {
+      "Language" => lang,
+      "Cache" => cache_dir
+    })
+
+    manager = Wp2txt::DumpManager.new(
+      lang,
+      cache_dir: cache_dir,
+      dump_expiry_days: app_config.dump_expiry_days
+    )
+
+    # Check for latest dump
+    spinner = create_spinner("Checking for latest dump...")
+    spinner.auto_spin
+    dump_date = manager.latest_dump_date
+    spinner.success(pastel.green(dump_date))
+
+    # Download index and multistream
+    print_header("Downloading files")
+    manager.download_index
+    manager.download_multistream
+
+    print_success("Download complete!")
+
+    # Return path to multistream file
+    manager.cached_multistream_path
   end
 end
 
-# Create new instance and run
-WpApp.new.run
+# Handle Ctrl+C gracefully
+Signal.trap("INT") do
+  # Show cursor (in case it was hidden by spinner/progress bar)
+  print "\e[?25h"
+  puts "\n\nInterrupted by user."
+  exit Wp2txt::CliUI::EXIT_ERROR
+end
+
+# Create new instance and run with proper exit code
+exit_code = WpApp.new.run
+exit(exit_code || Wp2txt::CliUI::EXIT_SUCCESS)

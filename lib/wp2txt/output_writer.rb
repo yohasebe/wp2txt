@@ -30,6 +30,7 @@ module Wp2txt
     # Write formatted article to output
     # Thread-safe for parallel processing
     # @param content [String, Hash] Content to write (String for text, Hash for JSON)
+    # @raise [Wp2txt::FileIOError] on disk full or other I/O errors
     def write(content)
       return if content.nil? || (content.is_a?(String) && content.strip.empty?)
 
@@ -42,6 +43,61 @@ module Wp2txt
 
         rotate_file_if_needed
       end
+    rescue Errno::ENOSPC
+      close_on_error
+      raise Wp2txt::FileIOError, "Disk full: cannot write to output directory '#{@output_dir}'"
+    rescue IOError, SystemCallError => e
+      close_on_error
+      raise Wp2txt::FileIOError, "Write failed: #{e.message}"
+    end
+
+    # Write raw content directly without formatting
+    # Used for merging pre-formatted temp files
+    # @param content [String] Raw content to append
+    # @raise [Wp2txt::FileIOError] on disk full or other I/O errors
+    def write_raw(content)
+      return if content.nil? || content.empty?
+
+      @mutex.synchronize do
+        ensure_file_open
+
+        @current_file.write(content)
+        @current_size += content.bytesize
+
+        rotate_file_if_needed
+      end
+    rescue Errno::ENOSPC
+      close_on_error
+      raise Wp2txt::FileIOError, "Disk full: cannot write to output directory '#{@output_dir}'"
+    rescue IOError, SystemCallError => e
+      close_on_error
+      raise Wp2txt::FileIOError, "Write failed: #{e.message}"
+    end
+
+    # Stream content from a file, rotating only at article boundaries (blank lines)
+    # This ensures no article is split across output files
+    # @param source_path [String] Path to source file
+    # @raise [Wp2txt::FileIOError] on disk full or other I/O errors
+    def write_from_file(source_path)
+      return unless File.exist?(source_path)
+
+      @mutex.synchronize do
+        File.open(source_path, "r:UTF-8") do |src|
+          src.each_line do |line|
+            ensure_file_open
+            @current_file.write(line)
+            @current_size += line.bytesize
+            # Only rotate at blank lines (article boundaries)
+            rotate_file_if_needed if line.strip.empty?
+          end
+        end
+      end
+    rescue Errno::ENOSPC
+      close_on_error
+      raise Wp2txt::FileIOError, "Disk full: cannot write to output directory '#{@output_dir}'"
+    rescue IOError, SystemCallError => e
+      close_on_error
+      raise Wp2txt::FileIOError, "Write failed: #{e.message}"
     end
 
     # Close current file and finalize
@@ -55,15 +111,27 @@ module Wp2txt
     # Get list of output files created
     attr_reader :output_files
 
+    # Get count of output files created so far
+    # @return [Integer] Number of output files
+    def file_count
+      @output_files.size
+    end
+
     private
 
     def ensure_file_open
       return if @current_file && !@current_file.closed?
 
       filename = generate_filename
-      @current_file = File.open(filename, "w:UTF-8")
+      # Use binary mode to avoid Ruby's encoding conversion on write;
+      # input is read as UTF-8 via each_line, which yields valid UTF-8 strings
+      @current_file = File.open(filename, "wb")
       @output_files << filename
       @current_size = 0
+    end
+
+    def close_on_error
+      @current_file&.close rescue nil # rubocop:disable Style/RescueModifier
     end
 
     def close_current_file

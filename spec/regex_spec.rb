@@ -2,6 +2,43 @@
 
 require_relative "spec_helper"
 
+RSpec.describe "Wp2txt MediaWiki Data Loading" do
+  describe "load_mediawiki_data" do
+    it "loads data from JSON file" do
+      data = Wp2txt.load_mediawiki_data
+      expect(data).to be_a(Hash)
+      expect(data).to have_key("magic_words")
+      expect(data).to have_key("namespaces")
+    end
+
+    it "contains redirect keywords" do
+      data = Wp2txt.load_mediawiki_data
+      redirects = data.dig("magic_words", "redirect")
+      expect(redirects).to be_an(Array)
+      expect(redirects).to include("REDIRECT")
+      expect(redirects.size).to be > 100  # Should have many languages
+    end
+
+    it "contains category namespaces" do
+      data = Wp2txt.load_mediawiki_data
+      categories = data.dig("namespaces", "category")
+      expect(categories).to be_an(Array)
+      expect(categories).to include("Category")
+      expect(categories).to include("カテゴリ")  # Japanese
+      expect(categories).to include("분류")      # Korean (Hangul)
+      expect(categories).to include("分類")      # Chinese Traditional
+    end
+
+    it "contains file namespaces" do
+      data = Wp2txt.load_mediawiki_data
+      files = data.dig("namespaces", "file")
+      expect(files).to be_an(Array)
+      expect(files).to include("File")
+      expect(files).to include("Image")
+    end
+  end
+end
+
 RSpec.describe "Wp2txt Regex Patterns" do
   # Define local references to module constants
   let(:remove_hr_regex) { Wp2txt::REMOVE_HR_REGEX }
@@ -95,6 +132,22 @@ RSpec.describe "Wp2txt Regex Patterns" do
       match = "#넘겨주기 [[대상 문서]]".match(redirect_regex)
       expect(match).not_to be_nil
       expect(match[1]).to eq "대상 문서"
+    end
+
+    it "handles full-width # in Japanese redirect" do
+      match = "＃転送 [[日本語ページ]]".match(redirect_regex)
+      expect(match).not_to be_nil
+      expect(match[1]).to eq "日本語ページ"
+    end
+
+    it "handles Arabic redirect" do
+      match = "#تحويل [[الصفحة المستهدفة]]".match(redirect_regex)
+      expect(match).not_to be_nil
+    end
+
+    it "handles Hindi redirect" do
+      match = "#पुनर्प्रेषित [[लक्ष्य पृष्ठ]]".match(redirect_regex)
+      expect(match).not_to be_nil
     end
   end
 

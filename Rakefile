@@ -17,6 +17,10 @@ end
 
 task default: :spec
 
+# =============================================================================
+# Docker
+# =============================================================================
+
 desc "Push Docker images"
 task :push do
   sh <<-SCRIPT.strip_heredoc, { verbose: false }

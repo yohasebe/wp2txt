@@ -162,6 +162,26 @@ RSpec.describe Wp2txt::Article do
       expect(types).to include(:mw_ml_template)
     end
 
+    it "extracts content after closing }} on same line" do
+      wiki = "{{Template\n|param = value\n}}Following paragraph text."
+      article = Wp2txt::Article.new(wiki)
+      types = article.elements.map(&:first)
+      expect(types).to include(:mw_ml_template)
+      expect(types).to include(:mw_paragraph)
+      # Check that the paragraph content is extracted
+      paragraph = article.elements.find { |t, _| t == :mw_paragraph }
+      expect(paragraph.last).to include("Following paragraph text")
+    end
+
+    it "handles nested braces in multiline templates" do
+      wiki = "{{Outer\n|inner = {{nested}}\n}}After template."
+      article = Wp2txt::Article.new(wiki)
+      types = article.elements.map(&:first)
+      expect(types).to include(:mw_ml_template)
+      paragraph = article.elements.find { |t, _| t == :mw_paragraph }
+      expect(paragraph.last).to include("After template")
+    end
+
     it "handles multiline links" do
       wiki = "[[File:Image.jpg|thumb|Description\nthat spans\nmultiple lines]]"
       article = Wp2txt::Article.new(wiki)
@@ -319,6 +339,24 @@ RSpec.describe Wp2txt::Article do
 
     it "detects Chinese redirect" do
       article = Wp2txt::Article.new("#重定向 [[目标]]")
+      types = article.elements.map(&:first)
+      expect(types).to include(:mw_redirect)
+    end
+
+    it "detects Japanese alternative redirect (リダイレクト)" do
+      article = Wp2txt::Article.new("#リダイレクト [[転送先]]")
+      types = article.elements.map(&:first)
+      expect(types).to include(:mw_redirect)
+    end
+
+    it "detects Russian abbreviated redirect (перенапр)" do
+      article = Wp2txt::Article.new("#перенапр [[Цель]]")
+      types = article.elements.map(&:first)
+      expect(types).to include(:mw_redirect)
+    end
+
+    it "detects Hindi redirect (पुनर्प्रेषित)" do
+      article = Wp2txt::Article.new("#पुनर्प्रेषित [[लक्ष्य]]")
       types = article.elements.map(&:first)
       expect(types).to include(:mw_redirect)
     end

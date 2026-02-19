@@ -163,6 +163,19 @@ RSpec.describe "Integration Tests" do
         expect(special_chr("&gt;")).to eq ">"
         expect(special_chr("&amp;")).to eq "&"
       end
+
+      it "converts Wikipedia-specific entities" do
+        expect(special_chr("&ratio;")).to eq "∶"
+        expect(special_chr("&dash;")).to eq "–"
+        expect(special_chr("&nbso;")).to eq " "  # Common typo for &nbsp;
+      end
+
+      it "converts mathematical entities" do
+        expect(special_chr("&alpha;")).to eq "α"
+        expect(special_chr("&beta;")).to eq "β"
+        expect(special_chr("&infin;")).to eq "∞"
+        expect(special_chr("&sum;")).to eq "∑"
+      end
     end
   end
 
@@ -462,6 +475,68 @@ RSpec.describe "Integration Tests" do
           expect(result).to be_a(String)
           expect(result.valid_encoding?).to be true
         end
+      end
+    end
+  end
+
+  describe "HTML Entity Management" do
+    describe "Wp2txt.load_html_entities" do
+      it "loads entities from JSON files" do
+        entities = Wp2txt.load_html_entities
+        expect(entities).to be_a(Hash)
+        expect(entities.size).to be > 2000
+      end
+
+      it "includes WHATWG standard entities" do
+        entities = Wp2txt.load_html_entities
+        expect(entities["&alpha;"]).to eq "α"
+        expect(entities["&AElig;"]).to eq "Æ"
+        expect(entities["&copy;"]).to eq "©"
+        expect(entities["&nbsp;"]).to eq "\u00A0"
+      end
+
+      it "includes Wikipedia-specific entities" do
+        entities = Wp2txt.load_html_entities
+        expect(entities["&ratio;"]).to eq "∶"
+        expect(entities["&dash;"]).to eq "–"
+        expect(entities["&nbso;"]).to eq " "
+      end
+    end
+
+    describe "EXTRA_ENTITIES constant" do
+      it "is frozen to prevent modification" do
+        expect(Wp2txt::EXTRA_ENTITIES).to be_frozen
+      end
+
+      it "contains comprehensive entity coverage" do
+        # Should have 2000+ entities from WHATWG + Wikipedia-specific
+        expect(Wp2txt::EXTRA_ENTITIES.size).to be > 2000
+      end
+    end
+
+    describe "EXTRA_ENTITIES_REGEX" do
+      it "matches entity patterns" do
+        regex = Wp2txt::EXTRA_ENTITIES_REGEX
+        expect("&alpha;").to match(regex)
+        expect("&ratio;").to match(regex)
+        expect("&AElig;").to match(regex)
+      end
+
+      it "captures entity name in match" do
+        regex = Wp2txt::EXTRA_ENTITIES_REGEX
+        match = "text &alpha; more".match(regex)
+        expect(match).not_to be_nil
+        expect(match[1]).to eq "&alpha;"
+      end
+    end
+
+    describe "backward compatibility" do
+      it "MATH_ENTITIES is aliased to EXTRA_ENTITIES" do
+        expect(Wp2txt::MATH_ENTITIES).to eq Wp2txt::EXTRA_ENTITIES
+      end
+
+      it "MATH_ENTITIES_REGEX is aliased to EXTRA_ENTITIES_REGEX" do
+        expect(Wp2txt::MATH_ENTITIES_REGEX).to eq Wp2txt::EXTRA_ENTITIES_REGEX
       end
     end
   end

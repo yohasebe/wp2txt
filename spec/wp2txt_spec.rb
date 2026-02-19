@@ -50,13 +50,13 @@ RSpec.describe Wp2txt do
 
       it "returns path for existing command" do
         # 'ls' should exist on all Unix systems
-        result = splitter.command_exist?("ls")
+        result = suppress_stdout { splitter.command_exist?("ls") }
         expect(result).to be_truthy
         expect(result).to include("ls")
       end
 
       it "returns false for non-existing command" do
-        result = splitter.command_exist?("nonexistent_command_xyz123")
+        result = suppress_stdout { splitter.command_exist?("nonexistent_command_xyz123") }
         expect(result).to be false
       end
     end
@@ -287,6 +287,143 @@ RSpec.describe "Splitter with edge cases" do
         splitter = Wp2txt::Splitter.new(large_file, temp_dir, 1)
         splitter.split_file
       }.not_to raise_error
+    end
+  end
+end
+
+RSpec.describe "Splitter additional tests" do
+  let(:temp_dir) { Dir.mktmpdir }
+
+  after do
+    FileUtils.rm_rf(temp_dir) if temp_dir && Dir.exist?(temp_dir)
+  end
+
+  describe "#file_size" do
+    let(:test_file) do
+      file = File.join(temp_dir, "test_size.xml")
+      File.write(file, "x" * 1000)
+      file
+    end
+
+    it "calculates file size" do
+      splitter = Wp2txt::Splitter.new(test_file, temp_dir)
+      size = splitter.file_size(File.open(test_file, "r"))
+      expect(size).to eq(1000)
+    end
+
+    it "handles empty file" do
+      empty_file = File.join(temp_dir, "empty.xml")
+      File.write(empty_file, "")
+      splitter = Wp2txt::Splitter.new(empty_file, temp_dir)
+      size = splitter.file_size(File.open(empty_file, "r"))
+      expect(size).to eq(0)
+    end
+  end
+
+  describe "#split_file edge cases" do
+    let(:single_page_xml) do
+      <<~XML
+        <mediawiki>
+        <page>
+          <title>Single Article</title>
+          <text>Content here.</text>
+        </page>
+        </mediawiki>
+      XML
+    end
+
+    let(:single_file) do
+      file = File.join(temp_dir, "single.xml")
+      File.write(file, single_page_xml)
+      file
+    end
+
+    it "handles single page file" do
+      splitter = Wp2txt::Splitter.new(single_file, temp_dir)
+      splitter.split_file
+
+      xml_files = Dir.glob(File.join(temp_dir, "*.xml"))
+      expect(xml_files.size).to be >= 1
+    end
+
+    it "creates output files with correct base name" do
+      splitter = Wp2txt::Splitter.new(single_file, temp_dir)
+      splitter.split_file
+
+      xml_files = Dir.glob(File.join(temp_dir, "single-*.xml"))
+      expect(xml_files).not_to be_empty
+    end
+  end
+
+  describe "#prepare" do
+    it "sets up file pointer for plain XML" do
+      xml_file = File.join(temp_dir, "test.xml")
+      File.write(xml_file, "<page></page>")
+      splitter = Wp2txt::Splitter.new(xml_file, temp_dir)
+
+      expect(splitter.instance_variable_get(:@file_pointer)).not_to be_nil
+      expect(splitter.instance_variable_get(:@outfile_base)).to eq("test-")
+    end
+  end
+end
+
+RSpec.describe "Runner additional tests" do
+  let(:temp_dir) { Dir.mktmpdir }
+
+  after do
+    FileUtils.rm_rf(temp_dir) if temp_dir && Dir.exist?(temp_dir)
+  end
+
+  describe "#extract_text with del_interfile" do
+    let(:xml_content) do
+      <<~XML
+        <page>
+          <title>Delete Test</title>
+          <revision>
+            <text>Test content.</text>
+          </revision>
+        </page>
+      XML
+    end
+
+    it "deletes intermediate file when del_interfile is true" do
+      xml_file = File.join(temp_dir, "to_delete.xml")
+      File.write(xml_file, xml_content)
+
+      runner = Wp2txt::Runner.new(xml_file, temp_dir, false, true)
+      runner.extract_text { |article| "#{article.title}\n" }
+
+      expect(File.exist?(xml_file)).to be false
+    end
+
+    it "keeps intermediate file when del_interfile is false" do
+      xml_file = File.join(temp_dir, "to_keep.xml")
+      File.write(xml_file, xml_content)
+
+      runner = Wp2txt::Runner.new(xml_file, temp_dir, false, false)
+      runner.extract_text { |article| "#{article.title}\n" }
+
+      expect(File.exist?(xml_file)).to be true
+    end
+  end
+
+  describe "#get_page edge cases" do
+    let(:incomplete_xml) do
+      <<~XML
+        <page>
+          <title>Incomplete</title>
+          <text>No closing page tag
+      XML
+    end
+
+    it "handles incomplete page" do
+      xml_file = File.join(temp_dir, "incomplete.xml")
+      File.write(xml_file, incomplete_xml)
+
+      runner = Wp2txt::Runner.new(xml_file, temp_dir, false, false)
+      result = runner.get_page
+      # Should return something even if incomplete
+      expect(result).to be_truthy
     end
   end
 end

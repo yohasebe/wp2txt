@@ -1,10 +1,597 @@
 # frozen_string_literal: true
 
 require_relative "spec_helper"
+require_relative "../lib/wp2txt/cli"
+require "tmpdir"
 
 # Load the CLI app class for testing
 require_relative "../lib/wp2txt"
 require_relative "../lib/wp2txt/utils"
+
+RSpec.describe Wp2txt::CLI do
+  describe ".parse_options" do
+    context "with --from-category option" do
+      it "requires --lang" do
+        suppress_stderr do
+          expect do
+            described_class.parse_options(["--from-category=Test"])
+          end.to raise_error(SystemExit)
+        end
+      end
+
+      it "cannot be used with --input" do
+        Dir.mktmpdir do |dir|
+          # Create a dummy file
+          dummy_file = File.join(dir, "test.bz2")
+          File.write(dummy_file, "test")
+
+          suppress_stderr do
+            expect do
+              described_class.parse_options([
+                "--from-category=Test",
+                "--lang=en",
+                "--input=#{dummy_file}",
+                "-o", dir
+              ])
+            end.to raise_error(SystemExit)
+          end
+        end
+      end
+
+      it "cannot be used with --articles" do
+        Dir.mktmpdir do |dir|
+          suppress_stderr do
+            expect do
+              described_class.parse_options([
+                "--from-category=Test",
+                "--lang=en",
+                "--articles=Article1",
+                "-o", dir
+              ])
+            end.to raise_error(SystemExit)
+          end
+        end
+      end
+
+      it "accepts valid options" do
+        Dir.mktmpdir do |dir|
+          opts = described_class.parse_options([
+            "--from-category=Japanese cities",
+            "--lang=en",
+            "--depth=2",
+            "-o", dir
+          ])
+
+          expect(opts[:from_category]).to eq "Japanese cities"
+          expect(opts[:lang]).to eq "en"
+          expect(opts[:depth]).to eq 2
+        end
+      end
+    end
+
+    context "with --depth option" do
+      it "defaults to 0" do
+        Dir.mktmpdir do |dir|
+          opts = described_class.parse_options([
+            "--from-category=Test",
+            "--lang=en",
+            "-o", dir
+          ])
+
+          expect(opts[:depth]).to eq 0
+        end
+      end
+
+      it "rejects negative values" do
+        Dir.mktmpdir do |dir|
+          suppress_stderr do
+            expect do
+              described_class.parse_options([
+                "--from-category=Test",
+                "--lang=en",
+                "--depth=-1",
+                "-o", dir
+              ])
+            end.to raise_error(SystemExit)
+          end
+        end
+      end
+
+      it "warns when depth > 3" do
+        Dir.mktmpdir do |dir|
+          expect do
+            described_class.parse_options([
+              "--from-category=Test",
+              "--lang=en",
+              "--depth=4",
+              "-o", dir
+            ])
+          end.to output(/Warning.*depth.*3/i).to_stderr
+        end
+      end
+    end
+
+    context "with --dry-run option" do
+      it "requires --from-category" do
+        Dir.mktmpdir do |dir|
+          suppress_stderr do
+            expect do
+              described_class.parse_options([
+                "--lang=en",
+                "--dry-run",
+                "-o", dir
+              ])
+            end.to raise_error(SystemExit)
+          end
+        end
+      end
+
+      it "works with --from-category" do
+        Dir.mktmpdir do |dir|
+          opts = described_class.parse_options([
+            "--from-category=Test",
+            "--lang=en",
+            "--dry-run",
+            "-o", dir
+          ])
+
+          expect(opts[:dry_run]).to be true
+        end
+      end
+    end
+
+    context "with --yes option" do
+      it "requires --from-category" do
+        Dir.mktmpdir do |dir|
+          suppress_stderr do
+            expect do
+              described_class.parse_options([
+                "--lang=en",
+                "--yes",
+                "-o", dir
+              ])
+            end.to raise_error(SystemExit)
+          end
+        end
+      end
+
+      it "works with --from-category" do
+        Dir.mktmpdir do |dir|
+          opts = described_class.parse_options([
+            "--from-category=Test",
+            "--lang=en",
+            "--yes",
+            "-o", dir
+          ])
+
+          expect(opts[:yes]).to be true
+        end
+      end
+    end
+
+    context "with --update-cache option" do
+      it "defaults to false" do
+        Dir.mktmpdir do |dir|
+          opts = described_class.parse_options([
+            "--from-category=Test",
+            "--lang=en",
+            "-o", dir
+          ])
+
+          expect(opts[:update_cache]).to be false
+        end
+      end
+
+      it "can be set to true" do
+        Dir.mktmpdir do |dir|
+          opts = described_class.parse_options([
+            "--from-category=Test",
+            "--lang=en",
+            "--update-cache",
+            "-o", dir
+          ])
+
+          expect(opts[:update_cache]).to be true
+        end
+      end
+
+      it "accepts short form -U" do
+        Dir.mktmpdir do |dir|
+          opts = described_class.parse_options([
+            "--from-category=Test",
+            "--lang=en",
+            "-U",
+            "-o", dir
+          ])
+
+          expect(opts[:update_cache]).to be true
+        end
+      end
+    end
+
+    context "extraction mode mutual exclusion" do
+      it "rejects --category-only with --summary-only" do
+        Dir.mktmpdir do |dir|
+          suppress_stderr do
+            expect do
+              described_class.parse_options([
+                "--lang=en",
+                "--category-only",
+                "--summary-only",
+                "-o", dir
+              ])
+            end.to raise_error(SystemExit)
+          end
+        end
+      end
+
+      it "rejects --category-only with --metadata-only" do
+        Dir.mktmpdir do |dir|
+          suppress_stderr do
+            expect do
+              described_class.parse_options([
+                "--lang=en",
+                "--category-only",
+                "--metadata-only",
+                "-o", dir
+              ])
+            end.to raise_error(SystemExit)
+          end
+        end
+      end
+
+      it "rejects --summary-only with --metadata-only" do
+        Dir.mktmpdir do |dir|
+          suppress_stderr do
+            expect do
+              described_class.parse_options([
+                "--lang=en",
+                "--summary-only",
+                "--metadata-only",
+                "-o", dir
+              ])
+            end.to raise_error(SystemExit)
+          end
+        end
+      end
+
+      it "rejects all three extraction modes combined" do
+        Dir.mktmpdir do |dir|
+          suppress_stderr do
+            expect do
+              described_class.parse_options([
+                "--lang=en",
+                "--category-only",
+                "--summary-only",
+                "--metadata-only",
+                "-o", dir
+              ])
+            end.to raise_error(SystemExit)
+          end
+        end
+      end
+
+      it "rejects --sections with --category-only" do
+        Dir.mktmpdir do |dir|
+          suppress_stderr do
+            expect do
+              described_class.parse_options([
+                "--lang=en",
+                "--category-only",
+                "--sections=Plot",
+                "-o", dir
+              ])
+            end.to raise_error(SystemExit)
+          end
+        end
+      end
+
+      it "rejects --sections with --summary-only" do
+        Dir.mktmpdir do |dir|
+          suppress_stderr do
+            expect do
+              described_class.parse_options([
+                "--lang=en",
+                "--summary-only",
+                "--sections=Plot",
+                "-o", dir
+              ])
+            end.to raise_error(SystemExit)
+          end
+        end
+      end
+
+      it "rejects --sections with --metadata-only" do
+        Dir.mktmpdir do |dir|
+          suppress_stderr do
+            expect do
+              described_class.parse_options([
+                "--lang=en",
+                "--metadata-only",
+                "--sections=Plot",
+                "-o", dir
+              ])
+            end.to raise_error(SystemExit)
+          end
+        end
+      end
+
+      it "rejects --section-stats with --category-only" do
+        Dir.mktmpdir do |dir|
+          suppress_stderr do
+            expect do
+              described_class.parse_options([
+                "--lang=en",
+                "--section-stats",
+                "--category-only",
+                "-o", dir
+              ])
+            end.to raise_error(SystemExit)
+          end
+        end
+      end
+
+      it "rejects --section-stats with --summary-only" do
+        Dir.mktmpdir do |dir|
+          suppress_stderr do
+            expect do
+              described_class.parse_options([
+                "--lang=en",
+                "--section-stats",
+                "--summary-only",
+                "-o", dir
+              ])
+            end.to raise_error(SystemExit)
+          end
+        end
+      end
+
+      it "allows single extraction mode" do
+        Dir.mktmpdir do |dir|
+          opts = described_class.parse_options([
+            "--lang=en",
+            "--category-only",
+            "-o", dir
+          ])
+          expect(opts[:category_only]).to be true
+        end
+      end
+    end
+
+    context "with content filtering options" do
+      it "parses --table option (defaults to false)" do
+        Dir.mktmpdir do |dir|
+          opts = described_class.parse_options([
+            "--lang=en",
+            "-o", dir
+          ])
+          expect(opts[:table]).to be false
+        end
+      end
+
+      it "enables --table option" do
+        Dir.mktmpdir do |dir|
+          opts = described_class.parse_options([
+            "--lang=en",
+            "--table",
+            "-o", dir
+          ])
+          expect(opts[:table]).to be true
+        end
+      end
+
+      it "parses --pre option (defaults to false)" do
+        Dir.mktmpdir do |dir|
+          opts = described_class.parse_options([
+            "--lang=en",
+            "-o", dir
+          ])
+          expect(opts[:pre]).to be false
+        end
+      end
+
+      it "enables --pre option with short form -p" do
+        Dir.mktmpdir do |dir|
+          opts = described_class.parse_options([
+            "--lang=en",
+            "-p",
+            "-o", dir
+          ])
+          expect(opts[:pre]).to be true
+        end
+      end
+
+      it "parses --multiline option (defaults to false)" do
+        Dir.mktmpdir do |dir|
+          opts = described_class.parse_options([
+            "--lang=en",
+            "-o", dir
+          ])
+          expect(opts[:multiline]).to be false
+        end
+      end
+
+      it "enables --multiline option" do
+        Dir.mktmpdir do |dir|
+          opts = described_class.parse_options([
+            "--lang=en",
+            "--multiline",
+            "-o", dir
+          ])
+          expect(opts[:multiline]).to be true
+        end
+      end
+
+      it "allows combining content filtering options" do
+        Dir.mktmpdir do |dir|
+          opts = described_class.parse_options([
+            "--lang=en",
+            "--table",
+            "--pre",
+            "--multiline",
+            "--list",
+            "-o", dir
+          ])
+          expect(opts[:table]).to be true
+          expect(opts[:pre]).to be true
+          expect(opts[:multiline]).to be true
+          expect(opts[:list]).to be true
+        end
+      end
+    end
+
+    context "with section extraction options" do
+      it "parses --sections option" do
+        Dir.mktmpdir do |dir|
+          opts = described_class.parse_options([
+            "--lang=en",
+            "--sections=summary,Plot,Reception",
+            "-o", dir
+          ])
+
+          expect(opts[:sections]).to eq("summary,Plot,Reception")
+        end
+      end
+
+      it "parses --no-section-aliases option" do
+        Dir.mktmpdir do |dir|
+          opts = described_class.parse_options([
+            "--lang=en",
+            "--sections=Plot",
+            "--no-section-aliases",
+            "-o", dir
+          ])
+
+          expect(opts[:no_section_aliases]).to be true
+        end
+      end
+
+      it "parses --show-matched-sections option" do
+        Dir.mktmpdir do |dir|
+          opts = described_class.parse_options([
+            "--lang=en",
+            "--sections=Plot",
+            "--show-matched-sections",
+            "--format=json",
+            "-o", dir
+          ])
+
+          expect(opts[:show_matched_sections]).to be true
+        end
+      end
+
+      it "rejects --show-matched-sections without JSON format" do
+        Dir.mktmpdir do |dir|
+          suppress_stderr do
+            expect do
+              described_class.parse_options([
+                "--lang=en",
+                "--sections=Plot",
+                "--show-matched-sections",
+                "--format=text",
+                "-o", dir
+              ])
+            end.to raise_error(SystemExit)
+          end
+        end
+      end
+
+      it "parses --section-stats option" do
+        Dir.mktmpdir do |dir|
+          opts = described_class.parse_options([
+            "--lang=en",
+            "--section-stats",
+            "-o", dir
+          ])
+
+          expect(opts[:section_stats]).to be true
+        end
+      end
+
+      it "rejects --section-stats with --sections" do
+        Dir.mktmpdir do |dir|
+          suppress_stderr do
+            expect do
+              described_class.parse_options([
+                "--lang=en",
+                "--section-stats",
+                "--sections=Plot",
+                "-o", dir
+              ])
+            end.to raise_error(SystemExit)
+          end
+        end
+      end
+
+      it "rejects --section-stats with --metadata-only" do
+        Dir.mktmpdir do |dir|
+          suppress_stderr do
+            expect do
+              described_class.parse_options([
+                "--lang=en",
+                "--section-stats",
+                "--metadata-only",
+                "-o", dir
+              ])
+            end.to raise_error(SystemExit)
+          end
+        end
+      end
+    end
+
+    context "with --alias-file option" do
+      let(:temp_dir) { Dir.mktmpdir }
+      let(:alias_file) { File.join(temp_dir, "aliases.yml") }
+
+      after { FileUtils.remove_entry(temp_dir) }
+
+      it "parses --alias-file option" do
+        File.write(alias_file, "Plot:\n  - Synopsis\n")
+        Dir.mktmpdir do |dir|
+          opts = described_class.parse_options([
+            "--lang=en",
+            "--sections=Plot",
+            "--alias-file=#{alias_file}",
+            "-o", dir
+          ])
+
+          expect(opts[:alias_file]).to eq(alias_file)
+        end
+      end
+
+      it "rejects non-existent alias file" do
+        Dir.mktmpdir do |dir|
+          suppress_stderr do
+            expect do
+              described_class.parse_options([
+                "--lang=en",
+                "--sections=Plot",
+                "--alias-file=/nonexistent/file.yml",
+                "-o", dir
+              ])
+            end.to raise_error(SystemExit)
+          end
+        end
+      end
+
+      it "rejects invalid YAML alias file" do
+        File.write(alias_file, "invalid: yaml: {{")
+        Dir.mktmpdir do |dir|
+          suppress_stderr do
+            expect do
+              described_class.parse_options([
+                "--lang=en",
+                "--sections=Plot",
+                "--alias-file=#{alias_file}",
+                "-o", dir
+              ])
+            end.to raise_error(SystemExit)
+          end
+        end
+      end
+    end
+  end
+end
 
 # Test the WpApp class methods
 class TestWpApp

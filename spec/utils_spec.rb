@@ -97,10 +97,26 @@ RSpec.describe "Wp2txt Utils" do
   end
 
   describe "remove_directive" do
-    it "removes directive" do
-      str_before = "__abc__\n __def__"
+    it "removes MediaWiki magic words" do
+      # Use actual MediaWiki behavior switches (loaded from mediawiki_aliases.json)
+      str_before = "__NOTOC__\n __TOC__"
       str_after  = "\n "
       expect(remove_directive(str_before)).to eq str_after
+    end
+
+    it "removes multilingual magic words" do
+      # Japanese/German/other language magic words should also be removed
+      str_before = "__KEIN_INHALTSVERZEICHNIS__\n__目次非表示__"
+      str_after  = "\n"
+      expect(remove_directive(str_before)).to eq str_after
+    end
+
+    it "preserves non-magic-word patterns" do
+      # Arbitrary __something__ patterns that aren't valid magic words should be preserved
+      # (This is the expected behavior with data-driven approach)
+      str_before = "__custom_marker__"
+      # With data-driven approach, unknown patterns are NOT removed
+      expect(remove_directive(str_before)).to eq str_before
     end
   end
 
@@ -143,6 +159,55 @@ RSpec.describe "Wp2txt Utils" do
       expect(b2).to eq "c"
       expect(c2).to eq "b|c"
       expect(d2).to eq "[ɲ], /J/"
+    end
+
+    it "handles pipe trick (empty display text)" do
+      # Namespace prefix removal
+      expect(process_interwiki_links("[[Wikipedia:著作権|]]")).to eq "著作権"
+      expect(process_interwiki_links("[[Help:Contents|]]")).to eq "Contents"
+
+      # Disambiguation suffix removal
+      expect(process_interwiki_links("[[Tokyo (disambiguation)|]]")).to eq "Tokyo"
+      expect(process_interwiki_links("[[Mercury (planet)|]]")).to eq "Mercury"
+
+      # Comma suffix removal
+      expect(process_interwiki_links("[[Paris, Texas|]]")).to eq "Paris"
+      expect(process_interwiki_links("[[San Francisco, California|]]")).to eq "San Francisco"
+
+      # Combined: namespace and disambiguation
+      expect(process_interwiki_links("[[Wikipedia:Manual of Style (dates)|]]")).to eq "Manual of Style"
+    end
+
+    it "handles interwiki links" do
+      expect(process_interwiki_links("[[Wikisource:日本国憲法]]")).to eq "Wikisource:日本国憲法"
+      expect(process_interwiki_links("[[s:日本国憲法|日本国憲法]]")).to eq "日本国憲法"
+    end
+  end
+
+  describe "apply_pipe_trick" do
+    it "removes namespace prefix" do
+      expect(apply_pipe_trick("Wikipedia:Manual of Style")).to eq "Manual of Style"
+      expect(apply_pipe_trick("Help:Contents")).to eq "Contents"
+      expect(apply_pipe_trick("カテゴリ:日本")).to eq "日本"
+    end
+
+    it "removes disambiguation parenthetical" do
+      expect(apply_pipe_trick("Mercury (planet)")).to eq "Mercury"
+      expect(apply_pipe_trick("東京 (曖昧さ回避)")).to eq "東京"
+    end
+
+    it "removes comma and following text" do
+      expect(apply_pipe_trick("Paris, Texas")).to eq "Paris"
+      expect(apply_pipe_trick("San Francisco, California")).to eq "San Francisco"
+    end
+
+    it "handles combined cases" do
+      expect(apply_pipe_trick("Wikipedia:Manual of Style (dates)")).to eq "Manual of Style"
+    end
+
+    it "returns original if no transformation needed" do
+      expect(apply_pipe_trick("Simple")).to eq "Simple"
+      expect(apply_pipe_trick("東京")).to eq "東京"
     end
   end
 
@@ -209,6 +274,92 @@ RSpec.describe "Wp2txt Utils" do
       expect(correct_inline_template("{{flagicon|Japan}}")).to eq ""
       expect(correct_inline_template("{{JPN}}")).to eq ""
       expect(correct_inline_template("{{USA}}")).to eq ""
+    end
+  end
+
+  describe "parse_markers_config" do
+    it "returns default markers for true" do
+      result = parse_markers_config(true)
+      expect(result).to be_an(Array)
+      expect(result).not_to be_empty
+    end
+
+    it "returns empty array for false" do
+      result = parse_markers_config(false)
+      expect(result).to eq([])
+    end
+
+    it "filters array to valid marker types" do
+      result = parse_markers_config([:math, :code, :invalid_type])
+      expect(result).to include(:math)
+      expect(result).to include(:code)
+      expect(result).not_to include(:invalid_type)
+    end
+
+    it "returns default markers for unexpected input" do
+      result = parse_markers_config("unexpected string")
+      expect(result).to be_an(Array)
+      expect(result).not_to be_empty
+    end
+
+    it "returns default markers for nil" do
+      result = parse_markers_config(nil)
+      expect(result).to be_an(Array)
+    end
+  end
+
+  describe "process_interwiki_links" do
+    it "removes category links" do
+      result = process_interwiki_links("[[Category:Test]]")
+      expect(result).to eq("")
+    end
+
+    it "removes category links in Japanese" do
+      result = process_interwiki_links("[[カテゴリ:テスト]]")
+      expect(result).to eq("")
+    end
+
+    it "extracts caption from file links" do
+      result = process_interwiki_links("[[File:Image.jpg|thumb|200px|A caption]]")
+      expect(result).to include("caption")
+    end
+
+    it "handles file links without caption" do
+      result = process_interwiki_links("[[File:Image.jpg]]")
+      expect(result).to eq("")
+    end
+
+    it "handles pipe trick" do
+      result = process_interwiki_links("[[Tokyo (city)|]]")
+      expect(result).to eq("Tokyo")
+    end
+
+    it "handles simple links" do
+      result = process_interwiki_links("[[Simple Link]]")
+      expect(result).to eq("Simple Link")
+    end
+
+    it "handles links with display text" do
+      result = process_interwiki_links("[[Target|Display Text]]")
+      expect(result).to eq("Display Text")
+    end
+  end
+
+  describe "marker_placeholder" do
+    it "creates placeholder with marker type" do
+      result = marker_placeholder(:math)
+      expect(result).to include("MATH")
+      expect(result).to include("««")
+      expect(result).to include("»»")
+    end
+  end
+
+  describe "finalize_markers" do
+    it "converts placeholders to final format" do
+      placeholder = marker_placeholder(:math)
+      result = finalize_markers("text #{placeholder} more")
+      expect(result).to include("[MATH]")
+      expect(result).not_to include("««")
     end
   end
 end

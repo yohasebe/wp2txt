@@ -2,6 +2,9 @@
 
 require "nokogiri"
 require "stringio"
+require_relative "constants"
+require_relative "memory_monitor"
+require_relative "bz2_validator"
 
 module Wp2txt
   # StreamProcessor handles streaming decompression and XML parsing
@@ -9,14 +12,53 @@ module Wp2txt
   class StreamProcessor
     include Wp2txt
 
-    # Buffer size for reading from stream (10 MB)
-    BUFFER_SIZE = 10_485_760
+    # Buffer size bounds from constants
+    MIN_BUFFER_SIZE = Wp2txt::MIN_BUFFER_SIZE
+    MAX_BUFFER_SIZE = Wp2txt::MAX_BUFFER_SIZE
+    DEFAULT_BUFFER_SIZE = Wp2txt::DEFAULT_BUFFER_SIZE
 
-    def initialize(input_path, bz2_gem: false)
+    attr_reader :buffer_size, :pages_processed, :bytes_read, :redirects_skipped
+
+    def initialize(input_path, bz2_gem: false, adaptive_buffer: true, validate_bz2: true, skip_redirects: true)
       @input_path = input_path
       @bz2_gem = bz2_gem
       @buffer = +""
       @file_pointer = nil
+      @adaptive_buffer = adaptive_buffer
+      @buffer_size = adaptive_buffer ? calculate_optimal_buffer_size : DEFAULT_BUFFER_SIZE
+      @pages_processed = 0
+      @bytes_read = 0
+      @validate_bz2 = validate_bz2
+      @skip_redirects = skip_redirects
+      @redirects_skipped = 0
+    end
+
+    # Validate bz2 file before processing
+    # @param quick [Boolean] Use quick validation (header only) vs full validation
+    # @return [Bz2Validator::ValidationResult] Validation result
+    # @raise [Wp2txt::FileIOError] If validation fails and raise_on_error is true
+    def validate_input(quick: false, raise_on_error: false)
+      return nil unless @input_path.end_with?(".bz2")
+
+      result = quick ? Bz2Validator.validate_quick(@input_path) : Bz2Validator.validate(@input_path)
+
+      if !result.valid? && raise_on_error
+        raise Wp2txt::FileIOError, "Invalid bz2 file: #{result.message}"
+      end
+
+      result
+    end
+
+    # Calculate optimal buffer size based on available memory
+    def calculate_optimal_buffer_size
+      MemoryMonitor.optimal_buffer_size
+    rescue StandardError
+      DEFAULT_BUFFER_SIZE
+    end
+
+    # Get current memory statistics
+    def memory_stats
+      MemoryMonitor.memory_stats
     end
 
     # Iterate over each page in the input
@@ -40,6 +82,18 @@ module Wp2txt
       end
     end
 
+    # Get processing statistics (public API for monitoring)
+    def stats
+      {
+        pages_processed: @pages_processed,
+        redirects_skipped: @redirects_skipped,
+        bytes_read: @bytes_read,
+        buffer_size: @buffer_size,
+        current_buffer_length: @buffer.bytesize,
+        memory: memory_stats
+      }
+    end
+
     private
 
     # Process a single XML file
@@ -57,6 +111,14 @@ module Wp2txt
 
     # Process bz2 stream directly without intermediate files
     def process_bz2_stream
+      # Validate bz2 file before processing (if enabled)
+      if @validate_bz2
+        validation = validate_input(quick: false)
+        unless validation.nil? || validation.valid?
+          raise Wp2txt::FileIOError, "Cannot process corrupted bz2 file: #{validation.message}"
+        end
+      end
+
       @buffer = +""
       @file_pointer = open_bz2_stream
 
@@ -87,7 +149,7 @@ module Wp2txt
     # Find available bzip2 command
     def find_bzip2_command
       %w[lbzip2 pbzip2 bzip2].each do |cmd|
-        path = `which #{cmd} 2>/dev/null`.strip
+        path = IO.popen(["which", cmd], err: File::NULL, &:read).strip
         return path unless path.empty?
       end
       nil
@@ -95,13 +157,22 @@ module Wp2txt
 
     # Fill buffer from file pointer
     def fill_buffer
-      chunk = @file_pointer.read(BUFFER_SIZE)
+      chunk = @file_pointer.read(@buffer_size)
       return false unless chunk
+
+      @bytes_read += chunk.bytesize
 
       # Handle encoding for bz2 streams
       chunk = chunk.force_encoding("UTF-8")
       chunk = chunk.scrub("")
       @buffer << chunk
+
+      # Adaptive buffer adjustment: if memory is low, reduce buffer size
+      if @adaptive_buffer && MemoryMonitor.memory_low?
+        new_size = [@buffer_size / 2, MIN_BUFFER_SIZE].max
+        @buffer_size = new_size if new_size != @buffer_size
+      end
+
       true
     end
 
@@ -156,16 +227,45 @@ module Wp2txt
       return nil if title.include?(":")
 
       text = text_node.content
+
+      # Early redirect detection and skip (before expensive processing)
+      # Redirects start with # or ＃ followed by redirect keyword and [[target]]
+      if @skip_redirects && redirect_page?(text)
+        @redirects_skipped += 1
+        return nil
+      end
+
       # Remove HTML comments while preserving newline count
       text = text.gsub(/<!--(.*?)-->/m) do |content|
         num_newlines = content.count("\n")
         num_newlines.zero? ? "" : "\n" * num_newlines
       end
 
+      @pages_processed += 1
       [title, text]
     rescue Nokogiri::XML::SyntaxError
       # Skip malformed XML
       nil
+    end
+
+    # Fast redirect detection using heuristic check
+    # Checks if text starts with redirect pattern without full regex evaluation
+    # @param text [String] The page text content
+    # @return [Boolean] true if page appears to be a redirect
+    def redirect_page?(text)
+      return false if text.nil? || text.empty?
+
+      # Check first 200 characters for redirect pattern
+      # Redirects are always at the start: #REDIRECT [[Target]] or #転送 [[ターゲット]]
+      first_part = text[0, 200]
+      return false unless first_part
+
+      # Quick check: must start with # or ＃ (after optional whitespace)
+      stripped = first_part.lstrip
+      return false unless stripped.start_with?("#", "＃")
+
+      # Must contain [[ which indicates the redirect target
+      stripped.include?("[[")
     end
   end
 end

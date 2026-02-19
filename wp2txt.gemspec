@@ -21,10 +21,13 @@ Gem::Specification.new do |s|
   s.add_development_dependency "rake"
   s.add_development_dependency "rspec"
   s.add_development_dependency "simplecov"
+  s.add_development_dependency "webmock"
   s.add_dependency "htmlentities"
   s.add_dependency "nokogiri"
   s.add_dependency "optimist"
   s.add_dependency "parallel"
   s.add_dependency "pastel"
+  s.add_dependency "tty-progressbar"
   s.add_dependency "tty-spinner"
+  s.add_dependency "sqlite3"
 end
