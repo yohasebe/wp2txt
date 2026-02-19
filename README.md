@@ -340,7 +340,9 @@ Turbo mode (default) splits bz2 into XML chunks first, then processes in paralle
 
 See [CHANGELOG.md](CHANGELOG.md) for detailed release notes.
 
-**v2.0.0 (January 2026)**: Auto-download mode, category-based extraction, article extraction by title, JSON output, content markers, template expansion, streaming processing, Ruby 4.0 support.
+**v2.1.0 (February 2026)**: SQLite caching, Ractor parallelism (Ruby 4.0+), template expansion, content markers, Docker image update.
+
+**v2.0.0 (January 2026)**: Auto-download mode, category-based extraction, article extraction by title, JSON output, streaming processing, Ruby 4.0 support.
 
 ## Useful Links
 
