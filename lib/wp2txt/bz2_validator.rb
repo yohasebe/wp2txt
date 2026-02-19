@@ -210,7 +210,7 @@ module Wp2txt
     # @return [String, nil] Path to command or nil
     def find_bzip2_command
       %w[lbzip2 pbzip2 bzip2 bzcat].each do |cmd|
-        path = `which #{cmd} 2>/dev/null`.strip
+        path = IO.popen(["which", cmd], err: File::NULL, &:read).strip
         return path unless path.empty?
       end
       nil

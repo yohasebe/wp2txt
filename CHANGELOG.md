@@ -40,19 +40,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Parser functions support: `{{#if:}}`, `{{#switch:}}`, `{{#ifeq:}}`, `{{#expr:}}`
   - Magic words support: `{{PAGENAME}}`, `{{CURRENTYEAR}}`, `{{NAMESPACE}}`
 
-- **Live article testing**: New test infrastructure fetches real Wikipedia articles:
-  - `spec/support/live_articles.rb` - Fetches and caches articles from Wikipedia API
-  - `spec/live_article_spec.rb` - Integration tests using live articles
-  - Supports known articles for deterministic tests and random sampling for broader coverage
-  - Cache with 7-day expiry to minimize API calls
-  - Skip with `OFFLINE=1` environment variable
-
-- **Benchmark infrastructure**: New tools for measuring template expansion accuracy:
-  - `lib/wp2txt/article_sampler.rb` - Fetches random articles with MediaWiki-rendered text
-  - `scripts/benchmark_template_expansion.rb` - Compares wp2txt output against MediaWiki
-  - Jaccard similarity scoring for objective comparison
-  - Results: 84.5% similarity with template expansion (vs 81.0% without)
-
 - **Removed legacy test data**: Deleted obsolete static test files:
   - `data/testdata_en.bz2` (2.8MB, from 2022)
   - `data/testdata_ja.bz2` (2.6MB, from 2022)

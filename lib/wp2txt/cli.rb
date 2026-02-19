@@ -128,6 +128,8 @@ module Wp2txt
               default: true, short: "-d"
           opt :list, "Keep unprocessed list items in output",
               default: false, short: "-l"
+          opt :pre, "Keep preformatted text blocks in output",
+              default: false, short: "-p"
           opt :ref, "Keep reference notations [ref]...[/ref]",
               default: false, short: "-r"
           opt :redirect, "Show redirect destination",
@@ -142,7 +144,7 @@ module Wp2txt
               default: true, short: "-E"
           opt :bz2_gem, "Use Ruby's bzip2-ruby gem instead of system command",
               default: false, short: "-b"
-          opt :ractor, "Use Ractor for parallel processing (experimental, Ruby 3.0+)",
+          opt :ractor, "Use Ractor for parallel processing (Ruby 4.0+, streaming mode only)",
               default: false, short: "-R"
           opt :no_turbo, "Disable turbo mode (use streaming instead, saves disk space)",
               default: false

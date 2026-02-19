@@ -742,7 +742,7 @@ class WpApp
       no_turbo: opts[:no_turbo]
     }
 
-    %i[title list heading table redirect multiline category category_only
+    %i[title list heading table pre ref redirect multiline category category_only
        summary_only metadata_only marker extract_citations expand_templates
        section_output min_section_length skip_empty
        alias_file no_section_aliases section_stats show_matched_sections].each do |opt|
@@ -765,6 +765,11 @@ class WpApp
     # Process input - turbo mode is default for bz2 files (faster parallel decompression)
     # Use --no-turbo to disable (saves disk space but much slower)
     if input_path.end_with?(".bz2") && !opts[:no_turbo]
+      if config[:use_ractor]
+        puts pastel.yellow("Note: --ractor is not supported with turbo mode. Using parallel gem instead.")
+        puts pastel.yellow("  Use --no-turbo to enable Ractor-based processing.")
+        puts
+      end
       process_with_turbo(input_path, opts[:output_dir], config)
     else
       process_stream(input_path, opts[:output_dir], config)

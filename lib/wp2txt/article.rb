@@ -35,7 +35,6 @@ module Wp2txt
       text = text.gsub(/\|\n\n+/m) { "|\n" }
       text = remove_html(text)
       text = make_reference(text)
-      text = remove_ref(text)
       parse text
     end
 

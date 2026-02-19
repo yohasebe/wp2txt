@@ -84,9 +84,9 @@ module Wp2txt
         if @bz2_gem
           file = Bzip2::Reader.new File.open(@input_file, "r:UTF-8")
         elsif Gem.win_platform?
-          file = IO.popen("bunzip2.exe -c #{@input_file}")
+          file = IO.popen(["bunzip2.exe", "-c", @input_file])
         elsif (bzpath = command_exist?("lbzip2") || command_exist?("pbzip2") || command_exist?("bzip2"))
-          file = IO.popen("#{bzpath} -c -d #{@input_file}")
+          file = IO.popen([bzpath, "-c", "-d", @input_file])
         end
       else # meaning that it is a text file
         @infile_size = File.stat(@input_file).size

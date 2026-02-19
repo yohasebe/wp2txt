@@ -24,7 +24,7 @@ module Wp2txt
       if Gem.win_platform?
         # Windows: use tasklist (less reliable)
         begin
-          output = `tasklist /FI "PID eq #{Process.pid}" /FO CSV /NH 2>NUL`
+          output = IO.popen(["tasklist", "/FI", "PID eq #{Process.pid}", "/FO", "CSV", "/NH"], err: File::NULL, &:read)
           # Parse CSV format: "process.exe","PID","Session","Session#","Mem Usage"
           if output =~ /(\d[\d,]*)\s*K/
             return $1.delete(",").to_i * 1024
@@ -44,7 +44,7 @@ module Wp2txt
         else
           # macOS/BSD: use ps
           begin
-            output = `ps -o rss= -p #{Process.pid} 2>/dev/null`
+            output = IO.popen(["ps", "-o", "rss=", "-p", Process.pid.to_s], err: File::NULL, &:read)
             return output.strip.to_i * 1024 unless output.strip.empty?
           rescue StandardError
             return 0
@@ -60,7 +60,7 @@ module Wp2txt
       if Gem.win_platform?
         # Windows: use wmic
         begin
-          output = `wmic computersystem get TotalPhysicalMemory 2>NUL`
+          output = IO.popen(["wmic", "computersystem", "get", "TotalPhysicalMemory"], err: File::NULL, &:read)
           if output =~ /(\d+)/
             return $1.to_i
           end
@@ -77,7 +77,7 @@ module Wp2txt
       else
         # macOS: use sysctl
         begin
-          output = `sysctl -n hw.memsize 2>/dev/null`
+          output = IO.popen(["sysctl", "-n", "hw.memsize"], err: File::NULL, &:read)
           return output.strip.to_i unless output.strip.empty?
         rescue StandardError
           return 4 * 1024 * 1024 * 1024 # Default 4 GB

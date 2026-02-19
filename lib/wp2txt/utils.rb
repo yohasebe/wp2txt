@@ -195,6 +195,9 @@ module Wp2txt
     result.gsub!(REMOVE_HR_REGEX, "")
     result.gsub!(REMOVE_TAG_REGEX, "")
 
+    # Remove [ref]...[/ref] markers unless --ref option is enabled
+    result = remove_ref(result) unless config[:ref]
+
     result = correct_inline_template(result, enabled_markers, extract_citations) unless config[:inline]
     result = remove_templates(result) unless config[:inline]
     result = remove_table(result, enabled_markers) unless config[:table]

@@ -27,9 +27,6 @@ RSpec.describe "Wp2txt Constants" do
       expect(Wp2txt::DEFAULT_CATEGORY_CACHE_EXPIRY_DAYS).to eq(7)
     end
 
-    it "defines DEFAULT_TEST_DATA_EXPIRY_DAYS" do
-      expect(Wp2txt::DEFAULT_TEST_DATA_EXPIRY_DAYS).to eq(30)
-    end
   end
 
   describe "Processing Limits" do
@@ -53,18 +50,6 @@ RSpec.describe "Wp2txt Constants" do
 
     it "defines BYTES_PER_GB" do
       expect(Wp2txt::BYTES_PER_GB).to eq(1024 * 1024 * 1024)
-    end
-  end
-
-  describe "Supported Languages" do
-    it "defines CORE_LANGUAGES as frozen array" do
-      expect(Wp2txt::CORE_LANGUAGES).to be_frozen
-      expect(Wp2txt::CORE_LANGUAGES).to include(:en, :ja, :zh, :de, :fr)
-    end
-
-    it "defines QUICK_TEST_LANGUAGES as frozen array" do
-      expect(Wp2txt::QUICK_TEST_LANGUAGES).to be_frozen
-      expect(Wp2txt::QUICK_TEST_LANGUAGES).to eq(%i[en ja])
     end
   end
 

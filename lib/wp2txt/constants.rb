@@ -44,9 +44,6 @@ module Wp2txt
   # Default expiry for category member cache
   DEFAULT_CATEGORY_CACHE_EXPIRY_DAYS = 7
 
-  # Default expiry for test data cache
-  DEFAULT_TEST_DATA_EXPIRY_DAYS = 30
-
   # ---------------------------------------------------------------------------
   # Processing Limits
   # ---------------------------------------------------------------------------
@@ -70,16 +67,6 @@ module Wp2txt
   BYTES_PER_KB = 1_024
   BYTES_PER_MB = 1_024 * 1_024
   BYTES_PER_GB = 1_024 * 1_024 * 1_024
-
-  # ---------------------------------------------------------------------------
-  # Supported Languages
-  # ---------------------------------------------------------------------------
-  # Core languages for validation and testing
-  # These represent major Wikipedia editions with diverse scripts and structures
-  CORE_LANGUAGES = %i[en ja zh ru ar ko de fr es it pt nl pl].freeze
-
-  # Minimum set for quick tests
-  QUICK_TEST_LANGUAGES = %i[en ja].freeze
 
   # ---------------------------------------------------------------------------
   # Helper Methods

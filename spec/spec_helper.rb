@@ -20,9 +20,6 @@ require_relative "../lib/wp2txt/config"
 require_relative "../lib/wp2txt/template_expander"
 require_relative "../lib/wp2txt/parser_functions"
 
-# Load test support modules
-require_relative "support/live_articles"
-
 RSpec.configure do |config|
   config.expect_with :rspec do |expectations|
     expectations.include_chain_clauses_in_custom_matcher_descriptions = true
@@ -69,12 +66,4 @@ RSpec.configure do |config|
   config.warnings = false  # Suppress warnings during test runs
   config.order = :random
   Kernel.srand config.seed
-
-  # Tag for tests requiring network access
-  config.define_derived_metadata(file_path: %r{/live_}) do |metadata|
-    metadata[:live] = true
-  end
-
-  # Skip live tests if OFFLINE environment variable is set
-  config.filter_run_excluding live: true if ENV["OFFLINE"]
 end
