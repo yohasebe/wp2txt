@@ -114,6 +114,15 @@ docker run -it -v /path/to/localdata:/data yohasebe/wp2txt
     # サマリーのみ（タイトル + カテゴリ + 冒頭段落）
     $ wp2txt -s --lang=ja -o ./summary
 
+    # メタデータのみ（タイトル + セクション見出し + カテゴリ）
+    $ wp2txt -M --lang=ja --format json -o ./metadata
+
+    # 特定セクションを抽出（カンマ区切り、'summary'で冒頭テキスト）
+    $ wp2txt --lang=ja --sections="概要,歴史,関連項目" --format json -o ./sections
+
+    # セクション見出しの統計
+    $ wp2txt --lang=ja --section-stats -o ./stats
+
     # JSON/JSONL出力
     $ wp2txt --format json --lang=ja -o ./json
 
@@ -241,38 +250,64 @@ CATEGORIES: カテゴリ1, カテゴリ2, カテゴリ3
       -D, --depth=<i>                  サブカテゴリ再帰深度（デフォルト: 0）
       -y, --yes                        確認プロンプトをスキップ
       --dry-run                        カテゴリ抽出をプレビュー
+      -U, --update-cache               キャッシュファイルを強制更新
 
     出力オプション:
       -o, --output-dir=<s>             出力ディレクトリ（デフォルト: カレント）
       -j, --format=<s>                 出力形式: text または json（デフォルト: text）
+      -f, --file-size=<i>              出力ファイルサイズ（MB）（デフォルト: 10, 0=単一）
 
     キャッシュ管理:
       --cache-dir=<s>                  キャッシュディレクトリ（デフォルト: ~/.wp2txt/cache）
       --cache-status                   キャッシュ状態を表示して終了
       --cache-clear                    キャッシュをクリアして終了
-      -U, --update-cache               キャッシュファイルを強制更新
 
     設定:
       --config-init                    デフォルト設定を作成（~/.wp2txt/config.yml）
       --config-path=<s>                設定ファイルへのパス
 
-    処理オプション:
-      -a, --category, --no-category    カテゴリ情報を表示（デフォルト: true）
+    抽出モード（排他的）:
       -g, --category-only              タイトルとカテゴリのみ抽出
       -s, --summary-only               タイトル、カテゴリ、サマリーを抽出
-      -f, --file-size=<i>              出力ファイルサイズ（MB）（デフォルト: 10, 0=単一）
-      -n, --num-procs                  並列プロセス数（最大8, デフォルト: 自動）
+      -M, --metadata-only              タイトル、見出し、カテゴリのみ抽出
+
+    セクション抽出:
+      -S, --sections=<s>               特定セクションを抽出（カンマ区切り）
+      --section-output=<s>             出力モード: structured または combined（デフォルト: structured）
+      --min-section-length=<i>         最小セクション長（文字数）（デフォルト: 0）
+      --skip-empty                     該当セクションのない記事をスキップ
+      --alias-file=<s>                 セクション別名定義ファイル（YAML形式）
+      --no-section-aliases             セクション別名マッチングを無効化（完全一致のみ）
+      --section-stats                  セクション見出しの統計を収集・出力（JSON）
+      --show-matched-sections          JSON出力にmatched_sectionsフィールドを含める
+
+    コンテンツフィルタリング:
+      -a, --category, --no-category    カテゴリ情報を表示（デフォルト: true）
       -t, --title, --no-title          ページタイトルを保持（デフォルト: true）
       -d, --heading, --no-heading      セクションタイトルを保持（デフォルト: true）
-      -l, --list                       リスト項目を保持
-      -r, --ref                        参照を[ref]...[/ref]形式で保持
-      -e, --redirect                   リダイレクト先を表示
+      -l, --list                       リスト項目を保持（デフォルト: false）
+      --table                          Wikiテーブルの内容を保持（デフォルト: false）
+      -p, --pre                        整形済みテキストブロックを保持（デフォルト: false）
+      -r, --ref                        参照を[ref]...[/ref]形式で保持（デフォルト: false）
+      --multiline                      複数行テンプレートを保持（デフォルト: false）
+      -e, --redirect                   リダイレクト先を表示（デフォルト: false）
       -m, --marker, --no-marker        リストマーカーを表示（デフォルト: true）
       -k, --markers=<s>                コンテンツマーカー（デフォルト: all）
       -C, --extract-citations          フォーマットされた引用を抽出
       -E, --expand-templates           テンプレートを展開（デフォルト: true）
           --no-expand-templates        テンプレート展開を無効化
-      -b, --bz2-gem                    bzip2-ruby gemを使用
+
+    パフォーマンス:
+      -n, --num-procs=<i>              並列プロセス数（デフォルト: 自動）
+      --no-turbo                       ターボモードを無効化（ディスク容量節約、低速）
+      -R, --ractor                     Ractor並列処理を使用（Ruby 4.0+、ストリーミングのみ）
+      -b, --bz2-gem                    システムコマンドの代わりにbzip2-ruby gemを使用
+
+    出力制御:
+      -q, --quiet                      進捗出力を抑制（エラーのみ表示）
+      --no-color                       カラー出力を無効化
+
+    情報:
       -v, --version                    バージョンを表示
       -h, --help                       ヘルプを表示
 
@@ -297,11 +332,21 @@ defaults:
 
 コマンドラインオプションは設定ファイルの設定を上書きします。
 
+## パフォーマンス
+
+MacBook Air M4でのベンチマーク結果（7並列プロセス、ターボモード、ダウンロード時間除く）:
+
+| Wikipedia | ダンプサイズ | 記事数 | 処理時間 | 出力 |
+|-----------|-------------|--------|----------|------|
+| 日本語    | 4.37 GB     | 1,485,937 | 約27分 | 463ファイル (4.5 GB) |
+| 英語      | 24.2 GB     | 約680万   | 約2時間 | 2,000ファイル (20 GB) |
+
+ターボモード（デフォルト）はbz2をXMLチャンクに分割してから並列処理します。ディスク容量を節約するには`--no-turbo`を使用してください（処理速度は低下します）。
+
 ## 注意事項
 
 * 特殊コンテンツ（数式、コードなど）はデフォルトでプレースホルダーでマークされます。
 * マークアップのバリエーションや言語固有のフォーマットにより、一部のテキストが正しく抽出されない場合があります。
-* 大規模ダンプ（例：英語Wikipedia）の処理は、低スペック環境では数時間かかることがあります。
 
 ## 変更履歴
 
