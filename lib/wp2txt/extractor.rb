@@ -253,8 +253,8 @@ module Wp2txt
         bz2_gem: opts[:bz2_gem]
       }
 
-      %i[title list heading table redirect multiline category category_only
-         summary_only marker extract_citations].each do |opt|
+      %i[title list heading table pre ref redirect multiline category category_only
+         summary_only metadata_only marker extract_citations expand_templates].each do |opt|
         config[opt] = opts[opt]
       end
 

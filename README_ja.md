@@ -117,10 +117,17 @@ docker run -it -v /path/to/localdata:/data yohasebe/wp2txt
     # メタデータのみ（タイトル + セクション見出し + カテゴリ）
     $ wp2txt -M --lang=ja --format json -o ./metadata
 
-    # 特定セクションを抽出（カンマ区切り、'summary'で冒頭テキスト）
-    $ wp2txt --lang=ja --sections="概要,歴史,関連項目" --format json -o ./sections
+    # 特定記事から特定セクションを抽出（高速）
+    # セクション名は大文字小文字を区別しません。エイリアスマッチングもデフォルトで有効です
+    $ wp2txt --lang=ja --articles="東京" --sections="summary,概要,歴史" --format json -o ./sections
 
-    # セクション見出しの統計
+    # カテゴリ内の記事から特定セクションを抽出（中速）
+    $ wp2txt --lang=ja --from-category="日本の都市" --sections="summary,概要,歴史" --format json -o ./sections
+
+    # フルダンプから特定セクションを抽出（低速 - 全記事を処理）
+    $ wp2txt --lang=ja --sections="summary,概要,歴史,関連項目" --format json -o ./sections
+
+    # セクション見出しの統計（抽出前のセクション名の調査に便利）
     $ wp2txt --lang=ja --section-stats -o ./stats
 
     # JSON/JSONL出力
@@ -260,7 +267,7 @@ CATEGORIES: カテゴリ1, カテゴリ2, カテゴリ3
       -M, --metadata-only              タイトル、見出し、カテゴリのみ抽出
 
     セクション抽出:
-      -S, --sections=<s>               特定セクションを抽出（カンマ区切り）
+      -S, --sections=<s>               特定セクションを抽出（カンマ区切り、大文字小文字区別なし）
       --section-output=<s>             出力モード: structured または combined（デフォルト: structured）
       --min-section-length=<i>         最小セクション長（文字数）（デフォルト: 0）
       --skip-empty                     該当セクションのない記事をスキップ

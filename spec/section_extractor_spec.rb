@@ -161,6 +161,76 @@ RSpec.describe Wp2txt::SectionExtractor do
     end
   end
 
+  describe "bidirectional alias matching" do
+    let(:wiki_with_plot) do
+      <<~WIKI
+        Summary.
+
+        == Plot ==
+        The story begins...
+      WIKI
+    end
+    let(:plot_article) { Wp2txt::Article.new(wiki_with_plot, "Film") }
+
+    let(:wiki_with_synopsis) do
+      <<~WIKI
+        Summary.
+
+        == Synopsis ==
+        The story follows...
+      WIKI
+    end
+    let(:synopsis_article) { Wp2txt::Article.new(wiki_with_synopsis, "Movie") }
+
+    let(:wiki_with_reviews) do
+      <<~WIKI
+        Summary.
+
+        == Reviews ==
+        Critics praised...
+      WIKI
+    end
+    let(:reviews_article) { Wp2txt::Article.new(wiki_with_reviews, "Album") }
+
+    context "when target is canonical name" do
+      let(:extractor) { described_class.new(["Plot"]) }
+
+      it "matches alias heading (Synopsis)" do
+        sections = extractor.extract_sections(synopsis_article)
+        expect(sections["Plot"]).to include("story follows")
+      end
+    end
+
+    context "when target is an alias name" do
+      let(:extractor) { described_class.new(["Synopsis"]) }
+
+      it "matches canonical heading (Plot)" do
+        sections = extractor.extract_sections(plot_article)
+        expect(sections["Synopsis"]).to include("story begins")
+      end
+    end
+
+    context "when target is one alias and heading is another alias in the same group" do
+      let(:extractor) { described_class.new(["Reviews"]) }
+
+      it "matches Critical reception heading via shared alias group" do
+        wiki = "== Critical reception ==\nWell received."
+        art = Wp2txt::Article.new(wiki, "Work")
+        sections = extractor.extract_sections(art)
+        expect(sections["Reviews"]).to include("Well received")
+      end
+    end
+
+    context "when aliases are disabled" do
+      let(:extractor) { described_class.new(["Synopsis"], use_aliases: false) }
+
+      it "does not match canonical name (Plot)" do
+        sections = extractor.extract_sections(plot_article)
+        expect(sections["Synopsis"]).to be_nil
+      end
+    end
+  end
+
   describe "case-insensitive matching" do
     let(:extractor) { described_class.new(["early life", "CAREER"]) }
 

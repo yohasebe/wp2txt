@@ -10,14 +10,14 @@ English | [日本語](README_ja.md)
 # Install
 gem install wp2txt
 
-# Extract text from Japanese Wikipedia (auto-download)
-wp2txt --lang=ja -o ./output
+# Extract text from English Wikipedia (auto-download)
+wp2txt --lang=en -o ./output
 
 # Extract specific articles
-wp2txt --lang=ja --articles="東京,京都" -o ./articles
+wp2txt --lang=en --articles="Tokyo,Kyoto" -o ./articles
 
 # Extract articles from a category
-wp2txt --lang=ja --from-category="日本の都市" -o ./cities
+wp2txt --lang=en --from-category="Cities in Japan" -o ./cities
 ```
 
 ## About
@@ -80,27 +80,27 @@ The `wp2txt` command is available inside the container. Use `/data` for input/ou
 
 ### Auto-download and process (Recommended)
 
-    $ wp2txt --lang=ja -o ./text
+    $ wp2txt --lang=en -o ./text
 
-This automatically downloads the Japanese Wikipedia dump and extracts plain text. Downloads are cached in `~/.wp2txt/cache/`.
+This automatically downloads the English Wikipedia dump and extracts plain text. Downloads are cached in `~/.wp2txt/cache/`.
 
 ### Extract specific articles by title
 
-    $ wp2txt --lang=ja --articles="認知言語学,生成文法" -o ./articles
+    $ wp2txt --lang=en --articles="Cognitive linguistics,Generative grammar" -o ./articles
 
 Only the index file and necessary data streams are downloaded, making it much faster than processing the full dump.
 
 ### Extract articles from a category
 
-    $ wp2txt --lang=ja --from-category="日本の都市" -o ./cities
+    $ wp2txt --lang=en --from-category="Cities in Japan" -o ./cities
 
 Include subcategories with `--depth`:
 
-    $ wp2txt --lang=ja --from-category="日本の都市" --depth=2 -o ./cities
+    $ wp2txt --lang=en --from-category="Cities in Japan" --depth=2 -o ./cities
 
 Preview without downloading (shows article counts):
 
-    $ wp2txt --lang=ja --from-category="日本の都市" --dry-run
+    $ wp2txt --lang=en --from-category="Cities in Japan" --dry-run
 
 ### Process local dump file
 
@@ -109,22 +109,29 @@ Preview without downloading (shows article counts):
 ### Other extraction modes
 
     # Category info only (title + categories)
-    $ wp2txt -g --lang=ja -o ./category
+    $ wp2txt -g --lang=en -o ./category
 
     # Summary only (title + categories + opening paragraphs)
-    $ wp2txt -s --lang=ja -o ./summary
+    $ wp2txt -s --lang=en -o ./summary
 
     # Metadata only (title + section headings + categories)
-    $ wp2txt -M --lang=ja --format json -o ./metadata
+    $ wp2txt -M --lang=en --format json -o ./metadata
 
-    # Extract specific sections (comma-separated, 'summary' for lead text)
-    $ wp2txt --lang=en --sections="summary,Plot,Reception" --format json -o ./sections
+    # Extract specific sections from particular articles (fast)
+    # Section names are case-insensitive; alias matching is enabled by default
+    $ wp2txt --lang=en --articles="Tokyo" --sections="summary,history,geography" --format json -o ./sections
 
-    # Section heading statistics
-    $ wp2txt --lang=ja --section-stats -o ./stats
+    # Extract specific sections from a category (moderate)
+    $ wp2txt --lang=en --from-category="Cities in Japan" --sections="summary,history" --format json -o ./sections
+
+    # Extract specific sections from full dump (slow - processes all articles)
+    $ wp2txt --lang=en --sections="summary,plot,reception" --format json -o ./sections
+
+    # Section heading statistics (useful for discovering section names before extraction)
+    $ wp2txt --lang=en --section-stats -o ./stats
 
     # JSON/JSONL output
-    $ wp2txt --format json --lang=ja -o ./json
+    $ wp2txt --format json --lang=en -o ./json
 
 ## Sample Output
 
@@ -156,7 +163,7 @@ For redirect articles:
 
     $ wp2txt --cache-status           # Show cache status
     $ wp2txt --cache-clear            # Clear all cache
-    $ wp2txt --cache-clear --lang=ja  # Clear cache for Japanese only
+    $ wp2txt --cache-clear --lang=en  # Clear cache for English only
     $ wp2txt --update-cache           # Force fresh download
 
 When cache exceeds the expiry period (default: 30 days), wp2txt displays a warning but allows using cached data.
@@ -260,7 +267,7 @@ Supported: `{{cite book}}`, `{{cite web}}`, `{{cite news}}`, `{{cite journal}}`,
       -M, --metadata-only              Extract only title, headings, and categories
 
     Section extraction:
-      -S, --sections=<s>               Extract specific sections (comma-separated)
+      -S, --sections=<s>               Extract specific sections (comma-separated, case-insensitive)
       --section-output=<s>             Output mode: structured or combined (default: structured)
       --min-section-length=<i>         Minimum section length in characters (default: 0)
       --skip-empty                     Skip articles with no matching sections

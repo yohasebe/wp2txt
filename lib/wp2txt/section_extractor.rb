@@ -11,9 +11,21 @@ module Wp2txt
     SUMMARY_KEY = "summary"
 
     # Default section aliases (canonical name => array of aliases)
+    # These cover common variations found across English Wikipedia articles.
+    # Users can add custom aliases via --alias-file for other languages or domains.
     DEFAULT_ALIASES = {
-      "Plot" => ["Synopsis"],
-      "Reception" => ["Critical reception"]
+      "Plot" => ["Synopsis", "Plot summary", "Story"],
+      "Reception" => ["Critical reception", "Reviews", "Critical response"],
+      "References" => ["Notes", "Footnotes", "Citations", "Notes and references"],
+      "External links" => ["External sources"],
+      "See also" => ["Related articles", "Related pages"],
+      "Bibliography" => ["Works", "Publications", "Selected works", "Selected bibliography"],
+      "Awards" => ["Awards and nominations", "Honors", "Accolades"],
+      "Legacy" => ["Impact", "Influence", "Cultural impact", "Cultural legacy"],
+      "Early life" => ["Early life and education", "Childhood", "Early years"],
+      "Career" => ["Professional career"],
+      "Filmography" => ["Films"],
+      "Discography" => ["Discography and videography"]
     }.freeze
 
     # Track which actual headings matched which requested sections
@@ -230,19 +242,22 @@ module Wp2txt
     end
 
     # Find canonical name for a heading (handles aliases)
+    # Supports bidirectional alias matching:
+    #   - Target is canonical name, heading matches an alias (e.g., target="plot" matches "Synopsis")
+    #   - Target is an alias, heading matches canonical or another alias in the same group
+    #     (e.g., target="synopsis" matches "Plot" or "Plot summary")
     # @param heading [String] The actual heading text from the article
     # @param record_match [Boolean] Whether to record the match for tracking
-    # @return [String, nil] The canonical (requested) section name, or nil
+    # @return [String, nil] The target section name as specified by the user, or nil
     def find_canonical_name(heading, record_match: true)
       return nil if heading.nil? || heading.empty?
       return nil if @targets.nil?
 
       heading_lower = heading.downcase.strip
 
-      # Direct match
+      # Direct match (target name == heading name)
       @targets.each do |target|
         if target.downcase == heading_lower
-          # Record direct match (only if heading differs in case)
           if @track_matches && record_match && target != heading
             @matched_sections[target] = heading
           end
@@ -250,20 +265,26 @@ module Wp2txt
         end
       end
 
-      # Alias match
       return nil unless @use_aliases
 
-      @aliases.each do |canonical, alias_list|
-        next unless @targets.any? { |t| t.downcase == canonical.downcase }
+      @targets.each do |target|
+        target_lower = target.downcase
 
-        if alias_list.any? { |a| a.downcase == heading_lower }
-          # Return the target that matches canonical
-          target = @targets.find { |t| t.downcase == canonical.downcase }
-          # Record alias match
-          if @track_matches && record_match && target
-            @matched_sections[target] = heading
+        @aliases.each do |canonical, alias_list|
+          canonical_lower = canonical.downcase
+          aliases_lower = alias_list.map(&:downcase)
+          all_names = [canonical_lower] + aliases_lower
+
+          # Check if this target belongs to this alias group
+          next unless all_names.include?(target_lower)
+
+          # Check if the heading matches any name in the same group
+          if all_names.include?(heading_lower) && target_lower != heading_lower
+            if @track_matches && record_match
+              @matched_sections[target] = heading
+            end
+            return target
           end
-          return target
         end
       end
 
