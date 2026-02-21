@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+- **Bidirectional alias matching**: Section extraction now supports reverse alias lookup - specifying an alias name (e.g., "Synopsis") as target matches the canonical heading ("Plot") and vice versa
+- **Expanded default section aliases**: Increased from 2 to 12 alias groups covering common English Wikipedia sections (Plot, Reception, References, Bibliography, Awards, Legacy, Early life, Career, etc.)
+- **Config forwarding fix**: `--pre`, `--ref`, `--expand-templates`, and `--metadata-only` options now correctly forwarded in `--articles` and `--from-category` modes
+
 ## [2.1.0] - 2026-02-19
 
 - **SQLite-based caching infrastructure**: New high-performance caching using SQLite for faster startup and repeated operations:

@@ -239,13 +239,13 @@ RSpec.describe "Wp2txt Multistream" do
 
     describe "#initialize" do
       it "loads the index file" do
-        index = described_class.new(index_path)
+        index = described_class.new(index_path, cache_dir: temp_dir)
         expect(index.size).to eq(4)
       end
     end
 
     describe "#find_by_title" do
-      let(:index) { described_class.new(index_path) }
+      let(:index) { described_class.new(index_path, cache_dir: temp_dir) }
 
       it "finds article by exact title" do
         result = index.find_by_title("Article One")
@@ -268,7 +268,7 @@ RSpec.describe "Wp2txt Multistream" do
     end
 
     describe "#find_by_id" do
-      let(:index) { described_class.new(index_path) }
+      let(:index) { described_class.new(index_path, cache_dir: temp_dir) }
 
       it "finds article by page ID" do
         result = index.find_by_id(2)
@@ -283,7 +283,7 @@ RSpec.describe "Wp2txt Multistream" do
     end
 
     describe "#articles_in_stream" do
-      let(:index) { described_class.new(index_path) }
+      let(:index) { described_class.new(index_path, cache_dir: temp_dir) }
 
       it "returns articles at given byte offset" do
         articles = index.articles_in_stream(100)
@@ -298,7 +298,7 @@ RSpec.describe "Wp2txt Multistream" do
     end
 
     describe "#stream_offset_for" do
-      let(:index) { described_class.new(index_path) }
+      let(:index) { described_class.new(index_path, cache_dir: temp_dir) }
 
       it "returns byte offset for article" do
         offset = index.stream_offset_for("Article Three")
@@ -312,7 +312,7 @@ RSpec.describe "Wp2txt Multistream" do
     end
 
     describe "#random_articles" do
-      let(:index) { described_class.new(index_path) }
+      let(:index) { described_class.new(index_path, cache_dir: temp_dir) }
 
       it "returns requested number of random articles" do
         articles = index.random_articles(2)
@@ -326,7 +326,7 @@ RSpec.describe "Wp2txt Multistream" do
     end
 
     describe "#first_articles" do
-      let(:index) { described_class.new(index_path) }
+      let(:index) { described_class.new(index_path, cache_dir: temp_dir) }
 
       it "returns first N articles" do
         articles = index.first_articles(2)
@@ -335,7 +335,7 @@ RSpec.describe "Wp2txt Multistream" do
     end
 
     describe "#stream_offsets" do
-      let(:index) { described_class.new(index_path) }
+      let(:index) { described_class.new(index_path, cache_dir: temp_dir) }
 
       it "returns unique sorted offsets" do
         offsets = index.stream_offsets
@@ -447,7 +447,7 @@ RSpec.describe "Wp2txt Multistream" do
 
     describe "#initialize" do
       it "creates reader with paths" do
-        reader = described_class.new(multistream_path, index_path)
+        reader = described_class.new(multistream_path, index_path, cache_dir: temp_dir)
         expect(reader.multistream_path).to eq(multistream_path)
         expect(reader.index).to be_a(Wp2txt::MultistreamIndex)
       end
@@ -456,7 +456,7 @@ RSpec.describe "Wp2txt Multistream" do
     describe "#extract_article" do
       it "returns nil for non-existent article" do
         # Without actual bz2 file, can't extract, but should handle gracefully
-        reader = described_class.new(multistream_path, index_path)
+        reader = described_class.new(multistream_path, index_path, cache_dir: temp_dir)
         # Will return nil because file doesn't exist
         expect { reader.extract_article("Non Existent") }.not_to raise_error
       end
@@ -464,13 +464,13 @@ RSpec.describe "Wp2txt Multistream" do
 
     describe "#extract_articles_parallel" do
       it "handles empty titles array" do
-        reader = described_class.new(multistream_path, index_path)
+        reader = described_class.new(multistream_path, index_path, cache_dir: temp_dir)
         result = reader.extract_articles_parallel([], num_processes: 2)
         expect(result).to eq({})
       end
 
       it "handles titles not in index" do
-        reader = described_class.new(multistream_path, index_path)
+        reader = described_class.new(multistream_path, index_path, cache_dir: temp_dir)
         result = reader.extract_articles_parallel(["Non Existent"], num_processes: 2)
         expect(result).to eq({})
       end
@@ -478,13 +478,13 @@ RSpec.describe "Wp2txt Multistream" do
 
     describe "#each_article_parallel" do
       it "returns an enumerator when no block given" do
-        reader = described_class.new(multistream_path, index_path)
+        reader = described_class.new(multistream_path, index_path, cache_dir: temp_dir)
         result = reader.each_article_parallel([], num_processes: 2)
         expect(result).to be_an(Enumerator)
       end
 
       it "handles empty entries array" do
-        reader = described_class.new(multistream_path, index_path)
+        reader = described_class.new(multistream_path, index_path, cache_dir: temp_dir)
         pages = []
         reader.each_article_parallel([], num_processes: 2) { |page| pages << page }
         expect(pages).to eq([])
