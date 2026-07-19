@@ -285,13 +285,18 @@ module Wp2txt
 
       db = open_db
       with = scope_cte ? "WITH RECURSIVE #{scope_cte} " : ""
+      # Placeholders bind positionally: with a recursive CTE the category `?`
+      # sits inside the CTE (before any heading `?`); without one it sits
+      # inside scope_cond (after the heading `?`)
+      cte_params = scope_cte ? scope_params : []
+      cond_params = scope_cte ? [] : scope_params
 
       heading_stats = headings.map do |h|
         row = db.execute(
           "#{with}SELECT COUNT(DISTINCT ps.page_id), AVG(ps.ord) FROM page_sections ps " \
           "JOIN pages p ON p.page_id = ps.page_id " \
           "WHERE ps.heading COLLATE NOCASE = ? AND #{scope_cond}",
-          [h] + scope_params
+          cte_params + [h] + cond_params
         ).first
         { heading: h, articles: row[0].to_i, avg_position: row[1]&.round(2) }
       end
@@ -305,7 +310,7 @@ module Wp2txt
           "INTERSECT " \
           "SELECT ps.page_id FROM page_sections ps JOIN pages p ON p.page_id = ps.page_id " \
           "WHERE ps.heading COLLATE NOCASE = ? AND #{scope_cond})",
-          [a] + scope_params + [b] + scope_params
+          cte_params + [a] + cond_params + [b] + cond_params
         ).to_i
         min = [counts[a], counts[b]].min
         { a: a, b: b, both: both, cooccurrence_ratio: min.positive? ? (both.to_f / min).round(3) : 0.0 }

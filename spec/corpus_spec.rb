@@ -136,6 +136,18 @@ RSpec.describe Wp2txt::Corpus do
       expect(plot[:articles]).to eq(1)
       expect(plot[:avg_position]).to eq(0.0)
     end
+
+    it "scopes to an exact category" do
+      result = @corpus.section_cooccurrence(%w[Plot Reception], category: "Japanese films")
+      expect(result[:headings].map { |h| h[:articles] }).to eq([1, 1])
+      expect(result[:pairs].first[:both]).to eq(1)
+    end
+
+    it "scopes to a recursive category (CTE placeholder ordering regression)" do
+      result = @corpus.section_cooccurrence(%w[Plot Synopsis], category: "Films", depth: 1)
+      expect(result[:headings].map { |h| h[:articles] }).to eq([1, 1])
+      expect(result[:pairs].first[:both]).to eq(0)
+    end
   end
 
   describe "alias sets" do
