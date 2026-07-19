@@ -1,0 +1,209 @@
+# frozen_string_literal: true
+
+require "spec_helper"
+require "tmpdir"
+require "fileutils"
+require "json"
+require_relative "support/multistream_fixture"
+require_relative "../lib/wp2txt/corpus"
+
+RSpec.describe Wp2txt::Corpus do
+  include MultistreamFixture
+
+  around do |example|
+    Dir.mktmpdir do |dir|
+      @dir = dir
+      @multistream_path, @index_path = create_fixture(dir)
+
+      ms_index = Wp2txt::MultistreamIndex.new(@index_path, use_cache: false, show_progress: false)
+      db_path = Wp2txt::MetadataIndex.path_for(@multistream_path, cache_dir: dir)
+      Wp2txt::MetadataIndexBuilder.new(
+        @multistream_path, ms_index.stream_offsets,
+        db_path: db_path, num_processes: 0
+      ).build
+
+      @corpus = described_class.for_input(@multistream_path, cache_dir: dir)
+      example.run
+      @corpus.close
+    end
+  end
+
+  describe ".for_input" do
+    it "locates the index file next to the dump" do
+      expect(@corpus.index_path).to eq(@index_path)
+    end
+
+    it "raises when no index file exists" do
+      orphan = File.join(@dir, "orphan-multistream.xml.bz2")
+      FileUtils.cp(@multistream_path, orphan)
+      expect { described_class.for_input(orphan, cache_dir: @dir) }.to raise_error(ArgumentError, /index file not found/)
+    end
+  end
+
+  describe "#dump_info" do
+    it "reports dump identity, tiers, and stats" do
+      info = @corpus.dump_info
+      expect(info[:dump]).to eq("testwiki-20260101")
+      expect(info[:tiers]).to eq({ titles: true, metadata: true })
+      expect(info[:metadata_current]).to be true
+      expect(info[:stats][:article_count]).to eq(3)
+    end
+  end
+
+  describe "#get_article" do
+    it "returns cleaned text by default" do
+      result = @corpus.get_article("Film A")
+      expect(result[:id]).to eq(1)
+      expect(result[:text]).to include("Story here")
+      expect(result[:text]).not_to include("[[Category:")
+    end
+
+    it "returns raw wikitext when requested" do
+      result = @corpus.get_article("Film A", format: "wikitext")
+      expect(result[:text]).to include("[[Category:Japanese films]]")
+    end
+
+    it "resolves one redirect hop" do
+      result = @corpus.get_article("Old Film")
+      expect(result[:title]).to eq("Film A")
+    end
+
+    it "returns nil for a missing title" do
+      expect(@corpus.get_article("Nope")).to be_nil
+    end
+  end
+
+  describe "#get_sections" do
+    it "extracts the requested section content" do
+      result = @corpus.get_sections("Film A", ["Plot"])
+      expect(result[:sections]["Plot"]).to include("Story here")
+    end
+
+    it "expands names through a saved alias set" do
+      @corpus.save_alias_set("test-plot", [%w[Plot Synopsis]])
+      result = @corpus.get_sections("Film B", ["Plot"], alias_set: "test-plot")
+      expect(result[:resolved]).to contain_exactly("Plot", "Synopsis")
+      expect(result[:sections].values.compact.join).to include("Story here")
+    end
+  end
+
+  describe "#list_headings" do
+    it "lists headings with levels" do
+      result = @corpus.list_headings("Film A")
+      expect(result[:headings]).to eq([
+        { name: "Plot", level: 2 },
+        { name: "Reception", level: 2 }
+      ])
+    end
+  end
+
+  describe "#find_articles" do
+    it "matches any of multiple section headings (array primitive)" do
+      result = @corpus.find_articles(sections: %w[Plot Synopsis])
+      expect(result[:total]).to eq(2)
+      expect(result[:titles]).to contain_exactly("Film A", "Film B")
+    end
+
+    it "expands sections through a saved alias set" do
+      @corpus.save_alias_set("test-plot", [%w[Plot Synopsis]])
+      result = @corpus.find_articles(sections: ["Plot"], alias_set: "test-plot")
+      expect(result[:titles]).to contain_exactly("Film A", "Film B")
+    end
+
+    it "includes the dump identifier for provenance" do
+      expect(@corpus.find_articles(title_match: "Film")[:dump]).to eq("testwiki-20260101")
+    end
+  end
+
+  describe "#section_cooccurrence" do
+    it "reports zero co-occurrence for headings that never share an article" do
+      result = @corpus.section_cooccurrence(%w[Plot Synopsis])
+      pair = result[:pairs].first
+      expect(pair[:both]).to eq(0)
+      expect(pair[:cooccurrence_ratio]).to eq(0.0)
+    end
+
+    it "reports co-occurrence for headings in the same article" do
+      result = @corpus.section_cooccurrence(%w[Plot Reception])
+      pair = result[:pairs].first
+      expect(pair[:both]).to eq(1)
+      expect(pair[:cooccurrence_ratio]).to eq(1.0)
+    end
+
+    it "includes per-heading article counts and positions" do
+      result = @corpus.section_cooccurrence(%w[Plot Reception])
+      plot = result[:headings].find { |h| h[:heading] == "Plot" }
+      expect(plot[:articles]).to eq(1)
+      expect(plot[:avg_position]).to eq(0.0)
+    end
+  end
+
+  describe "alias sets" do
+    it "saves, retrieves, and lists alias sets" do
+      @corpus.save_alias_set("s1", [%w[Plot Synopsis], %w[Career Biography]])
+      expect(@corpus.get_alias_set("s1")[:groups]).to eq([%w[Plot Synopsis], %w[Career Biography]])
+      expect(@corpus.list_alias_sets.map { |s| s[:name] }).to include("s1")
+    end
+
+    it "rejects malformed groups" do
+      expect { @corpus.save_alias_set("bad", "not an array") }.to raise_error(ArgumentError)
+    end
+
+    it "raises when querying with an unknown alias set" do
+      expect { @corpus.find_articles(sections: ["Plot"], alias_set: "nope") }.to raise_error(ArgumentError, /not found/)
+    end
+  end
+
+  describe "#extract_corpus" do
+    it "writes JSONL with a reproducibility sidecar and returns a summary with sample" do
+      @corpus.save_alias_set("test-plot", [%w[Plot Synopsis]])
+      out = File.join(@dir, "plots.jsonl")
+      result = @corpus.extract_corpus(
+        output_path: out, content: "sections", sections: ["Plot"],
+        alias_set: "test-plot", num_processes: 0
+      )
+
+      expect(result[:extracted]).to eq(2)
+      expect(result[:truncated]).to be false
+      expect(result[:sample].size).to eq(2)
+
+      lines = File.readlines(out).map { |l| JSON.parse(l) }
+      expect(lines.size).to eq(2)
+      expect(lines.map { |r| r["title"] }).to contain_exactly("Film A", "Film B")
+      expect(lines.first["sections"].values.join).to include("Story here")
+
+      meta = JSON.parse(File.read(result[:meta_path]))
+      expect(meta["dump"]).to eq("testwiki-20260101")
+      expect(meta["alias_set_contents"]).to eq([%w[Plot Synopsis]])
+      expect(meta["query"]["resolved_sections"]).to contain_exactly("Plot", "Synopsis")
+    end
+
+    it "extracts full article text" do
+      out = File.join(@dir, "full.jsonl")
+      result = @corpus.extract_corpus(
+        output_path: out, content: "full", title_match: "Film A", num_processes: 0
+      )
+      expect(result[:extracted]).to eq(1)
+      record = JSON.parse(File.readlines(out).first)
+      expect(record["text"]).to include("Story here")
+      expect(record["categories"]).to include("Japanese films")
+    end
+
+    it "flags truncation when matches exceed the limit" do
+      out = File.join(@dir, "limited.jsonl")
+      result = @corpus.extract_corpus(
+        output_path: out, content: "sections", sections: %w[Plot Synopsis],
+        limit: 1, num_processes: 0
+      )
+      expect(result[:extracted]).to eq(1)
+      expect(result[:truncated]).to be true
+      expect(result[:total_matching]).to eq(2)
+    end
+
+    it "requires sections or alias_set for sections content" do
+      expect do
+        @corpus.extract_corpus(output_path: File.join(@dir, "x.jsonl"), content: "sections")
+      end.to raise_error(ArgumentError, /requires sections/)
+    end
+  end
+end

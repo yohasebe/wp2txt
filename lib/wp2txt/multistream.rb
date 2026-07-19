@@ -233,8 +233,9 @@ module Wp2txt
     def initialize(multistream_path, index_or_path, use_cache: true, cache_dir: nil)
       @multistream_path = multistream_path
 
-      # Accept either an existing index or a path to create one
-      if index_or_path.is_a?(MultistreamIndex)
+      # Accept an existing index (or any object with the same lookup interface,
+      # e.g. a lazy SQLite-backed one) or a path to create one
+      if index_or_path.respond_to?(:find_by_title)
         @index = index_or_path
       else
         @index = MultistreamIndex.new(index_or_path, use_cache: use_cache, cache_dir: cache_dir)

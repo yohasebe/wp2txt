@@ -1,0 +1,238 @@
+#!/usr/bin/env ruby
+
+# frozen_string_literal: true
+
+# MCP (Model Context Protocol) server exposing a local Wikipedia dump for
+# exhaustive, version-pinned queries and corpus extraction.
+#
+# Usage:
+#   wp2txt-mcp --lang ja                 # use the cached dump for a language
+#   wp2txt-mcp --input dump.xml.bz2      # use an explicit multistream file
+#
+# Prerequisite: wp2txt --build-index -L ja  (downloads dump + builds metadata index)
+#
+# All logging goes to stderr; stdout carries JSON-RPC only.
+
+begin
+  require "mcp"
+rescue LoadError
+  abort "wp2txt-mcp requires the 'mcp' gem (not installed by default).\n" \
+        "Install it with: gem install mcp"
+end
+
+require "optimist"
+require "json"
+require_relative "../lib/wp2txt/corpus"
+require_relative "../lib/wp2txt/version"
+
+opts = Optimist.options do
+  version Wp2txt::VERSION
+  banner "wp2txt-mcp: MCP server for offline Wikipedia dump queries\n\nOptions:"
+  opt :lang, "Wikipedia language code of a cached dump (e.g., ja, en)", type: String, short: "-L"
+  opt :input, "Path to a multistream .xml.bz2 file", type: String, short: "-i"
+  opt :cache_dir, "Cache directory", type: String, default: File.expand_path("~/.wp2txt/cache")
+  opt :output_dir, "Default directory for extract_corpus output files", type: String, default: Dir.pwd
+end
+
+Optimist.die "Either --lang or --input is required" if opts[:lang].nil? && opts[:input].nil?
+Optimist.die "Cannot specify both --lang and --input" if opts[:lang] && opts[:input]
+
+begin
+  corpus = if opts[:lang]
+             Wp2txt::Corpus.for_lang(opts[:lang], cache_dir: opts[:cache_dir])
+           else
+             Wp2txt::Corpus.for_input(File.expand_path(opts[:input]), cache_dir: opts[:cache_dir])
+           end
+rescue ArgumentError => e
+  abort e.message
+end
+
+unless corpus.metadata_built?
+  abort "Metadata index not built for this dump.\n" \
+        "Build it first with: wp2txt --build-index #{opts[:lang] ? "-L #{opts[:lang]}" : "-i #{opts[:input]}"}"
+end
+
+info = corpus.dump_info
+warn "wp2txt-mcp #{Wp2txt::VERSION} | dump: #{info[:dump]} | articles: #{info[:stats]&.dig(:article_count)}"
+warn "NOTE: metadata index is stale (dump file changed); consider re-running --build-index" unless info[:metadata_current]
+
+OUTPUT_DIR = opts[:output_dir]
+
+server = MCP::Server.new(name: "wp2txt", version: Wp2txt::VERSION)
+
+# Wrap a tool body: render result as JSON text, convert errors to tool errors
+def respond(&block)
+  result = block.call
+  MCP::Tool::Response.new([{ type: "text", text: JSON.generate(result) }])
+rescue ArgumentError => e
+  MCP::Tool::Response.new([{ type: "text", text: JSON.generate({ error: e.message }) }], error: true)
+rescue StandardError => e
+  MCP::Tool::Response.new([{ type: "text", text: JSON.generate({ error: "#{e.class}: #{e.message}" }) }], error: true)
+end
+
+server.define_tool(
+  name: "dump_info",
+  description: "Dump identity (language/date), available index tiers, and article/category/section counts. Call first to learn what this corpus contains.",
+  input_schema: { properties: {}, required: [] }
+) do |server_context:|
+  respond { corpus.dump_info }
+end
+
+server.define_tool(
+  name: "get_article",
+  description: "Fetch one article by exact title from the local dump. format: 'text' (cleaned plain text, default) or 'wikitext' (raw markup). Follows one redirect hop. Returns null text if the title does not exist.",
+  input_schema: {
+    properties: {
+      title: { type: "string" },
+      format: { type: "string", enum: ["text", "wikitext"] }
+    },
+    required: ["title"]
+  }
+) do |title:, format: "text", server_context:|
+  respond { corpus.get_article(title, format: format) || { error: "article not found: #{title}" } }
+end
+
+server.define_tool(
+  name: "get_sections",
+  description: "Extract specific sections from one article by heading names. Use 'summary' for the lead text before the first heading. Optionally expand names through a saved alias_set.",
+  input_schema: {
+    properties: {
+      title: { type: "string" },
+      sections: { type: "array", items: { type: "string" } },
+      alias_set: { type: "string" }
+    },
+    required: ["title", "sections"]
+  }
+) do |title:, sections:, alias_set: nil, server_context:|
+  respond { corpus.get_sections(title, sections, alias_set: alias_set) || { error: "article not found: #{title}" } }
+end
+
+server.define_tool(
+  name: "list_headings",
+  description: "List the section heading tree (name + level) of one article. Useful before get_sections to see what headings exist.",
+  input_schema: { properties: { title: { type: "string" } }, required: ["title"] }
+) do |title:, server_context:|
+  respond { corpus.list_headings(title) || { error: "article not found: #{title}" } }
+end
+
+server.define_tool(
+  name: "find_articles",
+  description: "Exhaustively list articles matching filters: category (with subcategory recursion via depth; NOTE category trees over-include, so dry-run with a small limit first), sections (article must contain at least one of these headings; expanded via alias_set if given), title_match (substring). Returns total count plus up to `limit` titles. Redirects are excluded.",
+  input_schema: {
+    properties: {
+      category: { type: "string" },
+      depth: { type: "integer", minimum: 0, maximum: 5 },
+      sections: { type: "array", items: { type: "string" } },
+      alias_set: { type: "string" },
+      title_match: { type: "string" },
+      limit: { type: "integer", minimum: 0 },
+      offset: { type: "integer", minimum: 0 }
+    },
+    required: []
+  }
+) do |category: nil, depth: 0, sections: nil, alias_set: nil, title_match: nil, limit: 100, offset: 0, server_context:|
+  respond do
+    corpus.find_articles(category: category, depth: depth, sections: sections,
+                         alias_set: alias_set, title_match: title_match,
+                         limit: limit, offset: offset)
+  end
+end
+
+server.define_tool(
+  name: "category_tree",
+  description: "Subcategory tree under a category (names + depth). Use to understand scope before recursive find_articles.",
+  input_schema: {
+    properties: { category: { type: "string" }, depth: { type: "integer", minimum: 1, maximum: 5 } },
+    required: ["category"]
+  }
+) do |category:, depth: 2, server_context:|
+  respond { corpus.category_tree(category, depth: depth) }
+end
+
+server.define_tool(
+  name: "section_stats",
+  description: "Section heading frequencies across articles, optionally scoped to a category (+depth). This is the primary tool for discovering how sections are actually named in this language edition — use it before assuming heading names, and as the raw material for building alias sets.",
+  input_schema: {
+    properties: {
+      category: { type: "string" },
+      depth: { type: "integer", minimum: 0, maximum: 5 },
+      top_n: { type: "integer", minimum: 1, maximum: 500 }
+    },
+    required: []
+  }
+) do |category: nil, depth: 0, top_n: 50, server_context:|
+  respond { corpus.section_stats(category: category, depth: depth, top_n: top_n) }
+end
+
+server.define_tool(
+  name: "section_cooccurrence",
+  description: "Test whether headings are plausible aliases: for each heading, article count and average position; for each pair, how many articles contain BOTH. Synonymous headings almost never co-occur in one article, so a high cooccurrence_ratio is evidence AGAINST grouping them as aliases. Use to verify a hypothesis before save_alias_set.",
+  input_schema: {
+    properties: {
+      headings: { type: "array", items: { type: "string" }, minItems: 2 },
+      category: { type: "string" },
+      depth: { type: "integer", minimum: 0, maximum: 5 }
+    },
+    required: ["headings"]
+  }
+) do |headings:, category: nil, depth: 0, server_context:|
+  respond { corpus.section_cooccurrence(headings, category: category, depth: depth) }
+end
+
+server.define_tool(
+  name: "save_alias_set",
+  description: "Persist a named set of section-heading alias groups for this dump (e.g. [[\"あらすじ\",\"ストーリー\",\"物語\"]]). Verify groups with section_cooccurrence first. Saved sets can be referenced by alias_set in find_articles / get_sections / extract_corpus, and their contents are recorded in extraction metadata for reproducibility.",
+  input_schema: {
+    properties: {
+      name: { type: "string" },
+      groups: { type: "array", items: { type: "array", items: { type: "string" } } }
+    },
+    required: ["name", "groups"]
+  }
+) do |name:, groups:, server_context:|
+  respond { corpus.save_alias_set(name, groups) }
+end
+
+server.define_tool(
+  name: "get_alias_set",
+  description: "Retrieve a saved alias set by name (groups + creation time).",
+  input_schema: { properties: { name: { type: "string" } }, required: ["name"] }
+) do |name:, server_context:|
+  respond { corpus.get_alias_set(name) || { error: "alias set not found: #{name}" } }
+end
+
+server.define_tool(
+  name: "list_alias_sets",
+  description: "List all alias sets saved for this dump.",
+  input_schema: { properties: {}, required: [] }
+) do |server_context:|
+  respond { { alias_sets: corpus.list_alias_sets } }
+end
+
+server.define_tool(
+  name: "extract_corpus",
+  description: "Extract matching articles to a JSONL file on disk (with a .meta.json sidecar recording dump version and query for reproducibility). Returns a summary and the first 3 records only — the full corpus stays on disk; process it with your own tools. content: 'sections' (named sections only), 'summary' (lead text), or 'full' (whole article). Synchronous, capped at 5000 articles; the result flags truncation. Dry-run the filters with find_articles first.",
+  input_schema: {
+    properties: {
+      output_path: { type: "string", description: "JSONL output path; relative paths resolve under the server's output dir" },
+      content: { type: "string", enum: ["sections", "summary", "full"] },
+      sections: { type: "array", items: { type: "string" } },
+      alias_set: { type: "string" },
+      category: { type: "string" },
+      depth: { type: "integer", minimum: 0, maximum: 5 },
+      title_match: { type: "string" },
+      limit: { type: "integer", minimum: 0 }
+    },
+    required: ["output_path", "content"]
+  }
+) do |output_path:, content:, sections: nil, alias_set: nil, category: nil, depth: 0, title_match: nil, limit: 0, server_context:|
+  respond do
+    path = File.expand_path(output_path, OUTPUT_DIR)
+    corpus.extract_corpus(output_path: path, content: content, sections: sections,
+                          alias_set: alias_set, category: category, depth: depth,
+                          title_match: title_match, limit: limit)
+  end
+end
+
+transport = MCP::Server::Transports::StdioTransport.new(server)
+transport.open

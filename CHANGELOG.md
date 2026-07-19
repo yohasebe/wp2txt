@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- **MCP server (`wp2txt-mcp`)**: New binary exposing a local dump to LLM agents via the Model Context Protocol (stdio). Tools: `dump_info`, `get_article`, `get_sections`, `list_headings`, `find_articles`, `category_tree`, `section_stats`, `section_cooccurrence`, `save_alias_set`/`get_alias_set`/`list_alias_sets`, and `extract_corpus` (writes JSONL + reproducibility `.meta.json` sidecar; returns summary and sample only). Requires the `mcp` gem (`gem install mcp`); wp2txt itself does not depend on it
+- **LLM-generated section aliases**: Instead of shipping per-language alias dictionaries, agents discover real heading usage with `section_stats`, verify synonym hypotheses with `section_cooccurrence` (synonymous headings almost never co-occur in one article), and persist named alias sets per dump with `save_alias_set`. Queries reference them via `alias_set`; extraction metadata records the exact set contents used
+- **`Wp2txt::Corpus` facade**: Shared query/extraction layer used by the MCP server; lazy SQLite-backed title lookup avoids loading multi-million-entry indexes into memory
 - **Local metadata index (`--build-index`)**: New offline index built by scanning a multistream dump in parallel. Stores per-article categories, section headings, redirects, and the category hierarchy in SQLite (`~/.wp2txt/cache/*_meta.sqlite3`), keyed to the dump version. No API access required
 - **Offline exhaustive queries (`--find-articles`)**: List articles matching `--in-category` (recursive via `--depth`, powered by dump-derived category hierarchy), `--has-section` (alias-aware), and `--title-match` filters. Supports `--limit` and JSON output (`-j json`); redirects are excluded automatically. Enables queries like "all film articles that have a Plot section" against a version-pinned local dump
 

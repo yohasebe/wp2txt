@@ -6,6 +6,7 @@ require "digest"
 require "open3"
 require "parallel"
 require "time"
+require "json"
 require_relative "regex"
 require_relative "section_extractor"
 
@@ -190,18 +191,20 @@ module Wp2txt
     # Find article titles matching the given filters.
     # @param category [String, nil] category name (without namespace prefix)
     # @param depth [Integer] subcategory recursion depth (0 = exact category only)
-    # @param has_section [String, nil] section heading (alias-aware by default)
-    # @param use_aliases [Boolean] expand has_section via alias groups
+    # @param has_section [String, nil] single section heading (alias-aware by default)
+    # @param sections [Array<String>, nil] multiple headings (OR match, used as-is)
+    # @param alias_set [String, nil] saved alias set name used to expand headings
+    # @param use_aliases [Boolean] expand has_section via built-in alias groups
     # @param alias_file [String, nil] custom alias YAML (merged with defaults)
     # @param title_match [String, nil] substring match on title
     # @param limit [Integer] max titles to return (0 = no limit)
     # @param offset [Integer] result offset
     # @return [Array<String>] matching titles ordered by page_id
-    def find_articles(category: nil, depth: 0, has_section: nil, use_aliases: true,
-                      alias_file: nil, title_match: nil, limit: 0, offset: 0)
+    def find_articles(category: nil, depth: 0, has_section: nil, sections: nil, alias_set: nil,
+                      use_aliases: true, alias_file: nil, title_match: nil, limit: 0, offset: 0)
       cte, where, params = build_article_query(
-        category: category, depth: depth, has_section: has_section,
-        use_aliases: use_aliases, alias_file: alias_file, title_match: title_match
+        category: category, depth: depth, has_section: has_section, sections: sections,
+        alias_set: alias_set, use_aliases: use_aliases, alias_file: alias_file, title_match: title_match
       )
       sql = +""
       sql << "WITH RECURSIVE #{cte} " if cte
@@ -213,11 +216,11 @@ module Wp2txt
     end
 
     # Count articles matching the same filters as find_articles
-    def count_articles(category: nil, depth: 0, has_section: nil, use_aliases: true,
-                       alias_file: nil, title_match: nil)
+    def count_articles(category: nil, depth: 0, has_section: nil, sections: nil, alias_set: nil,
+                       use_aliases: true, alias_file: nil, title_match: nil)
       cte, where, params = build_article_query(
-        category: category, depth: depth, has_section: has_section,
-        use_aliases: use_aliases, alias_file: alias_file, title_match: title_match
+        category: category, depth: depth, has_section: has_section, sections: sections,
+        alias_set: alias_set, use_aliases: use_aliases, alias_file: alias_file, title_match: title_match
       )
       sql = +""
       sql << "WITH RECURSIVE #{cte} " if cte
@@ -263,10 +266,98 @@ module Wp2txt
       open_db.execute(sql, params)
     end
 
+    # Article counts, average positions, and pairwise co-occurrence for a set of
+    # headings. Synonymous headings almost never co-occur in the same article,
+    # so a high co-occurrence ratio is evidence AGAINST treating them as aliases.
+    # @param headings [Array<String>] headings to compare
+    # @param category [String, nil] optional category scope
+    # @param depth [Integer] category recursion depth
+    # @return [Hash] { headings: [{heading:, articles:, avg_position:}],
+    #                  pairs: [{a:, b:, both:, cooccurrence_ratio:}] }
+    def section_cooccurrence(headings, category: nil, depth: 0)
+      scope_cte = nil
+      scope_cond = "p.namespace = #{NS_ARTICLE} AND p.redirect_to IS NULL"
+      scope_params = []
+      if category
+        scope_cte, cond, scope_params = category_condition(category, depth)
+        scope_cond += " AND #{cond}"
+      end
+
+      db = open_db
+      with = scope_cte ? "WITH RECURSIVE #{scope_cte} " : ""
+
+      heading_stats = headings.map do |h|
+        row = db.execute(
+          "#{with}SELECT COUNT(DISTINCT ps.page_id), AVG(ps.ord) FROM page_sections ps " \
+          "JOIN pages p ON p.page_id = ps.page_id " \
+          "WHERE ps.heading COLLATE NOCASE = ? AND #{scope_cond}",
+          [h] + scope_params
+        ).first
+        { heading: h, articles: row[0].to_i, avg_position: row[1]&.round(2) }
+      end
+
+      counts = heading_stats.to_h { |s| [s[:heading], s[:articles]] }
+      pairs = headings.combination(2).map do |a, b|
+        both = db.get_first_value(
+          "#{with}SELECT COUNT(*) FROM (" \
+          "SELECT ps.page_id FROM page_sections ps JOIN pages p ON p.page_id = ps.page_id " \
+          "WHERE ps.heading COLLATE NOCASE = ? AND #{scope_cond} " \
+          "INTERSECT " \
+          "SELECT ps.page_id FROM page_sections ps JOIN pages p ON p.page_id = ps.page_id " \
+          "WHERE ps.heading COLLATE NOCASE = ? AND #{scope_cond})",
+          [a] + scope_params + [b] + scope_params
+        ).to_i
+        min = [counts[a], counts[b]].min
+        { a: a, b: b, both: both, cooccurrence_ratio: min.positive? ? (both.to_f / min).round(3) : 0.0 }
+      end
+
+      { headings: heading_stats, pairs: pairs }
+    end
+
+    # ------------------------------------------------------------------
+    # Alias sets (LLM-generated, persisted per dump for reproducibility)
+    # ------------------------------------------------------------------
+
+    # Save a named alias set. groups is an array of heading groups, e.g.
+    # [["あらすじ", "ストーリー", "物語"], ["脚注", "出典"]]
+    def save_alias_set(name, groups)
+      raise ArgumentError, "groups must be a non-empty array of arrays" unless groups.is_a?(Array) && !groups.empty? && groups.all? { |g| g.is_a?(Array) && !g.empty? }
+
+      ensure_alias_table
+      open_db.execute(
+        "INSERT OR REPLACE INTO alias_sets (name, groups, created_at) VALUES (?, ?, ?)",
+        [name, JSON.generate(groups), Time.now.utc.iso8601]
+      )
+      { name: name, groups: groups }
+    end
+
+    # @return [Hash, nil] { name:, groups:, created_at: } or nil if not found
+    def get_alias_set(name)
+      ensure_alias_table
+      row = open_db.execute("SELECT name, groups, created_at FROM alias_sets WHERE name = ?", [name]).first
+      return nil unless row
+
+      { name: row[0], groups: JSON.parse(row[1]), created_at: row[2] }
+    end
+
+    def list_alias_sets
+      ensure_alias_table
+      open_db.execute("SELECT name, groups, created_at FROM alias_sets ORDER BY name").map do |name, groups, created_at|
+        { name: name, group_count: JSON.parse(groups).size, created_at: created_at }
+      end
+    end
+
+    def delete_alias_set(name)
+      ensure_alias_table
+      open_db.execute("DELETE FROM alias_sets WHERE name = ?", [name])
+      nil
+    end
+
     private
 
     # Returns [cte_sql_or_nil, where_sql, params]
-    def build_article_query(category:, depth:, has_section:, use_aliases:, alias_file:, title_match:)
+    def build_article_query(category:, depth:, has_section:, sections: nil, alias_set: nil,
+                            use_aliases: true, alias_file: nil, title_match: nil)
       conds = ["p.namespace = #{NS_ARTICLE}", "p.redirect_to IS NULL"]
       params = []
       cte = nil
@@ -277,8 +368,9 @@ module Wp2txt
         params.concat(cat_params)
       end
 
-      if has_section
-        names = use_aliases ? self.class.expand_section_names(has_section, alias_file: alias_file) : [has_section]
+      names = resolve_section_names(has_section: has_section, sections: sections,
+                                    alias_set: alias_set, use_aliases: use_aliases, alias_file: alias_file)
+      if names
         placeholders = names.map { "?" }.join(",")
         conds << "p.page_id IN (SELECT ps.page_id FROM page_sections ps WHERE ps.heading COLLATE NOCASE IN (#{placeholders}))"
         params.concat(names)
@@ -290,6 +382,43 @@ module Wp2txt
       end
 
       [cte, conds.join(" AND "), params]
+    end
+
+    # Merge has_section / sections into one heading list, expanding through a
+    # saved alias set (if given) or the built-in alias groups (single name only).
+    def resolve_section_names(has_section:, sections:, alias_set:, use_aliases:, alias_file:)
+      names = Array(sections).compact
+      names += [has_section] if has_section
+      return nil if names.empty?
+
+      if alias_set
+        set = get_alias_set(alias_set)
+        raise ArgumentError, "alias set not found: #{alias_set}" unless set
+
+        names = names.flat_map { |n| expand_via_groups(n, set[:groups]) }
+      elsif use_aliases && names.size == 1 && sections.nil?
+        names = self.class.expand_section_names(names.first, alias_file: alias_file)
+      end
+      names.uniq
+    end
+
+    # Bidirectional expansion through an array of heading groups
+    def expand_via_groups(name, groups)
+      down = name.downcase
+      groups.each do |group|
+        return group if group.any? { |g| g.downcase == down }
+      end
+      [name]
+    end
+
+    def ensure_alias_table
+      open_db.execute(<<~SQL)
+        CREATE TABLE IF NOT EXISTS alias_sets (
+          name TEXT PRIMARY KEY,
+          groups TEXT,
+          created_at TEXT
+        )
+      SQL
     end
 
     # Returns [cte_sql_or_nil, condition_sql, params] for a category filter
