@@ -180,8 +180,31 @@ module Wp2txt
                .merge(dump: dump_name)
     end
 
-    def save_alias_set(name, groups)
+    # Guardrail thresholds: pairs whose co-occurrence ratio exceeds
+    # GUARDRAIL_MAX_RATIO (with both headings above GUARDRAIL_MIN_ARTICLES)
+    # coexist in the same articles and are likely NOT synonyms
+    GUARDRAIL_MAX_RATIO = 0.2
+    GUARDRAIL_MIN_ARTICLES = 100
+
+    # Save an alias set after mechanically verifying each group: high
+    # co-occurrence pairs block the save unless force is set, so protocol
+    # compliance does not depend on the calling model's discipline.
+    def save_alias_set(name, groups, force: false,
+                       max_ratio: GUARDRAIL_MAX_RATIO, min_articles: GUARDRAIL_MIN_ARTICLES)
+      unless groups.is_a?(Array) && !groups.empty? && groups.all? { |g| g.is_a?(Array) && !g.empty? }
+        raise ArgumentError, "groups must be a non-empty array of arrays"
+      end
+
+      violations = check_alias_groups(groups, max_ratio: max_ratio, min_articles: min_articles)
+      if violations.any? && !force
+        return { saved: false, name: name, violations: violations,
+                 warning: "These heading pairs frequently coexist in the same articles and are " \
+                          "likely NOT synonyms. Remove them from the group, or pass force: true " \
+                          "if you have verified them another way (e.g., by reading section contents)." }
+      end
+
       @metadata.save_alias_set(name, groups)
+      { saved: true, name: name, groups: groups, violations: violations }
     end
 
     def get_alias_set(name)
@@ -197,56 +220,93 @@ module Wp2txt
     # the caller receives a summary plus a small sample)
     # ------------------------------------------------------------------
 
+    # Raised via cancel_check to abort a running extraction (job cancellation)
+    class Cancelled < StandardError; end
+
+    # Titles fetched/rendered per batch while streaming to disk
+    EXTRACT_BATCH_SIZE = 200
+
     # @param output_path [String] JSONL destination (sidecar .meta.json is added)
     # @param content [String] "sections" | "full" | "summary"
-    # @param max_articles [Integer] sync cap; larger matches are truncated (flagged)
+    # @param chunk_size [Integer, nil] split text into ~N-char chunks (RAG-ready records)
+    # @param chunk_overlap [Integer] overlap between consecutive chunks
+    # @param max_articles [Integer, nil] sync cap (nil = unlimited, for jobs)
+    # @param progress [Proc, nil] called with (titles_done, titles_total) after each batch
+    # @param cancel_check [Proc, nil] polled between batches; truthy return aborts with Cancelled
     def extract_corpus(output_path:, content: "sections", sections: nil, alias_set: nil,
                        category: nil, depth: 0, title_match: nil, limit: 0,
-                       max_articles: DEFAULT_MAX_SYNC_ARTICLES, num_processes: 4)
+                       chunk_size: nil, chunk_overlap: 0,
+                       max_articles: DEFAULT_MAX_SYNC_ARTICLES, num_processes: 4,
+                       progress: nil, cancel_check: nil)
       if content == "sections" && Array(sections).empty? && alias_set.nil?
         raise ArgumentError, "content: \"sections\" requires sections or alias_set"
       end
+      raise ArgumentError, "chunk_overlap must be smaller than chunk_size" if chunk_size && chunk_overlap >= chunk_size
 
       filters = { category: category, depth: depth, sections: sections,
                   alias_set: alias_set, title_match: title_match }
       total = @metadata.count_articles(**filters)
-      cap = limit.positive? ? [limit, max_articles].min : max_articles
+      cap = if limit.positive?
+              max_articles ? [limit, max_articles].min : limit
+            else
+              max_articles || total
+            end
       titles = @metadata.find_articles(**filters, limit: cap)
       truncated = total > titles.size
 
       resolved_sections = content == "summary" ? [SectionExtractor::SUMMARY_KEY] : expand_with_alias_set(sections, alias_set)
+      alias_contents = alias_set ? get_alias_set(alias_set)&.dig(:groups) : nil
 
       # Close read connections before MultistreamReader forks workers
       @metadata.close
-      pages = reader.extract_articles_parallel(titles, num_processes: num_processes)
 
-      records = []
-      titles.each do |t|
-        page = pages[t]
-        next unless page
-
-        record = build_record(page, content, resolved_sections)
-        records << record if record
-      end
+      articles_extracted = 0
+      records_written = 0
+      titles_done = 0
+      sample = []
 
       File.open(output_path, "w") do |f|
-        records.each { |r| f.puts(JSON.generate(r)) }
+        titles.each_slice(EXTRACT_BATCH_SIZE) do |batch|
+          raise Cancelled if cancel_check&.call
+
+          pages = reader.extract_articles_parallel(batch, num_processes: num_processes)
+          batch.each do |t|
+            page = pages[t]
+            next unless page
+
+            records = build_records(page, content, resolved_sections, chunk_size, chunk_overlap)
+            next if records.empty?
+
+            articles_extracted += 1
+            records.each do |record|
+              f.puts(JSON.generate(record))
+              records_written += 1
+              sample << record if sample.size < 3
+            end
+          end
+          titles_done += batch.size
+          progress&.call(titles_done, titles.size)
+        end
       end
+
       meta_path = "#{output_path}.meta.json"
       File.write(meta_path, JSON.pretty_generate(
         tool: "wp2txt #{Wp2txt::VERSION}",
         dump: dump_name,
         generated_at: Time.now.utc.iso8601,
-        query: filters.compact.merge(content: content, resolved_sections: resolved_sections).compact,
-        alias_set_contents: alias_set ? get_alias_set(alias_set)&.dig(:groups) : nil,
+        query: filters.compact.merge(content: content, resolved_sections: resolved_sections,
+                                     chunk_size: chunk_size, chunk_overlap: chunk_size ? chunk_overlap : nil).compact,
+        alias_set_contents: alias_contents,
         total_matching: total,
-        extracted: records.size,
+        articles_extracted: articles_extracted,
+        records_written: records_written,
         truncated: truncated
       ))
 
       { output_path: output_path, meta_path: meta_path, dump: dump_name,
-        total_matching: total, extracted: records.size, truncated: truncated,
-        bytes: File.size(output_path), sample: records.first(3) }
+        total_matching: total, articles_extracted: articles_extracted,
+        records_written: records_written, truncated: truncated,
+        bytes: File.size(output_path), sample: sample }
     end
 
     def close
@@ -289,6 +349,23 @@ module Wp2txt
       format_article(article, config).to_s
     end
 
+    # Run the co-occurrence check over every pair in every group; returns pairs
+    # that look like distinct section roles rather than synonyms
+    def check_alias_groups(groups, max_ratio:, min_articles:)
+      violations = []
+      groups.each do |group|
+        next if group.size < 2
+
+        result = @metadata.section_cooccurrence(group)
+        counts = result[:headings].to_h { |h| [h[:heading], h[:articles]] }
+        result[:pairs].each do |pair|
+          next if [counts[pair[:a]], counts[pair[:b]]].min < min_articles
+          violations << pair if pair[:cooccurrence_ratio] > max_ratio
+        end
+      end
+      violations
+    end
+
     def expand_with_alias_set(sections, alias_set)
       names = Array(sections).compact
       return names unless alias_set
@@ -303,27 +380,68 @@ module Wp2txt
       end.uniq
     end
 
-    def build_record(page, content, resolved_sections)
+    # Build the JSONL records for one page. Without chunking this is one record
+    # per article; with chunking, one RAG-ready record per (section, chunk).
+    def build_records(page, content, resolved_sections, chunk_size, chunk_overlap)
       article = Article.new(page[:text], page[:title], false)
       categories = article.categories.flatten
 
-      case content
-      when "full"
+      if content == "full"
         config = RENDER_CONFIG.merge(format: :text, title: page[:title], category: false)
-        { id: page[:id], title: page[:title], text: format_article(article, config).to_s.strip,
-          categories: categories }
+        text = format_article(article, config).to_s.strip
+        return [] if text.empty?
+        return chunk_records(page, nil, text, categories, chunk_size, chunk_overlap) if chunk_size
+
+        [{ id: page[:id], title: page[:title], text: text, categories: categories }]
       else # "sections" / "summary"
         config = RENDER_CONFIG.merge(format: :json, sections: resolved_sections, title: page[:title])
         result = format_with_sections(article, config)
-        return nil unless result
+        return [] unless result
 
         present = (result["sections"] || {}).reject { |_k, v| v.nil? || v.empty? }
-        return nil if present.empty?
+        return [] if present.empty?
 
-        { id: page[:id], title: page[:title], sections: present,
-          section_path: present.keys.map { |k| "#{page[:title]} > #{k}" },
-          categories: categories }
+        if chunk_size
+          return present.flat_map do |section, text|
+            chunk_records(page, section, text, categories, chunk_size, chunk_overlap)
+          end
+        end
+
+        [{ id: page[:id], title: page[:title], sections: present,
+           section_path: present.keys.map { |k| "#{page[:title]} > #{k}" },
+           categories: categories }]
       end
+    end
+
+    def chunk_records(page, section, text, categories, chunk_size, chunk_overlap)
+      chunks = chunk_text(text, chunk_size, chunk_overlap)
+      path = section ? "#{page[:title]} > #{section}" : page[:title]
+      chunks.each_with_index.map do |chunk, i|
+        { id: page[:id], title: page[:title], section: section, section_path: path,
+          chunk_index: i, chunk_count: chunks.size, text: chunk, categories: categories }
+      end
+    end
+
+    # Character-based chunking that prefers to break at a paragraph or sentence
+    # boundary within the last quarter of the window
+    def chunk_text(text, size, overlap)
+      return [text] if text.length <= size
+
+      chunks = []
+      start = 0
+      while start < text.length
+        window_end = [start + size, text.length].min
+        if window_end < text.length
+          slice = text[start...window_end]
+          boundary = slice.rindex(/[\n。.!?！？]/)
+          window_end = start + boundary + 1 if boundary && boundary >= size * 3 / 4
+        end
+        chunks << text[start...window_end]
+        break if window_end >= text.length
+
+        start = [window_end - overlap, start + 1].max
+      end
+      chunks
     end
   end
 end
