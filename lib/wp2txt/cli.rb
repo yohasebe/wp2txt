@@ -118,6 +118,20 @@ module Wp2txt
           opt :show_matched_sections, "Include matched_sections field in JSON output (shows actual headings)",
               default: false
 
+          # Metadata index options (offline exhaustive queries)
+          opt :build_index, "Build local metadata index (categories, sections) from a multistream dump",
+              default: false, short: :none
+          opt :find_articles, "List article titles matching index filters (requires built index)",
+              default: false, short: :none
+          opt :in_category, "Filter by category for --find-articles (recursion depth via --depth)",
+              type: String, short: :none
+          opt :has_section, "Filter by section heading for --find-articles (alias-aware)",
+              type: String, short: :none
+          opt :title_match, "Filter by title substring for --find-articles",
+              type: String, short: :none
+          opt :limit, "Maximum number of titles to output with --find-articles (0 = no limit)",
+              default: 0, type: Integer, short: :none
+
           opt :file_size, "Approximate size (in MB) of each output file (0 for single file)",
               default: 10, short: "-f"
           opt :num_procs, "Number of parallel processes (auto-detected based on CPU/memory)",
@@ -293,6 +307,29 @@ module Wp2txt
         # --show-matched-sections only works with JSON format
         if opts[:show_matched_sections] && opts[:format].to_s.downcase != "json"
           Optimist.die "--show-matched-sections requires --format json"
+        end
+
+        # Metadata index options
+        if opts[:build_index] && opts[:find_articles]
+          Optimist.die "--build-index and --find-articles cannot be combined (build first, then query)"
+        end
+
+        %i[in_category has_section title_match].each do |key|
+          if opts[key] && !opts[:find_articles]
+            Optimist.die "--#{key.to_s.tr('_', '-')} requires --find-articles"
+          end
+        end
+
+        Optimist.die :limit, "must be 0 or greater" if opts[:limit].negative?
+
+        if opts[:build_index] || opts[:find_articles]
+          conflicts = []
+          conflicts << "--articles" if opts[:articles]
+          conflicts << "--from-category" if opts[:from_category]
+          conflicts << "--section-stats" if opts[:section_stats]
+          unless conflicts.empty?
+            Optimist.die "--build-index/--find-articles cannot be combined with #{conflicts.join(', ')}"
+          end
         end
       end
 
