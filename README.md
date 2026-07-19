@@ -253,6 +253,15 @@ Then run exhaustive queries entirely offline:
 
 Unlike web/API access, these queries are *exhaustive* (they scan every article, not search-ranked results) and *reproducible* (pinned to a specific dump version). Answering "which of the 1.5M articles have X" takes milliseconds once the index is built.
 
+### Full-Text Search
+
+Add `--fulltext` to also build an FTS5 index over the article text itself (tokenizer auto-selected: character-trigram for Japanese/Chinese/Korean, word-based for space-delimited languages):
+
+    $ wp2txt --build-index --fulltext --lang=ja
+    $ wp2txt --search "タイムループ" --in-category "映画作品" -D 3 --lang=ja
+
+Search hits report the article, section, and a snippet; totals are exhaustive counts, so `0 matches` is a verifiable absence claim for that dump version. The index is contentless (stores only the inverted index; snippets are re-rendered from the dump), keeping disk overhead moderate.
+
 ## MCP Server (LLM Integration)
 
 `wp2txt-mcp` exposes a local dump to LLM agents (Claude, ChatGPT, Gemini, local models — any MCP-capable client) via the Model Context Protocol:

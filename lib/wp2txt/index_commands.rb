@@ -2,6 +2,8 @@
 
 require "json"
 require_relative "metadata_index"
+require_relative "fts_index"
+require_relative "corpus"
 require_relative "multistream"
 require_relative "memory_monitor"
 
@@ -21,7 +23,11 @@ module Wp2txt
         print_success("Metadata index is up to date: #{db_path}")
         print_index_stats(meta.stats)
         meta.close
-        return CliUI::EXIT_SUCCESS
+        return CliUI::EXIT_SUCCESS unless opts[:fulltext]
+
+        ms_index = MultistreamIndex.new(index_path, cache_dir: opts[:cache_dir], show_progress: !quiet?)
+        num_processes = opts[:num_procs] || MemoryMonitor.optimal_processes
+        return build_fulltext_index(opts, multistream_path, ms_index, db_path, num_processes)
       end
       meta.close
 
@@ -62,6 +68,90 @@ module Wp2txt
       print_success("Metadata index built in #{format_duration(Time.now - time_start)}")
       print_index_stats(built.stats)
       built.close
+
+      return build_fulltext_index(opts, multistream_path, ms_index, db_path, num_processes) if opts[:fulltext]
+
+      CliUI::EXIT_SUCCESS
+    end
+
+    # Build the FTS5 full-text index (Tier 2) after the metadata index
+    def build_fulltext_index(opts, multistream_path, ms_index, meta_db_path, num_processes)
+      fts_db_path = FtsIndex.path_for(multistream_path, cache_dir: opts[:cache_dir])
+      tokenizer = opts[:fts_tokenizer] || FtsIndex.default_tokenizer(multistream_path)
+
+      fts = FtsIndex.new(fts_db_path, meta_db_path)
+      if fts.valid_for?(multistream_path) && !opts[:update_cache]
+        print_success("Full-text index is up to date: #{fts_db_path}")
+        fts.close
+        return CliUI::EXIT_SUCCESS
+      end
+      fts.close
+
+      puts pastel.cyan("Building full-text index (tokenizer: #{tokenizer})...") unless quiet?
+      time_start = Time.now
+      builder = FtsIndexBuilder.new(
+        multistream_path, ms_index.stream_offsets,
+        db_path: fts_db_path, meta_db_path: meta_db_path,
+        tokenizer: tokenizer, num_processes: num_processes
+      )
+
+      last_report = Time.now
+      built = builder.build do |done, total|
+        now = Time.now
+        if !quiet? && (now - last_report >= DEFAULT_PROGRESS_INTERVAL || done == total)
+          last_report = now
+          percent = (done.to_f / total * 100).round(1)
+          elapsed = now - time_start
+          eta = done.positive? ? (total - done) * (elapsed / done) : 0
+          puts pastel.dim(format("  [%d/%d] %.1f%% | ETA: %s", done, total, percent, format_duration(eta)))
+        end
+      end
+
+      puts unless quiet?
+      print_success("Full-text index built in #{format_duration(Time.now - time_start)}")
+      stats = built.stats
+      print_info("Tokenizer", stats[:tokenizer].to_s)
+      print_info("Sections", stats[:section_count].to_s)
+      print_info("Size", format_size(stats[:db_size]))
+      built.close
+      CliUI::EXIT_SUCCESS
+    end
+
+    # Full-text search from the CLI (--search)
+    def run_search(opts)
+      multistream_path, = resolve_dump_paths(opts, download: false)
+      return CliUI::EXIT_ERROR unless multistream_path
+
+      corpus = Corpus.new(
+        multistream_path: multistream_path,
+        index_path: resolve_dump_paths(opts, download: false)[1],
+        cache_dir: opts[:cache_dir]
+      )
+
+      unless corpus.fts.built?
+        print_error("Full-text index not found for this dump.")
+        print_info_message("Build it first with: wp2txt --build-index --fulltext #{opts[:lang] ? "-L #{opts[:lang]}" : "-i #{opts[:input]}"}")
+        return CliUI::EXIT_ERROR
+      end
+
+      result = corpus.search_text(
+        opts[:search],
+        sections: opts[:has_section] ? [opts[:has_section]] : nil,
+        category: opts[:in_category],
+        depth: opts[:in_category] ? opts[:depth] : 0,
+        limit: opts[:limit].positive? ? opts[:limit] : 20,
+        count: "exact"
+      )
+
+      if opts[:format].to_s.downcase == "json"
+        puts JSON.generate(result)
+      else
+        result[:hits].each do |hit|
+          puts "#{hit[:section_path]}: #{hit[:snippet]}"
+        end
+        $stderr.puts pastel.dim("# #{result[:returned]} of #{result[:total]} matches (dump: #{result[:dump]})")
+      end
+      corpus.close
       CliUI::EXIT_SUCCESS
     end
 

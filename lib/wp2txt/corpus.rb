@@ -8,6 +8,7 @@ require_relative "utils"
 require_relative "formatter"
 require_relative "multistream"
 require_relative "metadata_index"
+require_relative "fts_index"
 require_relative "section_extractor"
 require_relative "version"
 
@@ -103,11 +104,20 @@ module Wp2txt
         dump: stats&.dig(:dump_name) || File.basename(@multistream_path),
         tiers: {
           titles: File.exist?(@index_path),
-          metadata: @metadata.built?
+          metadata: @metadata.built?,
+          fulltext: fts.built?
         },
         metadata_current: @metadata.built? && @metadata.valid_for?(@multistream_path),
-        stats: stats
+        stats: stats,
+        fulltext: fts.built? ? fts.stats : nil
       }
+    end
+
+    def fts
+      @fts ||= FtsIndex.new(
+        FtsIndex.path_for(@multistream_path, cache_dir: @cache_dir),
+        @metadata.db_path
+      )
     end
 
     # ------------------------------------------------------------------
@@ -189,6 +199,42 @@ module Wp2txt
     # Save an alias set after mechanically verifying each group: high
     # co-occurrence pairs block the save unless force is set, so protocol
     # compliance does not depend on the calling model's discipline.
+    # ------------------------------------------------------------------
+    # Tier 2: full-text search
+    # ------------------------------------------------------------------
+
+    SNIPPET_CONTEXT = 80
+
+    # Exhaustive full-text search over cleaned section text.
+    # @param mode [String] "phrase" (literal, default) or "query" (raw FTS5 syntax)
+    # @param count [String] "capped" (fast, default) or "exact" (may take seconds for common terms)
+    # @param snippets [Boolean] re-render matched sections from the dump for context
+    def search_text(query, mode: "phrase", sections: nil, alias_set: nil,
+                    category: nil, depth: 0, limit: 20, offset: 0,
+                    count: "capped", snippets: true)
+      unless fts.built?
+        raise ArgumentError, "Full-text index not built. Run: wp2txt --build-index --fulltext"
+      end
+
+      resolved = expand_with_alias_set(sections, alias_set)
+      resolved = nil if resolved.empty?
+      result = fts.search(query, mode: mode, sections: resolved, category: category,
+                          depth: depth, limit: limit, offset: offset, count: count)
+
+      hits = result[:hits]
+      attach_snippets(hits, query, mode) if snippets && !hits.empty?
+
+      { dump: dump_name, query: query, mode: mode,
+        total: result[:total], total_is_capped: result[:total_is_capped],
+        returned: hits.size,
+        hits: hits.map do |h|
+          { page_id: h[:page_id], title: h[:title],
+            section: h[:heading].to_s.empty? ? nil : h[:heading],
+            section_path: h[:heading].to_s.empty? ? h[:title] : "#{h[:title]} > #{h[:heading]}",
+            snippet: h[:snippet] }.compact
+        end }
+    end
+
     def save_alias_set(name, groups, force: false,
                        max_ratio: GUARDRAIL_MAX_RATIO, min_articles: GUARDRAIL_MIN_ARTICLES)
       unless groups.is_a?(Array) && !groups.empty? && groups.all? { |g| g.is_a?(Array) && !g.empty? }
@@ -311,9 +357,36 @@ module Wp2txt
 
     def close
       @metadata.close
+      @fts&.close
     end
 
     private
+
+    # Re-render the matched section of each hit from the dump and cut a window
+    # around the first occurrence of the search term (contentless FTS stores no
+    # text, so the dump is the source of truth for snippets)
+    def attach_snippets(hits, query, mode)
+      needle = mode == "query" ? query[/"([^"]+)"/, 1] || query[/\w{3,}/] || query : query
+      renderer = SectionRenderer.new
+      pages = {}
+      hits.each do |hit|
+        page = pages[hit[:page_id]] ||= reader.extract_article(hit[:title])
+        next unless page
+
+        section = renderer.render_sections(page[:title], page[:text])
+                          .find { |_h, ord, _t| ord == hit[:ord] }
+        next unless section
+
+        text = section[2]
+        pos = needle ? text.downcase.index(needle.downcase) : nil
+        hit[:snippet] = if pos
+                          from = [pos - SNIPPET_CONTEXT, 0].max
+                          "#{'…' if from.positive?}#{text[from, needle.length + SNIPPET_CONTEXT * 2]}…"
+                        else
+                          "#{text[0, SNIPPET_CONTEXT * 2]}…"
+                        end
+      end
+    end
 
     def dump_name
       @dump_name ||= @metadata.built? ? @metadata.stats[:dump_name] : File.basename(@multistream_path)

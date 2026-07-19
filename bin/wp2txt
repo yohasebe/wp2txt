@@ -709,6 +709,7 @@ class WpApp
     # Metadata index operations (offline exhaustive queries)
     return run_build_index(opts) if opts[:build_index]
     return run_find_articles(opts) if opts[:find_articles]
+    return run_search(opts) if opts[:search]
 
     # Determine input source
     if opts[:from_category] && opts[:lang]

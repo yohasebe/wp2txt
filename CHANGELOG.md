@@ -7,6 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- **Full-text search (Tier 2)**: `--build-index --fulltext` builds a contentless SQLite FTS5 index over cleaned section text (tokenizer auto-selected by language: character-trigram for CJK, unicode61 for space-delimited; `--fts-tokenizer` to override, porter stemming opt-in). Search via `--search` (CLI) or the `search_text` MCP tool: literal phrase or raw FTS5 query modes, composable with category recursion and section filters, `count: "capped"|"exact"` (exact 0 = a verified absence claim for the dump version). Snippets are re-rendered from the dump on demand — the index stores no text, keeping disk cost to the inverted index only
 - **Background extraction jobs**: `start_extract_job` / `job_status` / `cancel_job` / `list_jobs` MCP tools for extractions beyond the 5000-article synchronous cap. Each job runs in its own thread with isolated resources; extraction now streams to disk in batches (memory-safe at any scale)
 - **RAG chunking**: `extract_corpus` accepts `chunk_size` / `chunk_overlap`, emitting one record per chunk with `section_path`, `chunk_index`, and `chunk_count`; chunk boundaries prefer sentence/paragraph breaks
 - **Alias guardrail**: `save_alias_set` re-checks co-occurrence server-side and refuses groups containing frequently-coexisting heading pairs (likely distinct roles, not synonyms) unless `force` is passed — protocol compliance no longer depends on the calling model's discipline

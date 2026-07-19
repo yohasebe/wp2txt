@@ -45,7 +45,7 @@ RSpec.describe Wp2txt::Corpus do
     it "reports dump identity, tiers, and stats" do
       info = @corpus.dump_info
       expect(info[:dump]).to eq("testwiki-20260101")
-      expect(info[:tiers]).to eq({ titles: true, metadata: true })
+      expect(info[:tiers]).to eq({ titles: true, metadata: true, fulltext: false })
       expect(info[:metadata_current]).to be true
       expect(info[:stats][:article_count]).to eq(3)
     end

@@ -131,6 +131,12 @@ module Wp2txt
               type: String, short: :none
           opt :limit, "Maximum number of titles to output with --find-articles (0 = no limit)",
               default: 0, type: Integer, short: :none
+          opt :fulltext, "Also build the full-text (FTS5) index with --build-index",
+              default: false, short: :none
+          opt :fts_tokenizer, "FTS tokenizer: unicode61, trigram, or porter (default: auto by language)",
+              type: String, short: :none
+          opt :search, "Full-text search query (requires --build-index --fulltext beforehand)",
+              type: String, short: :none
 
           opt :file_size, "Approximate size (in MB) of each output file (0 for single file)",
               default: 10, short: "-f"
@@ -315,20 +321,32 @@ module Wp2txt
         end
 
         %i[in_category has_section title_match].each do |key|
-          if opts[key] && !opts[:find_articles]
-            Optimist.die "--#{key.to_s.tr('_', '-')} requires --find-articles"
+          if opts[key] && !opts[:find_articles] && !opts[:search]
+            Optimist.die "--#{key.to_s.tr('_', '-')} requires --find-articles or --search"
           end
         end
 
         Optimist.die :limit, "must be 0 or greater" if opts[:limit].negative?
 
-        if opts[:build_index] || opts[:find_articles]
+        if opts[:fulltext] && !opts[:build_index]
+          Optimist.die "--fulltext requires --build-index"
+        end
+
+        if opts[:fts_tokenizer] && !%w[unicode61 trigram porter].include?(opts[:fts_tokenizer])
+          Optimist.die :fts_tokenizer, "must be unicode61, trigram, or porter"
+        end
+
+        if opts[:search] && (opts[:build_index] || opts[:find_articles])
+          Optimist.die "--search cannot be combined with --build-index/--find-articles"
+        end
+
+        if opts[:build_index] || opts[:find_articles] || opts[:search]
           conflicts = []
           conflicts << "--articles" if opts[:articles]
           conflicts << "--from-category" if opts[:from_category]
           conflicts << "--section-stats" if opts[:section_stats]
           unless conflicts.empty?
-            Optimist.die "--build-index/--find-articles cannot be combined with #{conflicts.join(', ')}"
+            Optimist.die "--build-index/--find-articles/--search cannot be combined with #{conflicts.join(', ')}"
           end
         end
       end
