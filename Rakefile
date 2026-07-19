@@ -17,6 +17,17 @@ end
 
 task default: :spec
 
+# Gem packaging preserves on-disk file modes; owner-only permissions here
+# produce gems whose files are unreadable after a sudo install.
+task :normalize_permissions do
+  `git ls-files -z`.split("\x0").each do |f|
+    executable = File.executable?(f) || f.start_with?("bin/", "exe/")
+    File.chmod(executable ? 0o755 : 0o644, f)
+  end
+end
+
+Rake::Task["build"].enhance([:normalize_permissions])
+
 # =============================================================================
 # Docker
 # =============================================================================

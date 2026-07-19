@@ -5,6 +5,10 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.1.2] - 2026-07-19
+
+- **Fixed gem file permissions**: The published gem contained files with owner-only (0600) permissions inherited from the build machine, making them unreadable after `sudo gem install`. A `normalize_permissions` task now runs before `rake build`, ensuring all packaged files are world-readable (0644, or 0755 for executables)
+
 ## [2.1.1] - 2026-02-21
 
 - **Bidirectional alias matching**: Section extraction now supports reverse alias lookup - specifying an alias name (e.g., "Synopsis") as target matches the canonical heading ("Plot") and vice versa
