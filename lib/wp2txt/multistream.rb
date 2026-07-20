@@ -366,10 +366,13 @@ module Wp2txt
     end
 
     def find_next_offset(current_offset)
-      idx = @index.stream_offsets.index(current_offset)
-      return nil unless idx
+      offsets = @index.stream_offsets
+      idx = offsets.index(current_offset)
+      # A missing offset means a corrupt or empty stream index; returning nil
+      # here would silently read gigabytes to EOF, so fail fast instead
+      raise "Stream offset #{current_offset} not found in index (#{offsets.size} streams known)" unless idx
 
-      @index.stream_offsets[idx + 1]
+      offsets[idx + 1]
     end
 
     def decompress_bz2(data)

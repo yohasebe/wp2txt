@@ -400,6 +400,9 @@ module Wp2txt
                 else
                   MultistreamIndex.new(@index_path, use_cache: true, cache_dir: @cache_dir, show_progress: false)
                 end
+        # Memoize stream offsets in the parent before any Parallel fork, so
+        # workers inherit the array instead of racing on the SQLite cache
+        index.stream_offsets
         MultistreamReader.new(@multistream_path, index)
       end
     end
