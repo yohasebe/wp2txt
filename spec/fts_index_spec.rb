@@ -142,7 +142,14 @@ RSpec.describe "Wp2txt Full-Text Search" do
     it "reports the fulltext tier in dump_info" do
       info = @corpus.dump_info
       expect(info[:tiers][:fulltext]).to be true
+      expect(info[:fulltext_current]).to be true
       expect(info[:fulltext][:tokenizer]).to eq("unicode61")
+    end
+
+    it "exposes the fts tables to query_sql" do
+      result = @corpus.query_sql("SELECT COUNT(*) FROM fts.fts_map")
+      expect(result[:rows].first.first).to be > 0
+      expect(@corpus.describe_schema[:fts].join).to include("fts_map")
     end
 
     it "returns hits with section paths and dump identity" do

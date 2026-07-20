@@ -72,6 +72,32 @@ RSpec.describe Wp2txt::Corpus do
     it "returns nil for a missing title" do
       expect(@corpus.get_article("Nope")).to be_nil
     end
+
+    it "normalizes titles like MediaWiki (underscores, capitalization)" do
+      expect(@corpus.get_article("Film_A")[:title]).to eq("Film A")
+      expect(@corpus.get_article("film A")[:title]).to eq("Film A")
+    end
+
+    it "truncates long text at max_chars with a flag" do
+      result = @corpus.get_article("Film A", max_chars: 10)
+      expect(result[:text].length).to eq(10)
+      expect(result[:truncated]).to be true
+      expect(result[:total_chars]).to be > 10
+    end
+  end
+
+  describe "#get_categories" do
+    it "lists an article's categories" do
+      expect(@corpus.get_categories("Film A")[:categories]).to eq(["Japanese films"])
+    end
+
+    it "resolves normalized titles" do
+      expect(@corpus.get_categories("Film_A")[:categories]).to eq(["Japanese films"])
+    end
+
+    it "returns nil for unknown titles" do
+      expect(@corpus.get_categories("Nope")).to be_nil
+    end
   end
 
   describe "#get_sections" do
@@ -113,6 +139,60 @@ RSpec.describe Wp2txt::Corpus do
 
     it "includes the dump identifier for provenance" do
       expect(@corpus.find_articles(title_match: "Film")[:dump]).to eq("testwiki-20260101")
+    end
+
+    it "intersects multiple exact categories (AND)" do
+      hit = @corpus.find_articles(categories: ["Japanese films"])
+      expect(hit[:titles]).to eq(["Film A"])
+      miss = @corpus.find_articles(categories: ["Japanese films", "French films"])
+      expect(miss[:total]).to eq(0)
+    end
+
+    it "matches category names by substring" do
+      result = @corpus.find_articles(category_match: "films")
+      expect(result[:titles]).to contain_exactly("Film A", "Film B")
+      expect(@corpus.find_articles(category_match: "Japanese")[:titles]).to contain_exactly("Film A", "Person X")
+      expect(@corpus.find_articles(category_match: "Japanese f")[:titles]).to eq(["Film A"])
+    end
+  end
+
+  describe "#query_sql" do
+    it "runs read-only SELECT queries" do
+      result = @corpus.query_sql("SELECT COUNT(*) AS n FROM pages WHERE namespace = 0")
+      expect(result[:columns]).to eq(["n"])
+      expect(result[:rows].first.first).to eq(4)
+    end
+
+    it "caps returned rows and flags truncation" do
+      result = @corpus.query_sql("SELECT title FROM pages", limit: 2)
+      expect(result[:rows].size).to eq(2)
+      expect(result[:truncated]).to be true
+    end
+
+    it "rejects non-SELECT statements" do
+      expect { @corpus.query_sql("DELETE FROM pages") }.to raise_error(ArgumentError, /SELECT/)
+    end
+
+    it "rejects forbidden keywords inside queries" do
+      expect { @corpus.query_sql("SELECT 1; DROP TABLE pages") }.to raise_error(ArgumentError, /forbidden/)
+    end
+
+    it "cannot write even if the keyword screen were bypassed (read-only connection)" do
+      expect do
+        @corpus.send(:readonly_db).execute("UPDATE pages SET title = 'x'")
+      end.to raise_error(SQLite3::Exception)
+    end
+
+    it "reports SQL errors as ArgumentError" do
+      expect { @corpus.query_sql("SELECT * FROM no_such_table") }.to raise_error(ArgumentError, /SQL error/)
+    end
+  end
+
+  describe "#describe_schema" do
+    it "returns CREATE statements for the metadata DB" do
+      schema = @corpus.describe_schema
+      expect(schema[:meta].join).to include("CREATE TABLE pages")
+      expect(schema).not_to have_key(:fts)
     end
   end
 
@@ -244,6 +324,23 @@ RSpec.describe Wp2txt::Corpus do
       expect do
         @corpus.extract_corpus(output_path: File.join(@dir, "x.jsonl"), content: "sections")
       end.to raise_error(ArgumentError, /requires sections/)
+    end
+
+    it "extracts raw wikitext for structure mining" do
+      out = File.join(@dir, "wikitext.jsonl")
+      result = @corpus.extract_corpus(
+        output_path: out, content: "wikitext", title_match: "Film A", num_processes: 0
+      )
+      expect(result[:articles_extracted]).to eq(1)
+      record = JSON.parse(File.readlines(out).first)
+      expect(record["wikitext"]).to include("[[Category:Japanese films]]")
+    end
+
+    it "rejects chunking combined with wikitext content" do
+      expect do
+        @corpus.extract_corpus(output_path: File.join(@dir, "x.jsonl"), content: "wikitext",
+                               chunk_size: 100)
+      end.to raise_error(ArgumentError, /wikitext/)
     end
 
     it "produces one RAG-ready record per chunk when chunk_size is given" do

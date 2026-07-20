@@ -108,6 +108,7 @@ module Wp2txt
           fulltext: fts.built?
         },
         metadata_current: @metadata.built? && @metadata.valid_for?(@multistream_path),
+        fulltext_current: fts.built? && fts.valid_for?(@multistream_path),
         stats: stats,
         fulltext: fts.built? ? fts.stats : nil
       }
@@ -124,9 +125,14 @@ module Wp2txt
     # Tier 0: single-article access
     # ------------------------------------------------------------------
 
+    # Default cap on article text returned inline (LLM context economy);
+    # callers can raise it explicitly, and truncation is always flagged
+    DEFAULT_MAX_CHARS = 40_000
+
     # @param format [String] "text" (cleaned), "wikitext" (raw markup)
     # @param follow_redirect [Boolean] resolve one redirect hop
-    def get_article(title, format: "text", follow_redirect: true)
+    # @param max_chars [Integer, nil] truncate text beyond this length (nil = no cap)
+    def get_article(title, format: "text", follow_redirect: true, max_chars: DEFAULT_MAX_CHARS)
       page = fetch_page(title, follow_redirect: follow_redirect)
       return nil unless page
 
@@ -136,7 +142,24 @@ module Wp2txt
              else
                render_text(page)
              end
-      { id: page[:id], title: page[:title], format: format.to_s, text: body }
+      result = { id: page[:id], title: page[:title], format: format.to_s }
+      if max_chars && body.length > max_chars
+        result.merge(text: body[0, max_chars], truncated: true, total_chars: body.length)
+      else
+        result.merge(text: body)
+      end
+    end
+
+    # Categories of one article, resolved through the same title normalization
+    def get_categories(title)
+      cats = @metadata.categories_of(title)
+      if cats.nil?
+        page = fetch_page(title)
+        cats = page ? @metadata.categories_of(page[:title]) : nil
+      end
+      return nil unless cats
+
+      { title: title, categories: cats }
     end
 
     # Extract specific sections from one article.
@@ -280,7 +303,8 @@ module Wp2txt
     # @param progress [Proc, nil] called with (titles_done, titles_total) after each batch
     # @param cancel_check [Proc, nil] polled between batches; truthy return aborts with Cancelled
     def extract_corpus(output_path:, content: "sections", sections: nil, alias_set: nil,
-                       category: nil, depth: 0, title_match: nil, limit: 0,
+                       category: nil, depth: 0, categories: nil, category_match: nil,
+                       title_match: nil, limit: 0,
                        chunk_size: nil, chunk_overlap: 0,
                        max_articles: DEFAULT_MAX_SYNC_ARTICLES, num_processes: 4,
                        progress: nil, cancel_check: nil)
@@ -288,8 +312,10 @@ module Wp2txt
         raise ArgumentError, "content: \"sections\" requires sections or alias_set"
       end
       raise ArgumentError, "chunk_overlap must be smaller than chunk_size" if chunk_size && chunk_overlap >= chunk_size
+      raise ArgumentError, "chunking is not supported for content: \"wikitext\"" if chunk_size && content == "wikitext"
 
-      filters = { category: category, depth: depth, sections: sections,
+      filters = { category: category, depth: depth, categories: categories,
+                  category_match: category_match, sections: sections,
                   alias_set: alias_set, title_match: title_match }
       total = @metadata.count_articles(**filters)
       cap = if limit.positive?
@@ -355,12 +381,67 @@ module Wp2txt
         bytes: File.size(output_path), sample: sample }
     end
 
+    # ------------------------------------------------------------------
+    # Read-only SQL (escape hatch for queries the fixed tools cannot express)
+    # ------------------------------------------------------------------
+
+    SQL_ROW_LIMIT = 200
+    SQL_CELL_LIMIT = 2000
+    SQL_FORBIDDEN = /\b(ATTACH|DETACH|PRAGMA|INSERT|UPDATE|DELETE|DROP|CREATE|ALTER|REPLACE|VACUUM|REINDEX)\b/i
+
+    # Run a read-only SELECT against the metadata DB (with the FTS DB attached
+    # as `fts` when built). Double-layered: keyword screening plus an
+    # SQLITE_OPEN_READONLY connection, so writes are impossible at the driver
+    # level even if the screen were bypassed.
+    def query_sql(sql, limit: SQL_ROW_LIMIT)
+      raise ArgumentError, "only SELECT/WITH queries are allowed" unless sql =~ /\A\s*(SELECT|WITH)\b/i
+      raise ArgumentError, "query contains a forbidden keyword" if sql.match?(SQL_FORBIDDEN)
+
+      limit = [[limit.to_i, 1].max, 1000].min
+      db = readonly_db
+      columns = nil
+      rows = []
+      db.query(sql) do |result|
+        columns = result.columns
+        result.each do |row|
+          break if rows.size >= limit
+
+          rows << row.map { |v| v.is_a?(String) && v.length > SQL_CELL_LIMIT ? "#{v[0, SQL_CELL_LIMIT]}…" : v }
+        end
+      end
+      { columns: columns, rows: rows, row_count: rows.size, truncated: rows.size >= limit }
+    rescue SQLite3::Exception => e
+      raise ArgumentError, "SQL error: #{e.message}"
+    end
+
+    # CREATE statements of all tables available to query_sql
+    def describe_schema
+      db = readonly_db
+      schemas = { meta: db.execute("SELECT sql FROM sqlite_master WHERE sql IS NOT NULL").map(&:first) }
+      if fts.built?
+        schemas[:fts] = db.execute("SELECT sql FROM fts.sqlite_master WHERE sql IS NOT NULL").map(&:first)
+      end
+      schemas
+    end
+
     def close
       @metadata.close
       @fts&.close
+      @readonly_db&.close
+      @readonly_db = nil
     end
 
     private
+
+    def readonly_db
+      @readonly_db ||= begin
+        db = SQLite3::Database.new(@metadata.db_path, readonly: true)
+        db.busy_timeout = 5000
+        # Attached databases inherit the main connection's read-only flag
+        db.execute("ATTACH DATABASE ? AS fts", [fts.db_path]) if fts.built?
+        db
+      end
+    end
 
     # Re-render the matched section of each hit from the dump and cut a window
     # around the first occurrence of the search term (contentless FTS stores no
@@ -407,8 +488,15 @@ module Wp2txt
       end
     end
 
+    # Resolve a title the way MediaWiki does: try the exact form, then
+    # normalized variants (underscores to spaces, first letter capitalized).
+    # Cold-start LLM clients routinely send un-normalized titles.
     def fetch_page(title, follow_redirect: true)
-      page = reader.extract_article(title)
+      page = nil
+      title_variants(title).each do |t|
+        page = reader.extract_article(t)
+        break if page
+      end
       return nil unless page
 
       if follow_redirect && (m = REDIRECT_REGEX.match(page[:text].to_s))
@@ -417,6 +505,14 @@ module Wp2txt
         page = redirected if redirected
       end
       page
+    end
+
+    def title_variants(title)
+      variants = [title]
+      normalized = title.tr("_", " ").squeeze(" ").strip
+      variants << normalized
+      variants << (normalized[0].to_s.upcase + normalized[1..].to_s) unless normalized.empty?
+      variants.uniq
     end
 
     def render_text(page)
@@ -462,7 +558,10 @@ module Wp2txt
       article = Article.new(page[:text], page[:title], false)
       categories = article.categories.flatten
 
-      if content == "full"
+      if content == "wikitext"
+        # Raw markup for structure mining (infoboxes, templates, citations)
+        [{ id: page[:id], title: page[:title], wikitext: page[:text], categories: categories }]
+      elsif content == "full"
         config = RENDER_CONFIG.merge(format: :text, title: page[:title], category: false)
         text = format_article(article, config).to_s.strip
         return [] if text.empty?

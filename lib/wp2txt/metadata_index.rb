@@ -200,10 +200,12 @@ module Wp2txt
     # @param limit [Integer] max titles to return (0 = no limit)
     # @param offset [Integer] result offset
     # @return [Array<String>] matching titles ordered by page_id
-    def find_articles(category: nil, depth: 0, has_section: nil, sections: nil, alias_set: nil,
+    def find_articles(category: nil, depth: 0, categories: nil, category_match: nil,
+                      has_section: nil, sections: nil, alias_set: nil,
                       use_aliases: true, alias_file: nil, title_match: nil, limit: 0, offset: 0)
       cte, where, params = build_article_query(
-        category: category, depth: depth, has_section: has_section, sections: sections,
+        category: category, depth: depth, categories: categories, category_match: category_match,
+        has_section: has_section, sections: sections,
         alias_set: alias_set, use_aliases: use_aliases, alias_file: alias_file, title_match: title_match
       )
       sql = +""
@@ -216,10 +218,12 @@ module Wp2txt
     end
 
     # Count articles matching the same filters as find_articles
-    def count_articles(category: nil, depth: 0, has_section: nil, sections: nil, alias_set: nil,
+    def count_articles(category: nil, depth: 0, categories: nil, category_match: nil,
+                       has_section: nil, sections: nil, alias_set: nil,
                        use_aliases: true, alias_file: nil, title_match: nil)
       cte, where, params = build_article_query(
-        category: category, depth: depth, has_section: has_section, sections: sections,
+        category: category, depth: depth, categories: categories, category_match: category_match,
+        has_section: has_section, sections: sections,
         alias_set: alias_set, use_aliases: use_aliases, alias_file: alias_file, title_match: title_match
       )
       sql = +""
@@ -227,6 +231,17 @@ module Wp2txt
       sql << "SELECT COUNT(*) FROM pages p WHERE #{where}"
 
       open_db.get_first_value(sql, params).to_i
+    end
+
+    # Categories of one article (by exact title)
+    # @return [Array<String>, nil] category names, nil if the title is unknown
+    def categories_of(title)
+      row = open_db.execute("SELECT page_id FROM pages WHERE title = ?", [title]).first
+      return nil unless row
+
+      open_db.execute(
+        "SELECT category FROM page_categories WHERE page_id = ? ORDER BY category", [row[0]]
+      ).map(&:first)
     end
 
     # Subcategory tree starting at category, as [{name:, depth:}, ...] (BFS order)
@@ -361,7 +376,8 @@ module Wp2txt
     private
 
     # Returns [cte_sql_or_nil, where_sql, params]
-    def build_article_query(category:, depth:, has_section:, sections: nil, alias_set: nil,
+    def build_article_query(category:, depth:, has_section:, categories: nil, category_match: nil,
+                            sections: nil, alias_set: nil,
                             use_aliases: true, alias_file: nil, title_match: nil)
       conds = ["p.namespace = #{NS_ARTICLE}", "p.redirect_to IS NULL"]
       params = []
@@ -371,6 +387,18 @@ module Wp2txt
         cte, cond, cat_params = category_condition(category, depth)
         conds << cond
         params.concat(cat_params)
+      end
+
+      # AND-intersection of exact category memberships (no recursion)
+      Array(categories).each do |cat|
+        conds << "p.page_id IN (SELECT pc.page_id FROM page_categories pc WHERE pc.category = ?)"
+        params << self.class.normalize_category(cat)
+      end
+
+      # Substring match on category names, e.g. "アメリカ合衆国の%映画" style scoping
+      if category_match
+        conds << "p.page_id IN (SELECT pc.page_id FROM page_categories pc WHERE pc.category LIKE ? ESCAPE '\\')"
+        params << "%#{escape_like(category_match)}%"
       end
 
       names = resolve_section_names(has_section: has_section, sections: sections,

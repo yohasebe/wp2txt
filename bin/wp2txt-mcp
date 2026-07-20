@@ -87,16 +87,25 @@ end
 
 server.define_tool(
   name: "get_article",
-  description: "Fetch one article by exact title from the local dump. format: 'text' (cleaned plain text, default) or 'wikitext' (raw markup). Follows one redirect hop. Returns null text if the title does not exist.",
+  description: "Fetch one article by title from the local dump (titles are normalized: underscores, capitalization; one redirect hop is followed). format: 'text' (cleaned plain text, default) or 'wikitext' (raw markup, includes infoboxes/templates). Long articles are truncated at max_chars (default 40000) with truncated:true and total_chars — raise max_chars only when you need more. If not found, retry via find_articles with title_match to locate the exact title.",
   input_schema: {
     properties: {
       title: { type: "string" },
-      format: { type: "string", enum: ["text", "wikitext"] }
+      format: { type: "string", enum: ["text", "wikitext"] },
+      max_chars: { type: "integer", minimum: 1000 }
     },
     required: ["title"]
   }
-) do |title:, format: "text", server_context:|
-  respond { corpus.get_article(title, format: format) || { error: "article not found: #{title}" } }
+) do |title:, format: "text", max_chars: 40_000, server_context:|
+  respond { corpus.get_article(title, format: format, max_chars: max_chars) || { error: "article not found: #{title}" } }
+end
+
+server.define_tool(
+  name: "get_categories",
+  description: "List the categories of one article (from the local index). Useful for building precise filters: inspect a few known-good articles' categories, then query find_articles with categories/category_match.",
+  input_schema: { properties: { title: { type: "string" } }, required: ["title"] }
+) do |title:, server_context:|
+  respond { corpus.get_categories(title) || { error: "article not found: #{title}" } }
 end
 
 server.define_tool(
@@ -124,11 +133,13 @@ end
 
 server.define_tool(
   name: "find_articles",
-  description: "Exhaustively list articles matching filters: category (with subcategory recursion via depth; NOTE category trees over-include, so dry-run with a small limit first), sections (article must contain at least one of these headings; expanded via alias_set if given), title_match (substring). Returns total count plus up to `limit` titles. Redirects are excluded.",
+  description: "Exhaustively list articles matching filters, all AND-combined: category (single, with subcategory recursion via depth; NOTE category trees over-include, so dry-run with a small limit first), categories (exact multi-category intersection, e.g. year AND country), category_match (substring on category names, e.g. 'アメリカ合衆国の' matched against every category of the article), sections (article contains at least one of these headings; expanded via alias_set if given), title_match (title substring). Returns total count plus up to `limit` titles. Redirects are excluded.",
   input_schema: {
     properties: {
       category: { type: "string" },
       depth: { type: "integer", minimum: 0, maximum: 5 },
+      categories: { type: "array", items: { type: "string" } },
+      category_match: { type: "string" },
       sections: { type: "array", items: { type: "string" } },
       alias_set: { type: "string" },
       title_match: { type: "string" },
@@ -137,12 +148,35 @@ server.define_tool(
     },
     required: []
   }
-) do |category: nil, depth: 0, sections: nil, alias_set: nil, title_match: nil, limit: 100, offset: 0, server_context:|
+) do |category: nil, depth: 0, categories: nil, category_match: nil, sections: nil, alias_set: nil, title_match: nil, limit: 100, offset: 0, server_context:|
   respond do
-    corpus.find_articles(category: category, depth: depth, sections: sections,
+    corpus.find_articles(category: category, depth: depth, categories: categories,
+                         category_match: category_match, sections: sections,
                          alias_set: alias_set, title_match: title_match,
                          limit: limit, offset: offset)
   end
+end
+
+server.define_tool(
+  name: "query_sql",
+  description: "Read-only SQL (SELECT/WITH only) against the index databases — the escape hatch for questions the fixed tools cannot express (multi-way intersections, aggregations, joins). Call describe_schema first to see the tables. Main DB: pages(page_id, title, namespace, redirect_to, text_length), page_categories(page_id, category), page_sections(page_id, heading, level, ord), category_hierarchy(child, parent), alias_sets. When the fulltext tier exists, the FTS DB is attached as `fts` (fts.fts_sections MATCH ..., fts.fts_map). Filter articles with namespace = 0 AND redirect_to IS NULL. Rows are capped by `limit` (default 200, max 1000) with truncated flag; long cells are clipped.",
+  input_schema: {
+    properties: {
+      sql: { type: "string" },
+      limit: { type: "integer", minimum: 1, maximum: 1000 }
+    },
+    required: ["sql"]
+  }
+) do |sql:, limit: 200, server_context:|
+  respond { corpus.query_sql(sql, limit: limit) }
+end
+
+server.define_tool(
+  name: "describe_schema",
+  description: "CREATE statements of all tables available to query_sql (metadata DB, plus the attached fts DB when built).",
+  input_schema: { properties: {}, required: [] }
+) do |server_context:|
+  respond { corpus.describe_schema }
 end
 
 server.define_tool(
@@ -244,11 +278,13 @@ end
 EXTRACT_SCHEMA = {
   properties: {
     output_path: { type: "string", description: "JSONL output path; relative paths resolve under the server's output dir" },
-    content: { type: "string", enum: ["sections", "summary", "full"] },
+    content: { type: "string", enum: ["sections", "summary", "full", "wikitext"] },
     sections: { type: "array", items: { type: "string" } },
     alias_set: { type: "string" },
     category: { type: "string" },
     depth: { type: "integer", minimum: 0, maximum: 5 },
+    categories: { type: "array", items: { type: "string" } },
+    category_match: { type: "string" },
     title_match: { type: "string" },
     limit: { type: "integer", minimum: 0 },
     chunk_size: { type: "integer", minimum: 100, description: "Split text into ~N-char chunks (one RAG-ready record per chunk)" },
@@ -258,15 +294,17 @@ EXTRACT_SCHEMA = {
 }.freeze
 
 def extract_params(output_path:, content:, sections: nil, alias_set: nil, category: nil,
-                   depth: 0, title_match: nil, limit: 0, chunk_size: nil, chunk_overlap: 0)
+                   depth: 0, categories: nil, category_match: nil,
+                   title_match: nil, limit: 0, chunk_size: nil, chunk_overlap: 0)
   { output_path: File.expand_path(output_path, OUTPUT_DIR), content: content,
     sections: sections, alias_set: alias_set, category: category, depth: depth,
+    categories: categories, category_match: category_match,
     title_match: title_match, limit: limit, chunk_size: chunk_size, chunk_overlap: chunk_overlap }
 end
 
 server.define_tool(
   name: "extract_corpus",
-  description: "Extract matching articles to a JSONL file on disk (with a .meta.json sidecar recording dump version and query for reproducibility). Returns a summary and the first 3 records only — the full corpus stays on disk; process it with your own tools. content: 'sections' (named sections only), 'summary' (lead text), or 'full' (whole article). Optional chunk_size/chunk_overlap produce one RAG-ready record per chunk with section_path and chunk_index. Synchronous, capped at 5000 articles (result flags truncation) — use start_extract_job for larger extractions. Dry-run the filters with find_articles first.",
+  description: "Extract matching articles to a JSONL file on disk (with a .meta.json sidecar recording dump version and query for reproducibility). Returns a summary and the first 3 records only — the full corpus stays on disk; process it with your own tools. content: 'sections' (named sections only), 'summary' (lead text), 'full' (whole cleaned article), or 'wikitext' (raw markup, for mining infoboxes/templates that cleaning replaces with markers). Filters are the same as find_articles (category/depth, categories, category_match, title_match). Optional chunk_size/chunk_overlap produce one RAG-ready record per chunk with section_path and chunk_index (not with wikitext). Synchronous, capped at 5000 articles (result flags truncation) — use start_extract_job for larger extractions. Dry-run the filters with find_articles first.",
   input_schema: EXTRACT_SCHEMA
 ) do |server_context:, **args|
   respond { corpus.extract_corpus(**extract_params(**args)) }
