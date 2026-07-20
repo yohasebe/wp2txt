@@ -25,9 +25,9 @@ module Wp2txt
         meta.close
         return CliUI::EXIT_SUCCESS unless opts[:fulltext]
 
-        ms_index = MultistreamIndex.new(index_path, cache_dir: opts[:cache_dir], show_progress: !quiet?)
+        stream_offsets, = load_stream_offsets(index_path, opts)
         num_processes = opts[:num_procs] || MemoryMonitor.optimal_processes
-        return build_fulltext_index(opts, multistream_path, ms_index, db_path, num_processes)
+        return build_fulltext_index(opts, multistream_path, stream_offsets, db_path, num_processes)
       end
       meta.close
 
@@ -38,17 +38,17 @@ module Wp2txt
 
       time_start = Time.now
       puts pastel.cyan("Loading multistream index...") unless quiet?
-      ms_index = MultistreamIndex.new(index_path, cache_dir: opts[:cache_dir], show_progress: !quiet?)
-      if ms_index.stream_offsets.empty?
+      stream_offsets, entry_count = load_stream_offsets(index_path, opts)
+      if stream_offsets.empty?
         print_error("Multistream index is empty or unreadable: #{index_path}")
         return CliUI::EXIT_ERROR
       end
 
       num_processes = opts[:num_procs] || MemoryMonitor.optimal_processes
-      puts pastel.cyan("Scanning #{ms_index.size} pages in #{ms_index.stream_offsets.size} streams (#{num_processes} processes)...") unless quiet?
+      puts pastel.cyan("Scanning #{entry_count} pages in #{stream_offsets.size} streams (#{num_processes} processes)...") unless quiet?
 
       builder = MetadataIndexBuilder.new(
-        multistream_path, ms_index.stream_offsets,
+        multistream_path, stream_offsets,
         db_path: db_path, num_processes: num_processes
       )
 
@@ -69,13 +69,36 @@ module Wp2txt
       print_index_stats(built.stats)
       built.close
 
-      return build_fulltext_index(opts, multistream_path, ms_index, db_path, num_processes) if opts[:fulltext]
+      return build_fulltext_index(opts, multistream_path, stream_offsets, db_path, num_processes) if opts[:fulltext]
 
       CliUI::EXIT_SUCCESS
     end
 
+    # Load stream offsets without holding the full title index in memory.
+    # The builders fork worker processes; a parent heap holding millions of
+    # index entries (~14GB for enwiki) gets duplicated through copy-on-write
+    # breakage in every child and OOMs the machine. Offsets are a small
+    # integer array, so prefer reading just them from the SQLite cache.
+    # @return [Array(Array<Integer>, Integer)] [stream_offsets, entry_count]
+    def load_stream_offsets(index_path, opts)
+      cache = IndexCache.new(index_path, cache_dir: opts[:cache_dir])
+      if cache.valid?
+        [cache.stream_offsets, cache.stats[:entry_count]]
+      else
+        # First run: parse the index (this also writes the SQLite cache),
+        # then discard the entry hashes before any fork
+        ms_index = MultistreamIndex.new(index_path, cache_dir: opts[:cache_dir], show_progress: !quiet?)
+        offsets = ms_index.stream_offsets
+        count = ms_index.size
+        ms_index = nil
+        GC.start
+        GC.compact if GC.respond_to?(:compact)
+        [offsets, count]
+      end
+    end
+
     # Build the FTS5 full-text index (Tier 2) after the metadata index
-    def build_fulltext_index(opts, multistream_path, ms_index, meta_db_path, num_processes)
+    def build_fulltext_index(opts, multistream_path, stream_offsets, meta_db_path, num_processes)
       fts_db_path = FtsIndex.path_for(multistream_path, cache_dir: opts[:cache_dir])
       tokenizer = opts[:fts_tokenizer] || FtsIndex.default_tokenizer(multistream_path)
 
@@ -90,7 +113,7 @@ module Wp2txt
       puts pastel.cyan("Building full-text index (tokenizer: #{tokenizer})...") unless quiet?
       time_start = Time.now
       builder = FtsIndexBuilder.new(
-        multistream_path, ms_index.stream_offsets,
+        multistream_path, stream_offsets,
         db_path: fts_db_path, meta_db_path: meta_db_path,
         tokenizer: tokenizer, num_processes: num_processes,
         optimize: !opts[:skip_fts_optimize]
