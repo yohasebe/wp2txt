@@ -137,6 +137,10 @@ module Wp2txt
               type: String, short: :none
           opt :search, "Full-text search query (requires --build-index --fulltext beforehand)",
               type: String, short: :none
+          opt :skip_fts_optimize, "Skip the final optimize step of the full-text build (much faster build; queries slightly slower until --fts-optimize is run)",
+              default: false, short: :none
+          opt :fts_optimize, "Optimize an existing full-text index (merge segments; idempotent)",
+              default: false, short: :none
 
           opt :file_size, "Approximate size (in MB) of each output file (0 for single file)",
               default: 10, short: "-f"
@@ -336,11 +340,19 @@ module Wp2txt
           Optimist.die :fts_tokenizer, "must be unicode61, trigram, or porter"
         end
 
+        if opts[:skip_fts_optimize] && !opts[:fulltext]
+          Optimist.die "--skip-fts-optimize requires --build-index --fulltext"
+        end
+
+        if opts[:fts_optimize] && (opts[:build_index] || opts[:find_articles] || opts[:search])
+          Optimist.die "--fts-optimize is a standalone mode (cannot combine with --build-index/--find-articles/--search)"
+        end
+
         if opts[:search] && (opts[:build_index] || opts[:find_articles])
           Optimist.die "--search cannot be combined with --build-index/--find-articles"
         end
 
-        if opts[:build_index] || opts[:find_articles] || opts[:search]
+        if opts[:build_index] || opts[:find_articles] || opts[:search] || opts[:fts_optimize]
           conflicts = []
           conflicts << "--articles" if opts[:articles]
           conflicts << "--from-category" if opts[:from_category]

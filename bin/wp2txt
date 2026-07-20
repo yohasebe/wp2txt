@@ -710,6 +710,7 @@ class WpApp
     return run_build_index(opts) if opts[:build_index]
     return run_find_articles(opts) if opts[:find_articles]
     return run_search(opts) if opts[:search]
+    return run_fts_optimize(opts) if opts[:fts_optimize]
 
     # Determine input source
     if opts[:from_category] && opts[:lang]

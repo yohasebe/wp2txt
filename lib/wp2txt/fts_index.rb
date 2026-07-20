@@ -78,6 +78,7 @@ module Wp2txt
       meta = read_metadata || {}
       { db_path: @db_path, db_size: File.size(@db_path),
         tokenizer: meta[:tokenizer], built_at: meta[:built_at],
+        optimized: meta[:optimized] == "true",
         section_count: (open_db.get_first_value("SELECT COUNT(*) FROM fts_map") rescue 0) }
     end
 
@@ -119,10 +120,12 @@ module Wp2txt
       end
     end
 
-    def finalize_build!(source_path)
+    # @param optimize [Boolean] merge FTS segments into one (single-threaded and
+    #   slow on large indexes; skip and run #optimize! later if build time matters)
+    def finalize_build!(source_path, optimize: true)
       db = open_db
       db.execute("CREATE INDEX IF NOT EXISTS idx_fts_map_page ON fts_map(page_id)")
-      db.execute("INSERT INTO fts_sections(fts_sections) VALUES('optimize')")
+      db.execute("INSERT INTO fts_sections(fts_sections) VALUES('optimize')") if optimize
       stat = File.stat(source_path)
       save_metadata(
         schema_version: SCHEMA_VERSION,
@@ -130,9 +133,27 @@ module Wp2txt
         source_path: source_path,
         source_size: stat.size,
         source_mtime: stat.mtime.to_i,
+        optimized: optimize,
         built_at: Time.now.utc.iso8601
       )
       close
+    end
+
+    # Merge all FTS segments of an existing index (idempotent). Queries work
+    # without this, just somewhat slower; run once, any time after a
+    # --no-fts-optimize build.
+    def optimize!
+      raise ArgumentError, "index not built" unless built?
+
+      db = open_db
+      db.execute("INSERT INTO fts_sections(fts_sections) VALUES('optimize')")
+      db.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+      save_metadata(optimized: true)
+      true
+    end
+
+    def optimized?
+      read_metadata&.dig(:optimized) == "true"
     end
 
     # ------------------------------------------------------------------
@@ -303,13 +324,14 @@ module Wp2txt
     STREAMS_PER_BATCH = 10
 
     def initialize(multistream_path, stream_offsets, db_path:, meta_db_path:,
-                   tokenizer: nil, num_processes: 4)
+                   tokenizer: nil, num_processes: 4, optimize: true)
       @multistream_path = multistream_path
       @stream_offsets = stream_offsets
       @db_path = db_path
       @meta_db_path = meta_db_path
       @tokenizer = tokenizer || FtsIndex.default_tokenizer(multistream_path)
       @num_processes = num_processes
+      @optimize = optimize
     end
 
     def build(&progress)
@@ -333,7 +355,7 @@ module Wp2txt
         self.class.scan_batch(@multistream_path, batch)
       end
 
-      index.finalize_build!(@multistream_path)
+      index.finalize_build!(@multistream_path, optimize: @optimize)
       index
     end
 

@@ -92,7 +92,8 @@ module Wp2txt
       builder = FtsIndexBuilder.new(
         multistream_path, ms_index.stream_offsets,
         db_path: fts_db_path, meta_db_path: meta_db_path,
-        tokenizer: tokenizer, num_processes: num_processes
+        tokenizer: tokenizer, num_processes: num_processes,
+        optimize: !opts[:skip_fts_optimize]
       )
 
       last_report = Time.now
@@ -113,7 +114,40 @@ module Wp2txt
       print_info("Tokenizer", stats[:tokenizer].to_s)
       print_info("Sections", stats[:section_count].to_s)
       print_info("Size", format_size(stats[:db_size]))
+      unless stats[:optimized]
+        print_info_message("Index is unoptimized (built with --skip-fts-optimize). Run 'wp2txt --fts-optimize' later for best query speed.")
+      end
       built.close
+      CliUI::EXIT_SUCCESS
+    end
+
+    # Standalone optimize of an existing full-text index (--fts-optimize)
+    def run_fts_optimize(opts)
+      multistream_path, = resolve_dump_paths(opts, download: false)
+      return CliUI::EXIT_ERROR unless multistream_path
+
+      fts = FtsIndex.new(
+        FtsIndex.path_for(multistream_path, cache_dir: opts[:cache_dir]),
+        MetadataIndex.path_for(multistream_path, cache_dir: opts[:cache_dir])
+      )
+      unless fts.built?
+        print_error("Full-text index not found for this dump.")
+        print_info_message("Build it first with: wp2txt --build-index --fulltext #{opts[:lang] ? "-L #{opts[:lang]}" : "-i #{opts[:input]}"}")
+        return CliUI::EXIT_ERROR
+      end
+
+      if fts.optimized?
+        print_success("Full-text index is already optimized.")
+        fts.close
+        return CliUI::EXIT_SUCCESS
+      end
+
+      print_info_message("Optimizing full-text index (single-threaded; can take 30-60+ minutes on large indexes)...")
+      time_start = Time.now
+      fts.optimize!
+      print_success("Optimize complete in #{format_duration(Time.now - time_start)}")
+      print_info("Size", format_size(File.size(fts.db_path)))
+      fts.close
       CliUI::EXIT_SUCCESS
     end
 

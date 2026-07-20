@@ -11,7 +11,7 @@ require_relative "../lib/wp2txt/corpus"
 RSpec.describe "Wp2txt Full-Text Search" do
   include MultistreamFixture
 
-  def build_indexes(dir, tokenizer: "unicode61")
+  def build_indexes(dir, tokenizer: "unicode61", optimize: true)
     multistream_path, index_path = create_fixture(dir)
     ms_index = Wp2txt::MultistreamIndex.new(index_path, use_cache: false, show_progress: false)
 
@@ -23,7 +23,8 @@ RSpec.describe "Wp2txt Full-Text Search" do
     fts_db = Wp2txt::FtsIndex.path_for(multistream_path, cache_dir: dir)
     Wp2txt::FtsIndexBuilder.new(
       multistream_path, ms_index.stream_offsets,
-      db_path: fts_db, meta_db_path: meta_db, tokenizer: tokenizer, num_processes: 0
+      db_path: fts_db, meta_db_path: meta_db, tokenizer: tokenizer,
+      num_processes: 0, optimize: optimize
     ).build
 
     [multistream_path, fts_db, meta_db]
@@ -109,6 +110,32 @@ RSpec.describe "Wp2txt Full-Text Search" do
 
       it "escapes quotes in phrase mode" do
         expect { @fts.search('say "hi" now', count: "exact") }.not_to raise_error
+      end
+    end
+
+    context "built with optimize: false" do
+      around do |example|
+        Dir.mktmpdir do |dir|
+          @multistream_path, fts_db, meta_db = build_indexes(dir, optimize: false)
+          @fts = described_class.new(fts_db, meta_db)
+          example.run
+          @fts.close
+        end
+      end
+
+      it "is valid, flagged unoptimized, and fully searchable" do
+        expect(@fts.built?).to be true
+        expect(@fts.valid_for?(@multistream_path)).to be true
+        expect(@fts.optimized?).to be false
+        expect(@fts.stats[:optimized]).to be false
+        expect(@fts.search("Story", count: "exact")[:total]).to eq(2)
+      end
+
+      it "can be optimized afterwards (idempotent)" do
+        expect(@fts.optimize!).to be true
+        expect(@fts.optimized?).to be true
+        expect(@fts.search("Story", count: "exact")[:total]).to eq(2)
+        expect(@fts.optimize!).to be true
       end
     end
 
