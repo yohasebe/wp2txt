@@ -393,6 +393,13 @@ module Wp2txt
     # as `fts` when built). Double-layered: keyword screening plus an
     # SQLITE_OPEN_READONLY connection, so writes are impossible at the driver
     # level even if the screen were bypassed.
+    #
+    # NOTE: there is no execution-time cap. The sqlite3 gem holds the GVL during
+    # a query's C execution, so no in-process watchdog (thread interrupt or
+    # Timeout) can abort a pathological query (e.g. an unfiltered join over tens
+    # of millions of rows); it would hang this request until the process is
+    # restarted. Callers must filter/aggregate. A subprocess-isolated hard
+    # timeout is tracked as a follow-up.
     def query_sql(sql, limit: SQL_ROW_LIMIT)
       raise ArgumentError, "only SELECT/WITH queries are allowed" unless sql =~ /\A\s*(SELECT|WITH)\b/i
       raise ArgumentError, "query contains a forbidden keyword" if sql.match?(SQL_FORBIDDEN)

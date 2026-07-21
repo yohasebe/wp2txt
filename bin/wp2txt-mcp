@@ -159,7 +159,7 @@ end
 
 server.define_tool(
   name: "query_sql",
-  description: "Read-only SQL (SELECT/WITH only) against the index databases — the escape hatch for questions the fixed tools cannot express (multi-way intersections, aggregations, joins). Call describe_schema first to see the tables. Main DB: pages(page_id, title, namespace, redirect_to, text_length), page_categories(page_id, category), page_sections(page_id, heading, level, ord), category_hierarchy(child, parent), alias_sets. When the fulltext tier exists, the FTS DB is attached as `fts` (fts.fts_sections MATCH ..., fts.fts_map). Filter articles with namespace = 0 AND redirect_to IS NULL. Rows are capped by `limit` (default 200, max 1000) with truncated flag; long cells are clipped.",
+  description: "Read-only SQL (SELECT/WITH only) against the index databases — the escape hatch for questions the fixed tools cannot express (multi-way intersections, aggregations, joins). Call describe_schema first to see the tables. Main DB: pages(page_id, title, namespace, redirect_to, text_length), page_categories(page_id, category), page_sections(page_id, heading, level, ord), category_hierarchy(child, parent), alias_sets. When the fulltext tier exists, the FTS DB is attached as `fts` (fts.fts_sections MATCH ..., fts.fts_map). Filter articles with namespace = 0 AND redirect_to IS NULL. Rows are capped by `limit` (default 200, max 1000) with truncated flag; long cells are clipped. IMPORTANT: there is no execution-time limit and the tables are large (millions of rows); always constrain joins with indexed keys (page_id) and add WHERE filters — an unfiltered cross join will hang the server.",
   input_schema: {
     properties: {
       sql: { type: "string" },
