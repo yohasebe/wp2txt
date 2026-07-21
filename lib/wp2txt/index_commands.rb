@@ -47,31 +47,60 @@ module Wp2txt
       num_processes = opts[:num_procs] || MemoryMonitor.optimal_processes
       puts pastel.cyan("Scanning #{entry_count} pages in #{stream_offsets.size} streams (#{num_processes} processes)...") unless quiet?
 
-      builder = MetadataIndexBuilder.new(
-        multistream_path, stream_offsets,
-        db_path: db_path, num_processes: num_processes
-      )
+      ok = run_phase_isolated do
+        builder = MetadataIndexBuilder.new(
+          multistream_path, stream_offsets,
+          db_path: db_path, num_processes: num_processes
+        )
 
-      last_report = Time.now
-      built = builder.build do |done, total|
-        now = Time.now
-        if !quiet? && (now - last_report >= DEFAULT_PROGRESS_INTERVAL || done == total)
-          last_report = now
-          percent = (done.to_f / total * 100).round(1)
-          elapsed = now - time_start
-          eta = done.positive? ? (total - done) * (elapsed / done) : 0
-          puts pastel.dim(format("  [%d/%d] %.1f%% | ETA: %s", done, total, percent, format_duration(eta)))
+        last_report = Time.now
+        built = builder.build do |done, total|
+          now = Time.now
+          if !quiet? && (now - last_report >= DEFAULT_PROGRESS_INTERVAL || done == total)
+            last_report = now
+            percent = (done.to_f / total * 100).round(1)
+            elapsed = now - time_start
+            eta = done.positive? ? (total - done) * (elapsed / done) : 0
+            puts pastel.dim(format("  [%d/%d] %.1f%% | ETA: %s", done, total, percent, format_duration(eta)))
+          end
         end
-      end
 
-      puts unless quiet?
-      print_success("Metadata index built in #{format_duration(Time.now - time_start)}")
-      print_index_stats(built.stats)
-      built.close
+        puts unless quiet?
+        print_success("Metadata index built in #{format_duration(Time.now - time_start)}")
+        print_index_stats(built.stats)
+        built.close
+        true
+      end
+      return CliUI::EXIT_ERROR unless ok
 
       return build_fulltext_index(opts, multistream_path, stream_offsets, db_path, num_processes) if opts[:fulltext]
 
       CliUI::EXIT_SUCCESS
+    end
+
+    # Run a build phase in a forked child process. Each phase pumps its whole
+    # dataset through the parent's heap (Marshal.load of every worker batch),
+    # leaving a multi-GB high-water mark; a later phase forking workers from
+    # that bloated parent duplicates it per worker via copy-on-write breakage
+    # and OOMs the machine (observed on enwiki: 18GB per FTS worker). A child
+    # process confines each phase's high-water mark to that phase.
+    # @return [Boolean] whether the phase succeeded
+    def run_phase_isolated(&block)
+      return block.call unless Process.respond_to?(:fork)
+
+      pid = Process.fork do
+        status = 1
+        begin
+          status = block.call ? 0 : 1
+        rescue StandardError => e
+          warn "#{e.class}: #{e.message}"
+        end
+        $stdout.flush
+        $stderr.flush
+        exit!(status) # skip at_exit handlers; they belong to the parent
+      end
+      _, status = Process.waitpid2(pid)
+      status.success?
     end
 
     # Load stream offsets without holding the full title index in memory.
@@ -112,36 +141,39 @@ module Wp2txt
 
       puts pastel.cyan("Building full-text index (tokenizer: #{tokenizer})...") unless quiet?
       time_start = Time.now
-      builder = FtsIndexBuilder.new(
-        multistream_path, stream_offsets,
-        db_path: fts_db_path, meta_db_path: meta_db_path,
-        tokenizer: tokenizer, num_processes: num_processes,
-        optimize: !opts[:skip_fts_optimize]
-      )
+      ok = run_phase_isolated do
+        builder = FtsIndexBuilder.new(
+          multistream_path, stream_offsets,
+          db_path: fts_db_path, meta_db_path: meta_db_path,
+          tokenizer: tokenizer, num_processes: num_processes,
+          optimize: !opts[:skip_fts_optimize]
+        )
 
-      last_report = Time.now
-      built = builder.build do |done, total|
-        now = Time.now
-        if !quiet? && (now - last_report >= DEFAULT_PROGRESS_INTERVAL || done == total)
-          last_report = now
-          percent = (done.to_f / total * 100).round(1)
-          elapsed = now - time_start
-          eta = done.positive? ? (total - done) * (elapsed / done) : 0
-          puts pastel.dim(format("  [%d/%d] %.1f%% | ETA: %s", done, total, percent, format_duration(eta)))
+        last_report = Time.now
+        built = builder.build do |done, total|
+          now = Time.now
+          if !quiet? && (now - last_report >= DEFAULT_PROGRESS_INTERVAL || done == total)
+            last_report = now
+            percent = (done.to_f / total * 100).round(1)
+            elapsed = now - time_start
+            eta = done.positive? ? (total - done) * (elapsed / done) : 0
+            puts pastel.dim(format("  [%d/%d] %.1f%% | ETA: %s", done, total, percent, format_duration(eta)))
+          end
         end
-      end
 
-      puts unless quiet?
-      print_success("Full-text index built in #{format_duration(Time.now - time_start)}")
-      stats = built.stats
-      print_info("Tokenizer", stats[:tokenizer].to_s)
-      print_info("Sections", stats[:section_count].to_s)
-      print_info("Size", format_size(stats[:db_size]))
-      unless stats[:optimized]
-        print_info_message("Index is unoptimized (built with --skip-fts-optimize). Run 'wp2txt --fts-optimize' later for best query speed.")
+        puts unless quiet?
+        print_success("Full-text index built in #{format_duration(Time.now - time_start)}")
+        stats = built.stats
+        print_info("Tokenizer", stats[:tokenizer].to_s)
+        print_info("Sections", stats[:section_count].to_s)
+        print_info("Size", format_size(stats[:db_size]))
+        unless stats[:optimized]
+          print_info_message("Index is unoptimized (built with --skip-fts-optimize). Run 'wp2txt --fts-optimize' later for best query speed.")
+        end
+        built.close
+        true
       end
-      built.close
-      CliUI::EXIT_SUCCESS
+      ok ? CliUI::EXIT_SUCCESS : CliUI::EXIT_ERROR
     end
 
     # Standalone optimize of an existing full-text index (--fts-optimize)
