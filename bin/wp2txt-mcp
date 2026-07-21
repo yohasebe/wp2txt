@@ -246,7 +246,7 @@ end
 
 server.define_tool(
   name: "save_alias_set",
-  description: "Persist a named set of section-heading alias groups for this dump (e.g. [[\"あらすじ\",\"ストーリー\",\"物語\"]]). A server-side guardrail re-checks co-occurrence: pairs that frequently coexist in the same articles (likely different roles, not synonyms) block the save with saved:false and the offending pairs listed — fix the groups, or pass force:true only if you verified them another way (e.g., by reading section contents with get_sections). Saved sets are referenced via alias_set in find_articles / get_sections / extract_corpus and recorded in extraction metadata for reproducibility.",
+  description: "Persist a named set of section-heading alias groups for this dump (e.g. [[\"あらすじ\",\"ストーリー\",\"物語\"]]). A server-side guardrail re-checks co-occurrence: a pair that appears in the same article more than 20% of the time (when both headings occur in at least 100 articles) is treated as distinct sections, not synonyms, and blocks the save with saved:false and the offending pairs listed — fix the groups, or pass force:true only if you verified them another way (e.g., by reading section contents with get_sections). The response echoes the saved groups and the exact criteria used. Saved sets are referenced via alias_set in find_articles / get_sections / extract_corpus and recorded in extraction metadata for reproducibility.",
   input_schema: {
     properties: {
       name: { type: "string" },

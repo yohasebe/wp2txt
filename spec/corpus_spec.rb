@@ -271,6 +271,16 @@ RSpec.describe Wp2txt::Corpus do
       result = @corpus.save_alias_set("rare", [%w[Plot Reception]], min_articles: 100)
       expect(result[:saved]).to be true
     end
+
+    it "reports the exact criteria used, on both accept and reject" do
+      accepted = @corpus.save_alias_set("crit-ok", [%w[Plot Synopsis]], min_articles: 1, max_ratio: 0.2)
+      expect(accepted[:criteria]).to eq(max_cooccurrence_ratio: 0.2, min_articles: 1)
+      expect(accepted[:groups]).to eq([%w[Plot Synopsis]])
+
+      rejected = @corpus.save_alias_set("crit-no", [%w[Plot Reception]], min_articles: 1, max_ratio: 0.2)
+      expect(rejected[:criteria]).to eq(max_cooccurrence_ratio: 0.2, min_articles: 1)
+      expect(rejected[:warning]).to include("20%")
+    end
   end
 
   describe "#extract_corpus" do

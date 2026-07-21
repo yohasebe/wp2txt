@@ -264,16 +264,21 @@ module Wp2txt
         raise ArgumentError, "groups must be a non-empty array of arrays"
       end
 
+      # Report the exact thresholds used so both the model and the user can see
+      # why a group was accepted or rejected, not just that it was
+      criteria = { max_cooccurrence_ratio: max_ratio, min_articles: min_articles }
       violations = check_alias_groups(groups, max_ratio: max_ratio, min_articles: min_articles)
       if violations.any? && !force
-        return { saved: false, name: name, violations: violations,
-                 warning: "These heading pairs frequently coexist in the same articles and are " \
-                          "likely NOT synonyms. Remove them from the group, or pass force: true " \
-                          "if you have verified them another way (e.g., by reading section contents)." }
+        return { saved: false, name: name, groups: groups, violations: violations, criteria: criteria,
+                 warning: "These heading pairs coexist in the same article more than " \
+                          "#{(max_ratio * 100).round}% of the time (both headings appear in at least " \
+                          "#{min_articles} articles), so they are likely different sections, not synonyms. " \
+                          "Remove them from the group, or pass force: true if you verified them another " \
+                          "way (e.g., by reading section contents with get_sections)." }
       end
 
       @metadata.save_alias_set(name, groups)
-      { saved: true, name: name, groups: groups, violations: violations }
+      { saved: true, name: name, groups: groups, violations: violations, criteria: criteria }
     end
 
     def get_alias_set(name)
