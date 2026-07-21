@@ -159,7 +159,7 @@ end
 
 server.define_tool(
   name: "query_sql",
-  description: "Read-only SQL (SELECT/WITH only) against the index databases — the escape hatch for questions the fixed tools cannot express (multi-way intersections, aggregations, joins). Call describe_schema first to see the tables. Main DB: pages(page_id, title, namespace, redirect_to, text_length), page_categories(page_id, category), page_sections(page_id, heading, level, ord), category_hierarchy(child, parent), alias_sets. When the fulltext tier exists, the FTS DB is attached as `fts` (fts.fts_sections MATCH ..., fts.fts_map). Filter articles with namespace = 0 AND redirect_to IS NULL. Rows are capped by `limit` (default 200, max 1000) with truncated flag; long cells are clipped. IMPORTANT: there is no execution-time limit and the tables are large (millions of rows); always constrain joins with indexed keys (page_id) and add WHERE filters — an unfiltered cross join will hang the server.",
+  description: "Read-only SQL (SELECT/WITH only) against the index databases — the escape hatch for questions the fixed tools cannot express (multi-way intersections, aggregations, joins). Call describe_schema first to see the tables. Main DB: pages(page_id, title, namespace, redirect_to, text_length), page_categories(page_id, category), page_sections(page_id, heading, level, ord), category_hierarchy(child, parent), alias_sets. When the fulltext tier exists, the FTS DB is attached as `fts` (fts.fts_sections MATCH ..., fts.fts_map). Filter articles with namespace = 0 AND redirect_to IS NULL. Rows are capped by `limit` (default 200, max 1000) with truncated flag; long cells are clipped. Queries are killed after 30 seconds (the error explains the likely cause); the tables are large (millions of rows), so constrain joins with indexed keys (page_id) and add WHERE filters.",
   input_schema: {
     properties: {
       sql: { type: "string" },
@@ -288,15 +288,29 @@ EXTRACT_SCHEMA = {
     title_match: { type: "string" },
     limit: { type: "integer", minimum: 0 },
     chunk_size: { type: "integer", minimum: 100, description: "Split text into ~N-char chunks (one RAG-ready record per chunk)" },
-    chunk_overlap: { type: "integer", minimum: 0 }
+    chunk_overlap: { type: "integer", minimum: 0 },
+    overwrite: { type: "boolean", description: "Replace an existing output file (default: refuse)" }
   },
   required: ["output_path", "content"]
 }.freeze
 
 def extract_params(output_path:, content:, sections: nil, alias_set: nil, category: nil,
                    depth: 0, categories: nil, category_match: nil,
-                   title_match: nil, limit: 0, chunk_size: nil, chunk_overlap: 0)
-  { output_path: File.expand_path(output_path, OUTPUT_DIR), content: content,
+                   title_match: nil, limit: 0, chunk_size: nil, chunk_overlap: 0,
+                   overwrite: false)
+  # Confine writes to the server's output directory (an agent mixing up paths
+  # must not be able to clobber arbitrary user files), and refuse to silently
+  # replace existing outputs
+  path = File.expand_path(output_path, OUTPUT_DIR)
+  base = File.expand_path(OUTPUT_DIR)
+  unless path == base || path.start_with?(base + File::SEPARATOR)
+    raise ArgumentError, "output_path must stay within the server output directory (#{base})"
+  end
+  if File.exist?(path) && !overwrite
+    raise ArgumentError, "output file already exists: #{path} (pass overwrite: true to replace it)"
+  end
+
+  { output_path: path, content: content,
     sections: sections, alias_set: alias_set, category: category, depth: depth,
     categories: categories, category_match: category_match,
     title_match: title_match, limit: limit, chunk_size: chunk_size, chunk_overlap: chunk_overlap }

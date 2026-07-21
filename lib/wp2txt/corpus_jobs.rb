@@ -18,8 +18,16 @@ module Wp2txt
     end
 
     # Start an extraction job. params are Corpus#extract_corpus keywords.
-    # @return [Hash] { job_id:, status: "running" }
+    # Only one job runs at a time: each job forks worker processes, and
+    # unbounded concurrent jobs would multiply workers against the same dump.
+    # @return [Hash] { job_id:, status: "running" } or { error: ... }
     def start_extract(params)
+      running = @mutex.synchronize { @jobs.values.find { |s| s[:status] == "running" } }
+      if running
+        return { error: "another job is already running (#{running[:job_id]}); " \
+                        "poll job_status or cancel_job before starting a new one" }
+      end
+
       job_id = @mutex.synchronize { format("job-%04d", @seq += 1) }
       state = {
         job_id: job_id, status: "running", started_at: Time.now.utc.iso8601,

@@ -186,6 +186,25 @@ RSpec.describe Wp2txt::Corpus do
     it "reports SQL errors as ArgumentError" do
       expect { @corpus.query_sql("SELECT * FROM no_such_table") }.to raise_error(ArgumentError, /SQL error/)
     end
+
+    it "does not reject forbidden keywords inside string literals" do
+      result = @corpus.query_sql("SELECT COUNT(*) FROM pages WHERE title LIKE '%Update%'")
+      expect(result[:rows].first.first).to eq(0)
+    end
+
+    it "kills a runaway query at the timeout with a diagnostic hint" do
+      runaway = "WITH RECURSIVE c(x) AS (SELECT 1 UNION ALL SELECT x + 1 FROM c) SELECT COUNT(*) FROM c"
+      start = Process.clock_gettime(Process::CLOCK_MONOTONIC)
+      expect { @corpus.query_sql(runaway, timeout: 1) }.to raise_error(ArgumentError, /time limit.*recursive/im)
+      expect(Process.clock_gettime(Process::CLOCK_MONOTONIC) - start).to be < 5
+    end
+
+    it "keeps serving queries after a timeout" do
+      expect do
+        @corpus.query_sql("WITH RECURSIVE c(x) AS (SELECT 1 UNION ALL SELECT x + 1 FROM c) SELECT COUNT(*) FROM c", timeout: 1)
+      end.to raise_error(ArgumentError)
+      expect(@corpus.query_sql("SELECT COUNT(*) AS n FROM pages WHERE namespace = 0")[:rows].first.first).to eq(4)
+    end
   end
 
   describe "#describe_schema" do
@@ -215,7 +234,7 @@ RSpec.describe Wp2txt::Corpus do
       result = @corpus.section_cooccurrence(%w[Plot Reception])
       plot = result[:headings].find { |h| h[:heading] == "Plot" }
       expect(plot[:articles]).to eq(1)
-      expect(plot[:avg_position]).to eq(0.0)
+      expect(plot[:avg_position]).to eq(1.0) # lead = 0, first heading = 1
     end
 
     it "scopes to an exact category" do
@@ -417,10 +436,10 @@ RSpec.describe Wp2txt::CorpusJobManager do
     end
   end
 
-  def wait_for(job_id, timeout: 10)
+  def wait_for(job_id, timeout: 10, manager: @manager)
     deadline = Time.now + timeout
     loop do
-      status = @manager.status(job_id)
+      status = manager.status(job_id)
       return status if %w[completed cancelled error].include?(status[:status])
       raise "job timed out: #{status.inspect}" if Time.now > deadline
 
@@ -447,6 +466,30 @@ RSpec.describe Wp2txt::CorpusJobManager do
     status = wait_for(started[:job_id])
     expect(status[:status]).to eq("error")
     expect(status[:error]).to match(/requires sections/)
+  end
+
+  it "runs at most one job at a time" do
+    gate = Queue.new
+    slow_corpus = Class.new do
+      define_method(:initialize) { |g| @gate = g }
+      define_method(:extract_corpus) { |**_kw| @gate.pop; { articles_extracted: 0 } }
+      define_method(:close) {}
+    end
+    manager = Wp2txt::CorpusJobManager.new(-> { slow_corpus.new(gate) })
+
+    first = manager.start_extract(output_path: "/tmp/a.jsonl", content: "full")
+    expect(first[:job_id]).not_to be_nil
+    second = manager.start_extract(output_path: "/tmp/b.jsonl", content: "full")
+    expect(second[:error]).to match(/already running/)
+
+    gate << :go
+    deadline = Time.now + 5
+    sleep 0.05 while manager.status(first[:job_id])[:status] == "running" && Time.now < deadline
+    expect(manager.status(first[:job_id])[:status]).to eq("completed")
+    third = manager.start_extract(output_path: "/tmp/c.jsonl", content: "full")
+    expect(third[:job_id]).not_to be_nil
+    gate << :go
+    wait_for(third[:job_id], manager: manager)
   end
 
   it "returns nil for unknown jobs and lists known ones" do
