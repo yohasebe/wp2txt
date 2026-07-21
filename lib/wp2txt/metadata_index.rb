@@ -9,6 +9,7 @@ require "time"
 require "json"
 require_relative "regex"
 require_relative "section_extractor"
+require_relative "version"
 
 module Wp2txt
   # Local metadata index (Tier 1) built from a multistream dump.
@@ -16,7 +17,7 @@ module Wp2txt
   # hierarchy in SQLite, enabling offline exhaustive queries such as
   # "all articles in category X that have a Plot section" without any API access.
   class MetadataIndex
-    SCHEMA_VERSION = 1
+    SCHEMA_VERSION = 2
     CACHE_SUFFIX = "_meta.sqlite3"
     NS_ARTICLE = 0
     NS_CATEGORY = 14
@@ -102,6 +103,7 @@ module Wp2txt
         db_size: File.size(@db_path),
         dump_name: meta[:dump_name],
         built_at: meta[:built_at],
+        built_with: meta[:wp2txt_version],
         page_count: count_scalar("SELECT COUNT(*) FROM pages"),
         article_count: count_scalar("SELECT COUNT(*) FROM pages WHERE namespace = #{NS_ARTICLE} AND redirect_to IS NULL"),
         category_count: count_scalar("SELECT COUNT(DISTINCT category) FROM page_categories"),
@@ -118,9 +120,13 @@ module Wp2txt
     # Build API (used by MetadataIndexBuilder)
     # ------------------------------------------------------------------
 
+    # Build into a sidecar file and atomically rename in finalize_build!, so a
+    # failed multi-hour rebuild never destroys a working index
     def prepare_build!
       FileUtils.mkdir_p(File.dirname(@db_path))
-      FileUtils.rm_f(@db_path)
+      close
+      @build_path = "#{@db_path}.building"
+      FileUtils.rm_f([@build_path, "#{@build_path}-wal", "#{@build_path}-shm"])
       db = open_db
       db.execute(<<~SQL)
         CREATE TABLE metadata (key TEXT PRIMARY KEY, value TEXT)
@@ -135,7 +141,20 @@ module Wp2txt
         )
       SQL
       db.execute("CREATE TABLE page_categories (page_id INTEGER, category TEXT)")
-      db.execute("CREATE TABLE page_sections (page_id INTEGER, heading TEXT, level INTEGER, ord INTEGER)")
+      # ord: position of the section within the article, where 0 is the lead
+      # text before the first heading. Lead rows are NOT stored here (they have
+      # no heading), so ord starts at 1 — consistent with fts_map.ord in the
+      # full-text DB, where the lead IS stored as ord 0.
+      db.execute(<<~SQL)
+        CREATE TABLE page_sections (
+          page_id INTEGER,
+          heading TEXT,
+          level INTEGER,
+          -- ord: section position in the article; 0 = lead text (not stored in
+          -- this table), so headings start at 1. Same semantics as fts_map.ord.
+          ord INTEGER
+        )
+      SQL
       db.execute("CREATE TABLE category_hierarchy (child TEXT, parent TEXT)")
     end
 
@@ -174,6 +193,7 @@ module Wp2txt
       dump_name = File.basename(source_path)[/\A[a-z0-9_\-]+?-\d{8}/] || File.basename(source_path)
       save_metadata(
         schema_version: SCHEMA_VERSION,
+        wp2txt_version: Wp2txt::VERSION,
         source_path: source_path,
         source_size: stat.size,
         source_mtime: stat.mtime.to_i,
@@ -182,6 +202,11 @@ module Wp2txt
       )
       db.execute("ANALYZE")
       close
+      if @build_path
+        File.rename(@build_path, @db_path)
+        FileUtils.rm_f(["#{@db_path}-wal", "#{@db_path}-shm"])
+        @build_path = nil
+      end
     end
 
     # ------------------------------------------------------------------
@@ -481,7 +506,8 @@ module Wp2txt
     def open_db
       return @db if @db
 
-      @db = SQLite3::Database.new(@db_path)
+      @db = SQLite3::Database.new(@build_path || @db_path)
+      @db.busy_timeout = 5000
       @db.execute("PRAGMA journal_mode = WAL")
       @db.execute("PRAGMA synchronous = NORMAL")
       @db.execute("PRAGMA cache_size = -64000")
@@ -615,6 +641,8 @@ module Wp2txt
         categories.each { |c| out[:categories] << [page_id, c] }
       end
 
+      # ord 0 is the lead text (not stored here — it has no heading); headings
+      # start at 1 so ord aligns with fts_map.ord in the full-text DB
       ord = 0
       text.each_line do |line|
         l = line.chomp
@@ -623,11 +651,11 @@ module Wp2txt
         hm = HEADING_REGEX.match(l)
         next unless hm
 
+        ord += 1
         heading = MetadataIndex.clean_heading(hm[2])
         next if heading.empty?
 
         out[:sections] << [page_id, heading, hm[1].length, ord]
-        ord += 1
       end
     end
 

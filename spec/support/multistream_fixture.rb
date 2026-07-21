@@ -35,7 +35,7 @@ module MultistreamFixture
       page_xml(id: 2, ns: 0, title: "Film B",
                text: "Intro.\n== Synopsis ==\nStory here.\n[[Category:French films|B]]\n"),
       page_xml(id: 3, ns: 0, title: "Person X",
-               text: "Bio.\n== Career ==\nActing.\n[[Category:Japanese actors]]\n"),
+               text: "Bio.\n== Career ==\nActing.\n== '''Style''' ==\nDistinct prose.\n[[Category:Japanese actors]]\n"),
       page_xml(id: 4, ns: 0, title: "Old Film",
                text: "#REDIRECT [[Film A]]\n[[Category:Japanese films]]\n")
     ]

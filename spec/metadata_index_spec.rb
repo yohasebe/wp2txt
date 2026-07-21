@@ -147,6 +147,25 @@ RSpec.describe "Wp2txt Metadata Index" do
       expect(@index.valid_for?(@multistream_path)).to be true
     end
 
+    it "records the wp2txt version it was built with" do
+      expect(@index.stats[:built_with]).to eq(Wp2txt::VERSION)
+    end
+
+    it "builds atomically: the existing index survives an unfinished rebuild" do
+      expect(@index.built?).to be true
+      rebuilding = Wp2txt::MetadataIndex.new(@db_path)
+      rebuilding.prepare_build!
+      rebuilding.insert_batch(pages: [[99, "Partial", 0, nil, 10]], categories: [], sections: [], hierarchy: [])
+      rebuilding.close # abandon before finalize
+
+      survivor = Wp2txt::MetadataIndex.new(@db_path)
+      expect(survivor.built?).to be true
+      expect(survivor.find_articles(title_match: "Film A")).to eq(["Film A"])
+      expect(survivor.find_articles(title_match: "Partial")).to be_empty
+      survivor.close
+      FileUtils.rm_f(Dir.glob("#{@db_path}.building*"))
+    end
+
     it "detects a changed source dump file" do
       File.binwrite(@multistream_path, File.binread(@multistream_path) + "x")
       expect(@index.valid_for?(@multistream_path)).to be false
