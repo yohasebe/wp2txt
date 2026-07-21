@@ -74,11 +74,27 @@ On Windows: Install [Bzip2 for Windows](http://gnuwin32.sourceforge.net/packages
 
 ### Docker (Alternative)
 
+The Docker image bundles everything — Ruby, decompression tools, and the MCP server — so no local Ruby setup is needed.
+
+**Interactive / batch CLI:**
+
 ```shell
 docker run -it -v /path/to/localdata:/data yohasebe/wp2txt
 ```
 
 The `wp2txt` command is available inside the container. Use `/data` for input/output files.
+
+**MCP server (no Ruby required on the host):**
+
+```shell
+# Build the indexes once (cached in a named volume so they persist)
+docker run -it -v wp2txt:/root/.wp2txt yohasebe/wp2txt wp2txt --build-index --fulltext -L ja
+
+# Register with an MCP client, e.g. Claude Code
+claude mcp add wp2txt -- docker run -i --rm -v wp2txt:/root/.wp2txt yohasebe/wp2txt wp2txt-mcp -L ja
+```
+
+Note: use `-i` (not `-it`) when running the MCP server — a TTY would corrupt the JSON-RPC stream. The named volume (`wp2txt:`) holds downloaded dumps and indexes; without it they are lost when the container exits.
 
 ## Basic Usage
 

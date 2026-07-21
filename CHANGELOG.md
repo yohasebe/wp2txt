@@ -5,7 +5,7 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [2.2.0] - 2026-07-22
 
 - **Index hardening (design review follow-up)**: `ord` now has identical semantics in `page_sections` and `fts_map` (lead = 0, first heading = 1; schema v2 — rebuild indexes with `--build-index -U`); section headings are normalized identically in both indexes (decorated headings like `== '''X''' ==` now match section filters); indexes record the wp2txt version (and the FTS index a rendering-config digest) so `dump_info` can flag indexes built by code whose text cleaning differs; rebuilds are atomic (built alongside, renamed on completion — a failed rebuild no longer destroys the working index)
 - **MCP safety hardening**: `query_sql` runs in a killable subprocess with a 30s wall-clock cap and returns a query-plan diagnosis on timeout; the keyword screen no longer rejects legitimate values inside string literals; `extract_corpus` output paths are confined to the server output directory and refuse to overwrite existing files without `overwrite: true`; background jobs are serialized (one at a time) and all SQLite connections are closed before forking extraction workers
