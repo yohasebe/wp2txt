@@ -151,6 +151,14 @@ RSpec.describe "Wp2txt Metadata Index" do
       expect(@index.stats[:built_with]).to eq(Wp2txt::VERSION)
     end
 
+    it "sees headings even when a trailing HTML comment follows the closing markers" do
+      expect(@index.find_articles(has_section: "Career", use_aliases: false)).to eq(["Person X"])
+    end
+
+    it "ignores commented-out category links" do
+      expect(@index.categories_of("Person X")).to eq(["Japanese actors"])
+    end
+
     it "builds atomically: the existing index survives an unfinished rebuild" do
       expect(@index.built?).to be true
       rebuilding = Wp2txt::MetadataIndex.new(@db_path)

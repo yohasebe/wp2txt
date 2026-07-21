@@ -550,7 +550,8 @@ module Wp2txt
     NS_REGEX = %r{<ns>(-?\d+)</ns>}
     ID_REGEX = %r{<id>(\d+)</id>}
     TEXT_REGEX = %r{<text[^>]*>(.*)</text>}m
-    HEADING_REGEX = /\A(={2,6})[ \t]*(.+?)[ \t]*={2,6}\z/
+    HEADING_REGEX = /\A(={2,6})[ \t]*(.+?)[ \t]*={2,6}[ \t]*\z/
+    HTML_COMMENT_REGEX = /<!--.*?-->/m
 
     def initialize(multistream_path, stream_offsets, db_path:, num_processes: 4)
       @multistream_path = multistream_path
@@ -622,6 +623,11 @@ module Wp2txt
       ns = (block[NS_REGEX, 1] || "0").to_i
       text = block[TEXT_REGEX, 1] || ""
       text = unescape_xml(text)
+      # Strip HTML comments before scanning, matching what the Article parser
+      # does for the FTS index: a trailing comment after a heading's closing
+      # `==` must not hide the heading, and commented-out [[Category:]] links
+      # must not be indexed as real categories
+      text = text.gsub(HTML_COMMENT_REGEX, "")
 
       redirect_to = nil
       if (m = REDIRECT_REGEX.match(text))
