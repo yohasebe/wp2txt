@@ -334,8 +334,9 @@ module Wp2txt
       resolved_sections = content == "summary" ? [SectionExtractor::SUMMARY_KEY] : expand_with_alias_set(sections, alias_set)
       alias_contents = alias_set ? get_alias_set(alias_set)&.dig(:groups) : nil
 
-      # Close read connections before MultistreamReader forks workers
-      @metadata.close
+      # Close ALL SQLite connections before MultistreamReader forks workers
+      # (children must not inherit open database handles)
+      close_read_connections
 
       articles_extracted = 0
       records_written = 0
@@ -392,36 +393,30 @@ module Wp2txt
 
     SQL_ROW_LIMIT = 200
     SQL_CELL_LIMIT = 2000
+    SQL_TIMEOUT_SECONDS = 30
     SQL_FORBIDDEN = /\b(ATTACH|DETACH|PRAGMA|INSERT|UPDATE|DELETE|DROP|CREATE|ALTER|REPLACE|VACUUM|REINDEX)\b/i
 
     # Run a read-only SELECT against the metadata DB (with the FTS DB attached
-    # as `fts` when built). Double-layered: keyword screening plus an
-    # SQLITE_OPEN_READONLY connection, so writes are impossible at the driver
-    # level even if the screen were bypassed.
-    #
-    # NOTE: there is no execution-time cap. The sqlite3 gem holds the GVL during
-    # a query's C execution, so no in-process watchdog (thread interrupt or
-    # Timeout) can abort a pathological query (e.g. an unfiltered join over tens
-    # of millions of rows); it would hang this request until the process is
-    # restarted. Callers must filter/aggregate. A subprocess-isolated hard
-    # timeout is tracked as a follow-up.
-    def query_sql(sql, limit: SQL_ROW_LIMIT)
+    # as `fts` when built). Defense layers: keyword screening (outside string
+    # literals), an SQLITE_OPEN_READONLY connection so writes are impossible at
+    # the driver level, and subprocess execution with a hard wall-clock timeout
+    # — the sqlite3 gem holds the GVL during C execution, so a runaway query
+    # can only be stopped by killing the process running it. On timeout, the
+    # error message includes an EXPLAIN QUERY PLAN diagnosis when a likely
+    # cause (nested full scans, unbounded recursion) is recognizable.
+    def query_sql(sql, limit: SQL_ROW_LIMIT, timeout: SQL_TIMEOUT_SECONDS)
       raise ArgumentError, "only SELECT/WITH queries are allowed" unless sql =~ /\A\s*(SELECT|WITH)\b/i
-      raise ArgumentError, "query contains a forbidden keyword" if sql.match?(SQL_FORBIDDEN)
+      # Screen keywords outside string literals and quoted identifiers only, so
+      # legitimate data values (e.g. title LIKE '%Update%') are not rejected
+      screened = sql.gsub(/'(?:[^']|'')*'/m, "''").gsub(/"(?:[^"]|"")*"/m, '""')
+      raise ArgumentError, "query contains a forbidden keyword" if screened.match?(SQL_FORBIDDEN)
 
       limit = [[limit.to_i, 1].max, 1000].min
-      db = readonly_db
-      columns = nil
-      rows = []
-      db.query(sql) do |result|
-        columns = result.columns
-        result.each do |row|
-          break if rows.size >= limit
-
-          rows << row.map { |v| v.is_a?(String) && v.length > SQL_CELL_LIMIT ? "#{v[0, SQL_CELL_LIMIT]}…" : v }
-        end
+      if Process.respond_to?(:fork)
+        run_sql_in_subprocess(sql, limit, timeout)
+      else
+        run_sql_on(readonly_db, sql, limit)
       end
-      { columns: columns, rows: rows, row_count: rows.size, truncated: rows.size >= limit }
     rescue SQLite3::Exception => e
       raise ArgumentError, "SQL error: #{e.message}"
     end
@@ -437,22 +432,115 @@ module Wp2txt
     end
 
     def close
+      close_read_connections
+    end
+
+    private
+
+    def close_read_connections
       @metadata.close
       @fts&.close
       @readonly_db&.close
       @readonly_db = nil
     end
 
-    private
-
     def readonly_db
-      @readonly_db ||= begin
-        db = SQLite3::Database.new(@metadata.db_path, readonly: true)
-        db.busy_timeout = 5000
-        # Attached databases inherit the main connection's read-only flag
-        db.execute("ATTACH DATABASE ? AS fts", [fts.db_path]) if fts.built?
-        db
+      @readonly_db ||= build_readonly_connection(attach_fts: fts.built?)
+    end
+
+    def build_readonly_connection(attach_fts:, fts_path: fts.db_path)
+      db = SQLite3::Database.new(@metadata.db_path, readonly: true)
+      db.busy_timeout = 5000
+      # Attached databases inherit the main connection's read-only flag
+      db.execute("ATTACH DATABASE ? AS fts", [fts_path]) if attach_fts
+      db
+    end
+
+    # Row extraction shared by the inline (Windows fallback) and subprocess paths
+    def run_sql_on(db, sql, limit)
+      columns = nil
+      rows = []
+      db.query(sql) do |result|
+        columns = result.columns
+        result.each do |row|
+          break if rows.size >= limit
+
+          rows << row.map { |v| v.is_a?(String) && v.length > SQL_CELL_LIMIT ? "#{v[0, SQL_CELL_LIMIT]}…" : v }
+        end
       end
+      { columns: columns, rows: rows, row_count: rows.size, truncated: rows.size >= limit }
+    end
+
+    # Execute the query in a forked child with a hard deadline: the child opens
+    # its own read-only connection (no inherited handles), runs the query, and
+    # ships the result back over a pipe; a query that outlives the deadline is
+    # SIGKILLed — the only reliable abort while the gem holds the GVL.
+    def run_sql_in_subprocess(sql, limit, timeout)
+      attach_fts = fts.built?
+      fts_path = fts.db_path
+      reader_io, writer_io = IO.pipe
+      pid = Process.fork do
+        reader_io.close
+        outcome = begin
+          db = build_readonly_connection(attach_fts: attach_fts, fts_path: fts_path)
+          { ok: run_sql_on(db, sql, limit) }
+        rescue SQLite3::Exception => e
+          { err: "SQL error: #{e.message}" }
+        rescue StandardError => e
+          { err: "#{e.class}: #{e.message}" }
+        end
+        Marshal.dump(outcome, writer_io)
+        writer_io.close
+        exit!(0)
+      end
+      writer_io.close
+
+      unless IO.select([reader_io], nil, nil, timeout)
+        Process.kill("KILL", pid)
+        Process.waitpid(pid)
+        raise ArgumentError, "query exceeded the #{timeout}s time limit#{explain_plan_hint(sql)}"
+      end
+      payload = reader_io.read
+      Process.waitpid(pid)
+      outcome = Marshal.load(payload)
+      raise ArgumentError, outcome[:err] if outcome[:err]
+
+      outcome[:ok]
+    ensure
+      reader_io&.close
+    end
+
+    # Best-effort post-mortem for a timed-out query: EXPLAIN QUERY PLAN is
+    # instant and safe (it never executes the query), and the plan tree makes
+    # the two common pathologies recognizable
+    def explain_plan_hint(sql)
+      rows = readonly_db.execute("EXPLAIN QUERY PLAN #{sql}")
+      details = rows.map { |r| r[3].to_s }
+      by_id = rows.to_h { |r| [r[0], { parent: r[1], detail: r[3].to_s }] }
+
+      nested_scan = rows.any? do |id, parent, _n, detail|
+        next false unless detail.to_s.start_with?("SCAN")
+
+        ancestor = parent
+        found = false
+        while ancestor && (node = by_id[ancestor])
+          found ||= node[:detail].start_with?("SCAN")
+          ancestor = node[:parent]
+        end
+        found
+      end
+
+      if nested_scan
+        " — the query plan shows a full table scan nested inside another full scan " \
+        "(likely a cartesian product); join the tables on an indexed key such as page_id"
+      elsif details.any? { |d| d.include?("RECURSIVE STEP") }
+        " — the query uses a recursive CTE; make sure the recursion is bounded " \
+        "(e.g. a depth column with WHERE depth < N)"
+      else
+        " — narrow the query with additional WHERE filters or aggregate in SQL instead of returning rows"
+      end
+    rescue StandardError
+      ""
     end
 
     # Re-render the matched section of each hit from the dump and cut a window

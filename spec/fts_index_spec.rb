@@ -97,6 +97,28 @@ RSpec.describe "Wp2txt Full-Text Search" do
         expect(result[:hits].map { |h| h[:heading] }).to eq(["Plot"])
       end
 
+      it "normalizes decorated headings the same way as the metadata index" do
+        result = @fts.search("Distinct prose", count: "exact")
+        expect(result[:hits].map { |h| h[:heading] }).to eq(["Style"])
+        expect(@fts.search("Distinct prose", sections: ["Style"], count: "exact")[:total]).to eq(1)
+      end
+
+      it "keeps ord aligned between page_sections and fts_map (shared semantics)" do
+        meta_db = SQLite3::Database.new(@fts.meta_db_path, readonly: true)
+        meta_ord = meta_db.get_first_value(
+          "SELECT ps.ord FROM page_sections ps JOIN pages p ON p.page_id = ps.page_id " \
+          "WHERE p.title = 'Person X' AND ps.heading = 'Career'"
+        )
+        meta_db.close
+        fts_db = SQLite3::Database.new(@fts.db_path, readonly: true)
+        fts_ord = fts_db.get_first_value(
+          "SELECT fm.ord FROM fts_map fm WHERE fm.heading = 'Career'"
+        )
+        fts_db.close
+        expect(meta_ord).to eq(1) # lead = 0 (not stored), first heading = 1
+        expect(fts_ord).to eq(meta_ord)
+      end
+
       it "caps counting when requested" do
         result = @fts.search("Story", count: "capped", count_cap: 1)
         expect(result[:total]).to eq(1)

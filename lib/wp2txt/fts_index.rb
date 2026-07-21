@@ -9,6 +9,7 @@ require "time"
 require_relative "utils"
 require_relative "article"
 require_relative "metadata_index"
+require_relative "version"
 
 module Wp2txt
   # Tier 2: contentless FTS5 full-text index over cleaned section text.
@@ -18,7 +19,7 @@ module Wp2txt
   # Queries ATTACH the Tier 1 metadata DB so category/section/redirect
   # filters compose with MATCH in plain SQL.
   class FtsIndex
-    SCHEMA_VERSION = 1
+    SCHEMA_VERSION = 2
     CACHE_SUFFIX = "_fts.sqlite3"
 
     # Languages without word delimiters: use character-trigram tokenization
@@ -78,6 +79,8 @@ module Wp2txt
       meta = read_metadata || {}
       { db_path: @db_path, db_size: File.size(@db_path),
         tokenizer: meta[:tokenizer], built_at: meta[:built_at],
+        built_with: meta[:wp2txt_version],
+        render_current: meta[:render_digest] == self.class.current_render_digest,
         optimized: meta[:optimized] == "true",
         section_count: (open_db.get_first_value("SELECT COUNT(*) FROM fts_map") rescue 0) }
     end
@@ -91,15 +94,29 @@ module Wp2txt
     # Build API (parent process only)
     # ------------------------------------------------------------------
 
+    # Build into a sidecar file and atomically rename in finalize_build!, so a
+    # failed multi-hour rebuild never destroys a working index
     def prepare_build!(tokenizer:)
       raise ArgumentError, "unknown tokenizer: #{tokenizer}" unless TOKENIZERS.include?(tokenizer)
 
       FileUtils.mkdir_p(File.dirname(@db_path))
-      FileUtils.rm_f(@db_path)
+      close
+      @build_path = "#{@db_path}.building"
+      FileUtils.rm_f([@build_path, "#{@build_path}-wal", "#{@build_path}-shm"])
       db = open_db
       db.execute("CREATE TABLE metadata (key TEXT PRIMARY KEY, value TEXT)")
       db.execute("CREATE VIRTUAL TABLE fts_sections USING fts5(text, content='', tokenize='#{tokenizer}')")
-      db.execute("CREATE TABLE fts_map (rowid INTEGER PRIMARY KEY, page_id INTEGER, heading TEXT, ord INTEGER)")
+      db.execute(<<~SQL)
+        CREATE TABLE fts_map (
+          rowid INTEGER PRIMARY KEY,
+          page_id INTEGER,
+          -- heading: normalized like page_sections.heading; '' for the lead text
+          heading TEXT,
+          -- ord: section position in the article; 0 = lead text (stored here,
+          -- unlike page_sections which starts at 1). Same numbering otherwise.
+          ord INTEGER
+        )
+      SQL
       @pending_tokenizer = tokenizer
       @next_rowid = 0
     end
@@ -122,6 +139,14 @@ module Wp2txt
 
     # @param optimize [Boolean] merge FTS segments into one (single-threaded and
     #   slow on large indexes; skip and run #optimize! later if build time matters)
+    # Digest of everything that determines how section text is rendered.
+    # Snippets re-render sections at query time and must reproduce what was
+    # indexed; a digest mismatch means the index was built by code whose
+    # rendering differs from the current code.
+    def self.current_render_digest
+      Digest::MD5.hexdigest(SectionRenderer::RENDER_CONFIG.inspect)[0, 12]
+    end
+
     def finalize_build!(source_path, optimize: true)
       db = open_db
       db.execute("CREATE INDEX IF NOT EXISTS idx_fts_map_page ON fts_map(page_id)")
@@ -129,6 +154,8 @@ module Wp2txt
       stat = File.stat(source_path)
       save_metadata(
         schema_version: SCHEMA_VERSION,
+        wp2txt_version: Wp2txt::VERSION,
+        render_digest: self.class.current_render_digest,
         tokenizer: @pending_tokenizer,
         source_path: source_path,
         source_size: stat.size,
@@ -137,6 +164,17 @@ module Wp2txt
         built_at: Time.now.utc.iso8601
       )
       close
+      if @build_path
+        File.rename(@build_path, @db_path)
+        FileUtils.rm_f(["#{@db_path}-wal", "#{@db_path}-shm"])
+        @build_path = nil
+      end
+    end
+
+    # True when the current code's rendering configuration matches what this
+    # index was built with (snippet fidelity guarantee)
+    def render_current?
+      read_metadata&.dig(:render_digest) == self.class.current_render_digest
     end
 
     # Merge all FTS segments of an existing index (idempotent). Queries work
@@ -248,7 +286,8 @@ module Wp2txt
     def open_db
       return @db if @db
 
-      @db = SQLite3::Database.new(@db_path)
+      @db = SQLite3::Database.new(@build_path || @db_path)
+      @db.busy_timeout = 5000
       @db.execute("PRAGMA journal_mode = WAL")
       @db.execute("PRAGMA synchronous = NORMAL")
       @db.execute("PRAGMA cache_size = -64000")
@@ -303,7 +342,11 @@ module Wp2txt
       article.elements.each do |element|
         if element[0] == :mw_heading
           flush.call
-          heading = element[1].to_s.gsub(/\A[\s\n]*=+\s*/, "").gsub(/\s*=+[\s\n]*\z/, "").strip
+          # Same normalization as the metadata index (MetadataIndex.clean_heading)
+          # so fts_map.heading and page_sections.heading always agree — section
+          # filters discovered via section_stats must match here too
+          raw = element[1].to_s.gsub(/\A[\s\n]*=+\s*/, "").gsub(/\s*=+[\s\n]*\z/, "")
+          heading = MetadataIndex.clean_heading(raw)
           ord += 1
           buffer = +""
         else
