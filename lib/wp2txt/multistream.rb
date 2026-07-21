@@ -233,8 +233,9 @@ module Wp2txt
     def initialize(multistream_path, index_or_path, use_cache: true, cache_dir: nil)
       @multistream_path = multistream_path
 
-      # Accept either an existing index or a path to create one
-      if index_or_path.is_a?(MultistreamIndex)
+      # Accept an existing index (or any object with the same lookup interface,
+      # e.g. a lazy SQLite-backed one) or a path to create one
+      if index_or_path.respond_to?(:find_by_title)
         @index = index_or_path
       else
         @index = MultistreamIndex.new(index_or_path, use_cache: use_cache, cache_dir: cache_dir)
@@ -365,10 +366,13 @@ module Wp2txt
     end
 
     def find_next_offset(current_offset)
-      idx = @index.stream_offsets.index(current_offset)
-      return nil unless idx
+      offsets = @index.stream_offsets
+      idx = offsets.index(current_offset)
+      # A missing offset means a corrupt or empty stream index; returning nil
+      # here would silently read gigabytes to EOF, so fail fast instead
+      raise "Stream offset #{current_offset} not found in index (#{offsets.size} streams known)" unless idx
 
-      @index.stream_offsets[idx + 1]
+      offsets[idx + 1]
     end
 
     def decompress_bz2(data)

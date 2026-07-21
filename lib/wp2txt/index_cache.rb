@@ -155,6 +155,20 @@ module Wp2txt
       end
     end
 
+    # All stream offsets in ascending order (for lazy title lookup without
+    # loading the full index into memory)
+    # @return [Array<Integer>] sorted byte offsets
+    def stream_offsets
+      return [] unless valid?
+
+      open_db
+      begin
+        @db.execute("SELECT byte_offset FROM stream_offsets ORDER BY byte_offset").map { |row| row[0] }
+      ensure
+        close_db
+      end
+    end
+
     # Get cache statistics
     def stats
       return nil unless File.exist?(@cache_path)
@@ -199,6 +213,9 @@ module Wp2txt
 
     def open_db
       @db ||= SQLite3::Database.new(@cache_path)
+      # Wait out transient SQLITE_BUSY from concurrent readers (e.g., parallel
+      # extraction workers opening the cache simultaneously) instead of failing
+      @db.busy_timeout = 5000
       # Performance optimizations
       @db.execute("PRAGMA journal_mode = WAL")
       @db.execute("PRAGMA synchronous = NORMAL")

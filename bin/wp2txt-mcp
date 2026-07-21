@@ -1,0 +1,382 @@
+#!/usr/bin/env ruby
+
+# frozen_string_literal: true
+
+# MCP (Model Context Protocol) server exposing a local Wikipedia dump for
+# exhaustive, version-pinned queries and corpus extraction.
+#
+# Usage:
+#   wp2txt-mcp --lang ja                 # use the cached dump for a language
+#   wp2txt-mcp --input dump.xml.bz2      # use an explicit multistream file
+#
+# Prerequisite: wp2txt --build-index -L ja  (downloads dump + builds metadata index)
+#
+# All logging goes to stderr; stdout carries JSON-RPC only.
+
+begin
+  require "mcp"
+rescue LoadError
+  abort "wp2txt-mcp requires the 'mcp' gem (not installed by default).\n" \
+        "Install it with: gem install mcp"
+end
+
+require "optimist"
+require "json"
+require_relative "../lib/wp2txt/corpus"
+require_relative "../lib/wp2txt/corpus_jobs"
+require_relative "../lib/wp2txt/version"
+
+opts = Optimist.options do
+  version Wp2txt::VERSION
+  banner "wp2txt-mcp: MCP server for offline Wikipedia dump queries\n\nOptions:"
+  opt :lang, "Wikipedia language code of a cached dump (e.g., ja, en)", type: String, short: "-L"
+  opt :input, "Path to a multistream .xml.bz2 file", type: String, short: "-i"
+  opt :cache_dir, "Cache directory", type: String, default: File.expand_path("~/.wp2txt/cache")
+  opt :output_dir, "Default directory for extract_corpus output files", type: String, default: Dir.pwd
+end
+
+Optimist.die "Either --lang or --input is required" if opts[:lang].nil? && opts[:input].nil?
+Optimist.die "Cannot specify both --lang and --input" if opts[:lang] && opts[:input]
+
+corpus_factory = lambda do
+  if opts[:lang]
+    Wp2txt::Corpus.for_lang(opts[:lang], cache_dir: opts[:cache_dir])
+  else
+    Wp2txt::Corpus.for_input(File.expand_path(opts[:input]), cache_dir: opts[:cache_dir])
+  end
+end
+
+begin
+  corpus = corpus_factory.call
+rescue ArgumentError => e
+  abort e.message
+end
+
+job_manager = Wp2txt::CorpusJobManager.new(corpus_factory)
+
+unless corpus.metadata_built?
+  abort "Metadata index not built for this dump.\n" \
+        "Build it first with: wp2txt --build-index #{opts[:lang] ? "-L #{opts[:lang]}" : "-i #{opts[:input]}"}"
+end
+
+info = corpus.dump_info
+warn "wp2txt-mcp #{Wp2txt::VERSION} | dump: #{info[:dump]} | articles: #{info[:stats]&.dig(:article_count)}"
+warn "NOTE: metadata index is stale (dump file changed); consider re-running --build-index" unless info[:metadata_current]
+
+OUTPUT_DIR = opts[:output_dir]
+
+server = MCP::Server.new(name: "wp2txt", version: Wp2txt::VERSION)
+
+# Wrap a tool body: render result as JSON text, convert errors to tool errors
+def respond(&block)
+  result = block.call
+  MCP::Tool::Response.new([{ type: "text", text: JSON.generate(result) }])
+rescue ArgumentError => e
+  MCP::Tool::Response.new([{ type: "text", text: JSON.generate({ error: e.message }) }], error: true)
+rescue StandardError => e
+  MCP::Tool::Response.new([{ type: "text", text: JSON.generate({ error: "#{e.class}: #{e.message}" }) }], error: true)
+end
+
+server.define_tool(
+  name: "dump_info",
+  description: "Dump identity (language/date), available index tiers, and article/category/section counts. Call first to learn what this corpus contains.",
+  input_schema: { properties: {}, required: [] }
+) do |server_context:|
+  respond { corpus.dump_info }
+end
+
+server.define_tool(
+  name: "get_article",
+  description: "Fetch one article by title from the local dump (titles are normalized: underscores, capitalization; one redirect hop is followed). format: 'text' (cleaned plain text, default) or 'wikitext' (raw markup, includes infoboxes/templates). Long articles are truncated at max_chars (default 40000) with truncated:true and total_chars — raise max_chars only when you need more. If not found, retry via find_articles with title_match to locate the exact title.",
+  input_schema: {
+    properties: {
+      title: { type: "string" },
+      format: { type: "string", enum: ["text", "wikitext"] },
+      max_chars: { type: "integer", minimum: 1000 }
+    },
+    required: ["title"]
+  }
+) do |title:, format: "text", max_chars: 40_000, server_context:|
+  respond { corpus.get_article(title, format: format, max_chars: max_chars) || { error: "article not found: #{title}" } }
+end
+
+server.define_tool(
+  name: "get_categories",
+  description: "List the categories of one article (from the local index). Useful for building precise filters: inspect a few known-good articles' categories, then query find_articles with categories/category_match.",
+  input_schema: { properties: { title: { type: "string" } }, required: ["title"] }
+) do |title:, server_context:|
+  respond { corpus.get_categories(title) || { error: "article not found: #{title}" } }
+end
+
+server.define_tool(
+  name: "get_sections",
+  description: "Extract specific sections from one article by heading names. Use 'summary' for the lead text before the first heading. Optionally expand names through a saved alias_set.",
+  input_schema: {
+    properties: {
+      title: { type: "string" },
+      sections: { type: "array", items: { type: "string" } },
+      alias_set: { type: "string" }
+    },
+    required: ["title", "sections"]
+  }
+) do |title:, sections:, alias_set: nil, server_context:|
+  respond { corpus.get_sections(title, sections, alias_set: alias_set) || { error: "article not found: #{title}" } }
+end
+
+server.define_tool(
+  name: "list_headings",
+  description: "List the section heading tree (name + level) of one article. Useful before get_sections to see what headings exist.",
+  input_schema: { properties: { title: { type: "string" } }, required: ["title"] }
+) do |title:, server_context:|
+  respond { corpus.list_headings(title) || { error: "article not found: #{title}" } }
+end
+
+server.define_tool(
+  name: "find_articles",
+  description: "Exhaustively list articles matching filters, all AND-combined: category (single, with subcategory recursion via depth; NOTE category trees over-include, so dry-run with a small limit first), categories (exact multi-category intersection, e.g. year AND country), category_match (substring on category names, e.g. 'アメリカ合衆国の' matched against every category of the article), sections (article contains at least one of these headings; expanded via alias_set if given), title_match (title substring). Returns total count plus up to `limit` titles. Redirects are excluded.",
+  input_schema: {
+    properties: {
+      category: { type: "string" },
+      depth: { type: "integer", minimum: 0, maximum: 5 },
+      categories: { type: "array", items: { type: "string" } },
+      category_match: { type: "string" },
+      sections: { type: "array", items: { type: "string" } },
+      alias_set: { type: "string" },
+      title_match: { type: "string" },
+      limit: { type: "integer", minimum: 0 },
+      offset: { type: "integer", minimum: 0 }
+    },
+    required: []
+  }
+) do |category: nil, depth: 0, categories: nil, category_match: nil, sections: nil, alias_set: nil, title_match: nil, limit: 100, offset: 0, server_context:|
+  respond do
+    corpus.find_articles(category: category, depth: depth, categories: categories,
+                         category_match: category_match, sections: sections,
+                         alias_set: alias_set, title_match: title_match,
+                         limit: limit, offset: offset)
+  end
+end
+
+server.define_tool(
+  name: "query_sql",
+  description: "Read-only SQL (SELECT/WITH only) against the index databases — the escape hatch for questions the fixed tools cannot express (multi-way intersections, aggregations, joins). Call describe_schema first to see the tables. Main DB: pages(page_id, title, namespace, redirect_to, text_length), page_categories(page_id, category), page_sections(page_id, heading, level, ord), category_hierarchy(child, parent), alias_sets. When the fulltext tier exists, the FTS DB is attached as `fts` (fts.fts_sections MATCH ..., fts.fts_map). Filter articles with namespace = 0 AND redirect_to IS NULL. Rows are capped by `limit` (default 200, max 1000) with truncated flag; long cells are clipped. IMPORTANT: there is no execution-time limit and the tables are large (millions of rows); always constrain joins with indexed keys (page_id) and add WHERE filters — an unfiltered cross join will hang the server.",
+  input_schema: {
+    properties: {
+      sql: { type: "string" },
+      limit: { type: "integer", minimum: 1, maximum: 1000 }
+    },
+    required: ["sql"]
+  }
+) do |sql:, limit: 200, server_context:|
+  respond { corpus.query_sql(sql, limit: limit) }
+end
+
+server.define_tool(
+  name: "describe_schema",
+  description: "CREATE statements of all tables available to query_sql (metadata DB, plus the attached fts DB when built).",
+  input_schema: { properties: {}, required: [] }
+) do |server_context:|
+  respond { corpus.describe_schema }
+end
+
+server.define_tool(
+  name: "category_tree",
+  description: "Subcategory tree under a category (names + depth). Use to understand scope before recursive find_articles.",
+  input_schema: {
+    properties: { category: { type: "string" }, depth: { type: "integer", minimum: 1, maximum: 5 } },
+    required: ["category"]
+  }
+) do |category:, depth: 2, server_context:|
+  respond { corpus.category_tree(category, depth: depth) }
+end
+
+server.define_tool(
+  name: "section_stats",
+  description: "Section heading frequencies across articles, optionally scoped to a category (+depth). This is the primary tool for discovering how sections are actually named in this language edition — use it before assuming heading names, and as the raw material for building alias sets.",
+  input_schema: {
+    properties: {
+      category: { type: "string" },
+      depth: { type: "integer", minimum: 0, maximum: 5 },
+      top_n: { type: "integer", minimum: 1, maximum: 500 }
+    },
+    required: []
+  }
+) do |category: nil, depth: 0, top_n: 50, server_context:|
+  respond { corpus.section_stats(category: category, depth: depth, top_n: top_n) }
+end
+
+server.define_tool(
+  name: "section_cooccurrence",
+  description: "Test whether headings are plausible aliases: for each heading, article count and average position; for each pair, how many articles contain BOTH. Synonymous headings almost never co-occur in one article, so a high cooccurrence_ratio is evidence AGAINST grouping them as aliases. Use to verify a hypothesis before save_alias_set.",
+  input_schema: {
+    properties: {
+      headings: { type: "array", items: { type: "string" }, minItems: 2 },
+      category: { type: "string" },
+      depth: { type: "integer", minimum: 0, maximum: 5 }
+    },
+    required: ["headings"]
+  }
+) do |headings:, category: nil, depth: 0, server_context:|
+  respond { corpus.section_cooccurrence(headings, category: category, depth: depth) }
+end
+
+server.define_tool(
+  name: "search_text",
+  description: "Exhaustive full-text search over cleaned article text (requires the fulltext index tier — check dump_info). mode: 'phrase' (literal string, default; 3+ chars for CJK dumps) or 'query' (raw FTS5 syntax: AND/OR/NEAR/quotes). Composable with category (recursive via depth) and sections filters (alias_set-aware). count: 'capped' (fast, default; total_is_capped signals more matches exist) or 'exact' (may take seconds for very common terms, but gives the true exhaustive count — required for absence/quantification claims). Snippets are re-rendered from the dump. Total of 0 with count 'exact' is a verified absence claim for this dump version.",
+  input_schema: {
+    properties: {
+      query: { type: "string" },
+      mode: { type: "string", enum: ["phrase", "query"] },
+      sections: { type: "array", items: { type: "string" } },
+      alias_set: { type: "string" },
+      category: { type: "string" },
+      depth: { type: "integer", minimum: 0, maximum: 5 },
+      limit: { type: "integer", minimum: 1, maximum: 100 },
+      offset: { type: "integer", minimum: 0 },
+      count: { type: "string", enum: ["capped", "exact"] }
+    },
+    required: ["query"]
+  }
+) do |query:, mode: "phrase", sections: nil, alias_set: nil, category: nil, depth: 0, limit: 20, offset: 0, count: "capped", server_context:|
+  respond do
+    corpus.search_text(query, mode: mode, sections: sections, alias_set: alias_set,
+                       category: category, depth: depth, limit: limit, offset: offset, count: count)
+  end
+end
+
+server.define_tool(
+  name: "save_alias_set",
+  description: "Persist a named set of section-heading alias groups for this dump (e.g. [[\"あらすじ\",\"ストーリー\",\"物語\"]]). A server-side guardrail re-checks co-occurrence: a pair that appears in the same article more than 20% of the time (when both headings occur in at least 100 articles) is treated as distinct sections, not synonyms, and blocks the save with saved:false and the offending pairs listed — fix the groups, or pass force:true only if you verified them another way (e.g., by reading section contents with get_sections). The response echoes the saved groups and the exact criteria used. Saved sets are referenced via alias_set in find_articles / get_sections / extract_corpus and recorded in extraction metadata for reproducibility.",
+  input_schema: {
+    properties: {
+      name: { type: "string" },
+      groups: { type: "array", items: { type: "array", items: { type: "string" } } },
+      force: { type: "boolean" }
+    },
+    required: ["name", "groups"]
+  }
+) do |name:, groups:, force: false, server_context:|
+  respond { corpus.save_alias_set(name, groups, force: force) }
+end
+
+server.define_tool(
+  name: "get_alias_set",
+  description: "Retrieve a saved alias set by name (groups + creation time).",
+  input_schema: { properties: { name: { type: "string" } }, required: ["name"] }
+) do |name:, server_context:|
+  respond { corpus.get_alias_set(name) || { error: "alias set not found: #{name}" } }
+end
+
+server.define_tool(
+  name: "list_alias_sets",
+  description: "List all alias sets saved for this dump.",
+  input_schema: { properties: {}, required: [] }
+) do |server_context:|
+  respond { { alias_sets: corpus.list_alias_sets } }
+end
+
+EXTRACT_SCHEMA = {
+  properties: {
+    output_path: { type: "string", description: "JSONL output path; relative paths resolve under the server's output dir" },
+    content: { type: "string", enum: ["sections", "summary", "full", "wikitext"] },
+    sections: { type: "array", items: { type: "string" } },
+    alias_set: { type: "string" },
+    category: { type: "string" },
+    depth: { type: "integer", minimum: 0, maximum: 5 },
+    categories: { type: "array", items: { type: "string" } },
+    category_match: { type: "string" },
+    title_match: { type: "string" },
+    limit: { type: "integer", minimum: 0 },
+    chunk_size: { type: "integer", minimum: 100, description: "Split text into ~N-char chunks (one RAG-ready record per chunk)" },
+    chunk_overlap: { type: "integer", minimum: 0 }
+  },
+  required: ["output_path", "content"]
+}.freeze
+
+def extract_params(output_path:, content:, sections: nil, alias_set: nil, category: nil,
+                   depth: 0, categories: nil, category_match: nil,
+                   title_match: nil, limit: 0, chunk_size: nil, chunk_overlap: 0)
+  { output_path: File.expand_path(output_path, OUTPUT_DIR), content: content,
+    sections: sections, alias_set: alias_set, category: category, depth: depth,
+    categories: categories, category_match: category_match,
+    title_match: title_match, limit: limit, chunk_size: chunk_size, chunk_overlap: chunk_overlap }
+end
+
+server.define_tool(
+  name: "extract_corpus",
+  description: "Extract matching articles to a JSONL file on disk (with a .meta.json sidecar recording dump version and query for reproducibility). Returns a summary and the first 3 records only — the full corpus stays on disk; process it with your own tools. content: 'sections' (named sections only), 'summary' (lead text), 'full' (whole cleaned article), or 'wikitext' (raw markup, for mining infoboxes/templates that cleaning replaces with markers). Filters are the same as find_articles (category/depth, categories, category_match, title_match). Optional chunk_size/chunk_overlap produce one RAG-ready record per chunk with section_path and chunk_index (not with wikitext). Synchronous, capped at 5000 articles (result flags truncation) — use start_extract_job for larger extractions. Dry-run the filters with find_articles first.",
+  input_schema: EXTRACT_SCHEMA
+) do |server_context:, **args|
+  respond { corpus.extract_corpus(**extract_params(**args)) }
+end
+
+server.define_tool(
+  name: "start_extract_job",
+  description: "Start extract_corpus as a background job (same parameters, no article cap). Returns job_id immediately; poll with job_status. Use for extractions larger than the 5000-article synchronous cap. Jobs do not survive server restart.",
+  input_schema: EXTRACT_SCHEMA
+) do |server_context:, **args|
+  respond { job_manager.start_extract(extract_params(**args)) }
+end
+
+server.define_tool(
+  name: "job_status",
+  description: "Status of a background extraction job: running/completed/cancelled/error, progress (0-1), and on completion the same summary extract_corpus returns (output path, counts, sample).",
+  input_schema: { properties: { job_id: { type: "string" } }, required: ["job_id"] }
+) do |job_id:, server_context:|
+  respond { job_manager.status(job_id) || { error: "unknown job: #{job_id}" } }
+end
+
+server.define_tool(
+  name: "cancel_job",
+  description: "Request cancellation of a running job (takes effect at the next batch boundary; the partial output file remains on disk).",
+  input_schema: { properties: { job_id: { type: "string" } }, required: ["job_id"] }
+) do |job_id:, server_context:|
+  respond { job_manager.cancel(job_id) || { error: "unknown job: #{job_id}" } }
+end
+
+server.define_tool(
+  name: "list_jobs",
+  description: "List all extraction jobs started in this server session.",
+  input_schema: { properties: {}, required: [] }
+) do |server_context:|
+  respond { { jobs: job_manager.list } }
+end
+
+server.define_prompt(
+  name: "discover_aliases",
+  description: "Recipe for building a verified section-alias set for a concept (e.g. plot sections of film articles) in this dump's language, using section_stats, section_cooccurrence, and content sampling.",
+  arguments: [
+    MCP::Prompt::Argument.new(name: "concept", description: "The section concept to cover (e.g. 'plot/story summary of a film')", required: true),
+    MCP::Prompt::Argument.new(name: "category", description: "Category scope (e.g. '映画作品')", required: false),
+    MCP::Prompt::Argument.new(name: "depth", description: "Category recursion depth (default 2)", required: false)
+  ]
+) do |args, server_context:|
+  concept = args[:concept] || args["concept"]
+  category = args[:category] || args["category"]
+  depth = args[:depth] || args["depth"] || 2
+  scope = category ? "category \"#{category}\" (depth #{depth})" : "the whole dump"
+  MCP::Prompt::Result.new(
+    description: "Alias discovery protocol for: #{concept}",
+    messages: [
+      MCP::Prompt::Message.new(
+        role: "user",
+        content: MCP::Content::Text.new(<<~TEXT)
+          Build a verified section-heading alias set for the concept "#{concept}" in #{scope}, using this protocol:
+
+          1. DISCOVER: Call section_stats#{category ? " with category=\"#{category}\", depth=#{depth}" : ""} (top_n 50-100). From the real heading frequencies, shortlist headings that could denote "#{concept}" based on their meaning. Note each candidate's article count — it tells you how much coverage each adds.
+          2. VERIFY: Call section_cooccurrence with the shortlisted headings (same scope). Interpret:
+             - ratio below ~0.05 between two FREQUENT headings: strong evidence they fill the same slot (valid aliases) — frequent headings would co-occur by chance if they were independent.
+             - ratio above ~0.15: they coexist in the same articles, so they are different section roles — do NOT group them.
+             - avg_position should also be similar for true aliases.
+          3. SAMPLE (only for borderline ratios of 0.05-0.2 or rare headings where statistics are weak): pick 2-3 articles per heading via find_articles(sections: [heading], limit: 3) and read the content with get_sections. Judge whether the text under each heading is the same KIND of content.
+          4. DECIDE: Groups must contain only verified same-role headings. For middling evidence, present the numbers to the user and ask.
+          5. SAVE: Call save_alias_set with a descriptive versioned name (e.g. "#{category ? category.downcase.gsub(/\s+/, '-') : 'dump'}-#{concept.split.first(2).join('-').downcase}-v1"). The server re-checks co-occurrence and will refuse groups with high-ratio pairs unless you pass force:true with justification.
+          6. REPORT: Tell the user which headings you included and excluded, with the co-occurrence numbers that justified each decision.
+        TEXT
+      )
+    ]
+  )
+end
+
+transport = MCP::Server::Transports::StdioTransport.new(server)
+transport.open

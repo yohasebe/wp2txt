@@ -14,6 +14,7 @@ require_relative "../lib/wp2txt/cli_ui"
 require_relative "../lib/wp2txt/formatter"
 require_relative "../lib/wp2txt/extractor"
 require_relative "../lib/wp2txt/ractor_worker"
+require_relative "../lib/wp2txt/index_commands"
 
 require "etc"
 require "json"
@@ -28,6 +29,7 @@ class WpApp
   include Wp2txt::CliUI
   include Wp2txt::Formatter
   include Wp2txt::Extractor
+  include Wp2txt::IndexCommands
 
   # Debug mode flag
   DEBUG_MODE = false
@@ -703,6 +705,12 @@ class WpApp
       clear_cache(opts[:cache_dir], opts[:lang])
       return EXIT_SUCCESS
     end
+
+    # Metadata index operations (offline exhaustive queries)
+    return run_build_index(opts) if opts[:build_index]
+    return run_find_articles(opts) if opts[:find_articles]
+    return run_search(opts) if opts[:search]
+    return run_fts_optimize(opts) if opts[:fts_optimize]
 
     # Determine input source
     if opts[:from_category] && opts[:lang]

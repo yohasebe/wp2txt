@@ -34,15 +34,19 @@ WP2TXT extracts plain text and category information from Wikipedia dump files. I
 - **Multilingual support** - Category and redirect detection for 350+ Wikipedia languages
 - **Streaming processing** - Process large dumps without intermediate files
 - **JSON output** - Machine-readable JSONL format for data pipelines
+- **Offline metadata index** - Exhaustive, version-pinned queries over categories and section headings, no API required
+- **MCP server** - Expose a local dump to LLM agents (Claude, ChatGPT, Gemini, local models) for grounded, reproducible corpus work
 
 ## Use Cases
 
 wp2txt is particularly suited for:
 
-- Building domain-specific corpora using category information
+- Building domain-specific corpora using category information (e.g., "the plot sections of all film articles")
 - Comparative linguistic research across topic areas
 - Extracting Wikipedia text with metadata for NLP tasks
 - Cross-linguistic studies using parallel category structures
+- Version-pinned RAG knowledge bases and LLM evaluation datasets
+- Exhaustive claims about a Wikipedia edition ("no article in this category mentions X") that web search cannot make
 
 ## Data Access
 
@@ -232,6 +236,64 @@ By default, citation templates are removed. Use `--extract-citations` to extract
     $ wp2txt --lang=en --extract-citations -o ./text
 
 Supported: `{{cite book}}`, `{{cite web}}`, `{{cite news}}`, `{{cite journal}}`, `{{Citation}}`, etc.
+
+## Offline Metadata Index
+
+Build a local SQLite index of a dump — per-article categories, section headings, redirects, and the category hierarchy — extracted from the dump itself (no API access, no rate limits, version-pinned for reproducibility):
+
+    $ wp2txt --build-index --lang=ja     # downloads dump if needed; ja: ~15 min, ~1.7 GB index
+
+Then run exhaustive queries entirely offline:
+
+    # All film articles (recursing 3 levels of subcategories) that have a plot section
+    $ wp2txt --find-articles --in-category "映画作品" -D 3 --has-section "あらすじ" --lang=ja
+
+    # Machine-readable output with total count
+    $ wp2txt --find-articles --in-category "Films" -D 2 -j json --limit 100 --lang=en
+
+Unlike web/API access, these queries are *exhaustive* (they scan every article, not search-ranked results) and *reproducible* (pinned to a specific dump version). Answering "which of the 1.5M articles have X" takes milliseconds once the index is built.
+
+### Full-Text Search
+
+Add `--fulltext` to also build an FTS5 index over the article text itself (tokenizer auto-selected: character-trigram for Japanese/Chinese/Korean, word-based for space-delimited languages):
+
+    $ wp2txt --build-index --fulltext --lang=ja
+    $ wp2txt --search "タイムループ" --in-category "映画作品" -D 3 --lang=ja
+
+Search hits report the article, section, and a snippet; totals are exhaustive counts, so `0 matches` is a verifiable absence claim for that dump version. The index is contentless (stores only the inverted index; snippets are re-rendered from the dump), keeping disk overhead moderate.
+
+## MCP Server (LLM Integration)
+
+`wp2txt-mcp` exposes a local dump to LLM agents (Claude, ChatGPT, Gemini, local models — any MCP-capable client) via the Model Context Protocol:
+
+    $ gem install mcp                    # optional dependency, needed only for the server
+    $ wp2txt --build-index --lang=ja     # prerequisite
+    $ wp2txt-mcp --lang=ja               # stdio MCP server
+
+Example client configuration (e.g., Claude Desktop / Claude Code):
+
+```json
+{
+  "mcpServers": {
+    "wp2txt": { "command": "wp2txt-mcp", "args": ["--lang", "ja"] }
+  }
+}
+```
+
+Tools provided:
+
+| Tool | Purpose |
+|------|---------|
+| `dump_info` | Dump version, index tiers, corpus statistics |
+| `get_article` / `get_sections` / `list_headings` | Single-article access (redirect-aware) |
+| `find_articles` | Exhaustive filtered listing (category recursion, section headings, title match) |
+| `category_tree` / `section_stats` | Scope exploration and heading frequency discovery |
+| `section_cooccurrence` | Verify section-alias hypotheses (synonyms rarely co-occur in one article) |
+| `save_alias_set` etc. | Persist verified per-dump alias groups (server-side co-occurrence guardrail) |
+| `extract_corpus` | Filtered extraction to JSONL + reproducibility sidecar; optional RAG chunking |
+| `start_extract_job` / `job_status` / `cancel_job` | Background jobs for large extractions |
+
+Design principles: large results go to disk (the model receives a summary plus a 3-record sample, never the full corpus); every output records the dump version and query in a `.meta.json` sidecar; section aliases are discovered from real dump statistics by the LLM and mechanically verified — no hand-maintained per-language dictionaries. The bundled `discover_aliases` prompt walks any agent through the verification protocol.
 
 ## Command Line Options
 
