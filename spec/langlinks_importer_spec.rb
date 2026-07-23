@@ -103,6 +103,41 @@ RSpec.describe Wp2txt::LanglinksImporter do
       expect(langlinks_rows.size).to eq(6)
     end
 
+    it "imports multibyte (ja/zh/ko) titles, including escapes and underscores" do
+      sql = <<~SQL
+        INSERT INTO `langlinks` VALUES (1,'ja','宇宙戦艦ヤマト'),(2,'zh','粵語標題（電影）'),(3,'ko','한국어_제목'),(4,'ja','It\\'s 映画, Really（1984）');
+      SQL
+      path = write_langlinks("testwiki-20260101-langlinks.sql", sql)
+      result = import(path)
+
+      expect(result[:row_count]).to eq(4)
+      expect(langlinks_rows).to contain_exactly(
+        [1, "ja", "宇宙戦艦ヤマト"],
+        [2, "zh", "粵語標題（電影）"],
+        [3, "ko", "한국어 제목"],
+        [4, "ja", "It's 映画, Really（1984）"]
+      )
+    end
+
+    it "parses large multibyte INSERT lines fast enough (performance regression)" do
+      # A single ~200KB+ extended INSERT line full of multibyte titles: the
+      # old character-index parser was O(n²) here (minutes), regex scan is O(n)
+      titles = ["宇宙戦艦ヤマト（映画）", "粵語標題（電影, 1984）", "한국어 제목", "時間の旅, それから"]
+      tuples = Array.new(6_000) { |i| "(#{i + 1},'ja','#{titles[i % titles.size]}')" }
+      sql = +"INSERT INTO `langlinks` VALUES " << tuples.join(",") << ";\n"
+      expect(sql.bytesize).to be > 200_000
+
+      path = write_langlinks("testwiki-20260101-langlinks.sql", sql)
+      importer = described_class.new(@db_path, cache_dir: @dir)
+      count = 0
+      start = Process.clock_gettime(Process::CLOCK_MONOTONIC)
+      importer.send(:each_source_row, path) { count += 1 }
+      elapsed = Process.clock_gettime(Process::CLOCK_MONOTONIC) - start
+
+      expect(count).to eq(6_000)
+      expect(elapsed).to be < 0.5
+    end
+
     it "filters target languages with the langs option" do
       path = write_langlinks("testwiki-20260101-langlinks.sql")
       result = import(path, langs: %w[en fr])

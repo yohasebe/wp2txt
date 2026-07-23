@@ -208,6 +208,11 @@ module Wp2txt
     # Yield [ll_from, ll_lang, ll_title] for every tuple of every
     # INSERT INTO `langlinks` statement, streaming (the dump is never
     # loaded into memory whole). Handles .sql.gz and plain .sql.
+    #
+    # Tuple extraction is regex-based: a hand-rolled line[i] character-index
+    # loop is O(n²) on multibyte (UTF-8 code-range) lines, and real extended
+    # INSERT lines are MB-scale with multilingual titles — the regex engine
+    # scans at C speed and is O(n) regardless of encoding.
     def each_source_row(source_path)
       io = if source_path.end_with?(".gz")
              Zlib::GzipReader.open(source_path)
@@ -218,82 +223,31 @@ module Wp2txt
 
       begin
         io.each_line do |line|
-          next unless (m = INSERT_PREFIX.match(line))
+          next unless INSERT_PREFIX.match?(line)
 
-          parse_tuples(line, m.end(0)) { |row| yield row }
+          line.scan(TUPLE_REGEX) do |ll_from, ll_lang, ll_title|
+            yield ll_from.to_i, unescape_mysql(ll_lang), unescape_mysql(ll_title)
+          end
         end
       ensure
         io.close
       end
     end
 
-    # Parse the tuple list of an extended INSERT starting at offset i:
-    # (1,'en','Title'),(2,'de','Titel'); — commas and parens may appear
-    # inside quoted titles, so this is a real parser, not a split
-    def parse_tuples(line, i)
-      while i < line.length
-        case line[i]
-        when "("
-          row, i = parse_tuple(line, i)
-          yield row if row
-        when ",", " ", "\t"
-          i += 1
-        else
-          break # ";" or trailing junk ends the statement
-        end
-      end
-    end
+    # One extended-INSERT tuple: (123,'lang','Title'). The string classes
+    # [^'\\]|\\. match any run of non-quote/non-backslash characters and
+    # backslash escape pairs, so escaped quotes (\') and backslashes (\\) —
+    # and commas/parens inside titles — do not terminate the capture.
+    # Tuples that do not match this shape are simply not extracted
+    # (equivalent to the old parser skipping malformed tuples)
+    TUPLE_REGEX = /\((\d+),'((?:[^'\\]|\\.)*)','((?:[^'\\]|\\.)*)'\)/
 
-    # Parse one tuple starting at "(". Returns [[from, lang, title], next_i]
-    # or [nil, next_i] for malformed tuples (which are skipped)
-    def parse_tuple(line, i)
-      fields = []
-      i += 1
-      loop do
-        if line[i] == "'"
-          value, i = parse_string(line, i)
-          fields << value
-        else
-          j = i
-          j += 1 while j < line.length && line[j] != "," && line[j] != ")"
-          fields << line[i...j].to_s.strip
-          i = j
-        end
-        case line[i]
-        when ","
-          i += 1
-        when ")"
-          i += 1
-          break
-        else
-          return [nil, i + 1]
-        end
-      end
-      return [nil, i] unless fields.size == 3 && fields[1] && fields[2]
+    UNESCAPE_REGEX = /\\(.)/m
 
-      [[fields[0].to_i, fields[1], fields[2]], i]
-    end
-
-    # Parse a MySQL single-quoted string starting at the opening quote;
-    # handles backslash escapes (\' \\ \n ...) so quotes inside titles do
-    # not terminate the string
-    def parse_string(line, i)
-      buf = +""
-      i += 1
-      while i < line.length
-        c = line[i]
-        if c == "\\" && i + 1 < line.length
-          buf << (UNESCAPES[line[i + 1]] || line[i + 1])
-          i += 2
-        elsif c == "'"
-          i += 1
-          break
-        else
-          buf << c
-          i += 1
-        end
-      end
-      [buf, i]
+    # Resolve MySQL backslash escapes in a captured string literal
+    # (same mapping as the old hand-rolled parser)
+    def unescape_mysql(str)
+      str.gsub(UNESCAPE_REGEX) { UNESCAPES[::Regexp.last_match(1)] || ::Regexp.last_match(1) }
     end
   end
 end
