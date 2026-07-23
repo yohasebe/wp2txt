@@ -307,6 +307,9 @@ module Wp2txt
         prov = result[:provenance]
         print_info("Source", prov[:source].to_s)
         print_info("Languages", prov[:lang_filter].to_s)
+        if result[:skipped_invalid].to_i.positive?
+          print_warning("Skipped #{result[:skipped_invalid]} rows containing invalid UTF-8 bytes (recorded as langlinks_skipped_invalid)")
+        end
         (result[:sanity] || []).each do |check|
           msg = format("join check ll_lang=%s: %d/%d titles found in %s (%.1f%%)",
                        check[:lang], check[:matched], check[:sampled],

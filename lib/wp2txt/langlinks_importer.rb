@@ -99,7 +99,7 @@ module Wp2txt
         batch.clear
       end
 
-      each_source_row(source_path) do |ll_from, ll_lang, ll_title|
+      skipped_invalid = each_source_row(source_path) do |ll_from, ll_lang, ll_title|
         next if lang_filter && !lang_filter.include?(ll_lang)
 
         batch << [ll_from, ll_lang, MetadataIndex.normalize_title(ll_title)]
@@ -111,9 +111,9 @@ module Wp2txt
       db.execute("CREATE INDEX idx_langlinks_from ON langlinks(ll_from, ll_lang)")
       db.execute("CREATE INDEX idx_langlinks_lang_title ON langlinks(ll_lang, ll_title)")
 
-      stamp_provenance(db, source_path, langs, row_count)
+      stamp_provenance(db, source_path, langs, row_count, skipped_invalid)
 
-      { status: :imported, row_count: row_count,
+      { status: :imported, row_count: row_count, skipped_invalid: skipped_invalid,
         provenance: read_provenance(db),
         sanity: sanity_check(db, dump_name) }
     ensure
@@ -142,14 +142,15 @@ module Wp2txt
       table && metadata_value(db, "langlinks_imported_at")
     end
 
-    def stamp_provenance(db, source_path, langs, row_count)
+    def stamp_provenance(db, source_path, langs, row_count, skipped_invalid)
       values = {
         langlinks_source: File.basename(source_path),
         langlinks_source_size: File.size(source_path),
         langlinks_imported_at: Time.now.utc.iso8601,
         langlinks_wp2txt_version: Wp2txt::VERSION,
         langlinks_lang_filter: langs.nil? ? "all" : langs.join(","),
-        langlinks_row_count: row_count
+        langlinks_row_count: row_count,
+        langlinks_skipped_invalid: skipped_invalid
       }
       stmt = db.prepare("INSERT OR REPLACE INTO metadata (key, value) VALUES (?, ?)")
       values.each { |k, v| stmt.execute([k.to_s, v.to_s]) }
@@ -163,7 +164,8 @@ module Wp2txt
         imported_at: metadata_value(db, "langlinks_imported_at"),
         imported_with: metadata_value(db, "langlinks_wp2txt_version"),
         lang_filter: metadata_value(db, "langlinks_lang_filter"),
-        row_count: metadata_value(db, "langlinks_row_count").to_i
+        row_count: metadata_value(db, "langlinks_row_count").to_i,
+        skipped_invalid: metadata_value(db, "langlinks_skipped_invalid").to_i
       }
     end
 
@@ -205,33 +207,51 @@ module Wp2txt
     # Streaming MySQL dump parser
     # ------------------------------------------------------------------
 
-    # Yield [ll_from, ll_lang, ll_title] for every tuple of every
+    # Yield [ll_from, ll_lang, ll_title] for every VALID tuple of every
     # INSERT INTO `langlinks` statement, streaming (the dump is never
     # loaded into memory whole). Handles .sql.gz and plain .sql.
+    # @return [Integer] number of tuples skipped for invalid UTF-8
     #
     # Tuple extraction is regex-based: a hand-rolled line[i] character-index
     # loop is O(n²) on multibyte (UTF-8 code-range) lines, and real extended
     # INSERT lines are MB-scale with multilingual titles — the regex engine
     # scans at C speed and is O(n) regardless of encoding.
+    #
+    # Lines are read as BINARY: ll_title is VARBINARY in MySQL and real dumps
+    # contain historically corrupted bytes, so regex matching on UTF-8-tagged
+    # strings can raise "invalid byte sequence". The patterns are ASCII-only,
+    # so they run on byte strings without encoding checks; captures are then
+    # tagged UTF-8 and validated — a garbled title could never join
+    # pages.title anyway, so such rows are skipped (and counted), not scrubbed.
     def each_source_row(source_path)
       io = if source_path.end_with?(".gz")
-             Zlib::GzipReader.open(source_path)
+             # GzipReader ignores set_encoding; the encoding must be given
+             # at open time (lines must come out as BINARY — see below)
+             Zlib::GzipReader.open(source_path, encoding: Encoding::BINARY.to_s)
            else
              File.open(source_path, "rb")
            end
-      io.set_encoding(Encoding::UTF_8) if io.respond_to?(:set_encoding)
 
+      skipped = 0
       begin
         io.each_line do |line|
           next unless INSERT_PREFIX.match?(line)
 
           line.scan(TUPLE_REGEX) do |ll_from, ll_lang, ll_title|
-            yield ll_from.to_i, unescape_mysql(ll_lang), unescape_mysql(ll_title)
+            lang = unescape_mysql(ll_lang).force_encoding(Encoding::UTF_8)
+            title = unescape_mysql(ll_title).force_encoding(Encoding::UTF_8)
+            unless lang.valid_encoding? && title.valid_encoding?
+              skipped += 1
+              next
+            end
+
+            yield ll_from.to_i, lang, title
           end
         end
       ensure
         io.close
       end
+      skipped
     end
 
     # One extended-INSERT tuple: (123,'lang','Title'). The string classes

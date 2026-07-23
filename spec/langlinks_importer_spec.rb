@@ -138,6 +138,38 @@ RSpec.describe Wp2txt::LanglinksImporter do
       expect(elapsed).to be < 0.5
     end
 
+    it "skips and counts rows whose title contains invalid UTF-8 bytes" do
+      # Real dumps contain historically corrupted bytes in ll_title (VARBINARY)
+      sql = +"INSERT INTO `langlinks` VALUES (1,'en','Film A'),(2,'en','Bad\xFFTitle'),(3,'fr','Film B');\n"
+      path = write_langlinks("testwiki-20260101-langlinks.sql", sql.b)
+      result = import(path)
+
+      expect(result[:status]).to eq(:imported)
+      expect(result[:row_count]).to eq(2)
+      expect(result[:skipped_invalid]).to eq(1)
+      expect(langlinks_rows).to contain_exactly([1, "en", "Film A"], [3, "fr", "Film B"])
+      expect(result[:provenance][:skipped_invalid]).to eq(1)
+    end
+
+    it "skips and counts rows whose language code contains invalid UTF-8 bytes" do
+      sql = +"INSERT INTO `langlinks` VALUES (1,'e\xFFn','Film A'),(2,'en','Film B');\n"
+      path = write_langlinks("testwiki-20260101-langlinks.sql", sql.b)
+      result = import(path)
+
+      expect(result[:row_count]).to eq(1)
+      expect(result[:skipped_invalid]).to eq(1)
+      expect(langlinks_rows).to eq([[2, "en", "Film B"]])
+    end
+
+    it "handles invalid bytes in .sql.gz input as well" do
+      sql = +"INSERT INTO `langlinks` VALUES (1,'en','Bad\xFFTitle'),(2,'en','Film B');\n"
+      path = write_langlinks("testwiki-20260101-langlinks.sql.gz", sql.b, gzip: true)
+      result = import(path)
+
+      expect(result[:row_count]).to eq(1)
+      expect(result[:skipped_invalid]).to eq(1)
+    end
+
     it "filters target languages with the langs option" do
       path = write_langlinks("testwiki-20260101-langlinks.sql")
       result = import(path, langs: %w[en fr])

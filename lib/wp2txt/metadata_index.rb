@@ -157,7 +157,8 @@ module Wp2txt
         imported_at: meta[:langlinks_imported_at],
         imported_with: meta[:langlinks_wp2txt_version],
         lang_filter: meta[:langlinks_lang_filter],
-        row_count: meta[:langlinks_row_count].to_i }
+        row_count: meta[:langlinks_row_count].to_i,
+        skipped_invalid: meta[:langlinks_skipped_invalid].to_i }
     end
 
     def close
