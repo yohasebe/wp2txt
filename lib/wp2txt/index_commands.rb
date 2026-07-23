@@ -3,6 +3,7 @@
 require "json"
 require_relative "metadata_index"
 require_relative "fts_index"
+require_relative "langlinks_importer"
 require_relative "corpus"
 require_relative "multistream"
 require_relative "memory_monitor"
@@ -242,6 +243,85 @@ module Wp2txt
       end
       corpus.close
       CliUI::EXIT_SUCCESS
+    end
+
+    # Import the official langlinks dump (interlanguage links) into the
+    # metadata index. Version pinning: the langlinks file must carry the same
+    # dump date as the built index (enforced by LanglinksImporter, no override)
+    def run_import_langlinks(opts)
+      manager = DumpManager.new(
+        opts[:lang],
+        cache_dir: opts[:cache_dir],
+        dump_expiry_days: CLI.config.dump_expiry_days
+      )
+      multistream = manager.cached_multistream_path
+      unless File.exist?(multistream)
+        print_error("No cached dump found for '#{opts[:lang]}'.")
+        print_info_message("Download and index it with: wp2txt --build-index -L #{opts[:lang]}")
+        return CliUI::EXIT_ERROR
+      end
+
+      db_path = MetadataIndex.path_for(multistream, cache_dir: opts[:cache_dir])
+      meta = MetadataIndex.new(db_path)
+      unless meta.built?
+        meta.close
+        print_error("Metadata index not found for this dump.")
+        print_info_message("Build it first with: wp2txt --build-index -L #{opts[:lang]}")
+        return CliUI::EXIT_ERROR
+      end
+
+      dump_name = meta.stats[:dump_name]
+      dump_date = dump_name[/\d{8}\z/]
+      meta.close
+
+      source = opts[:langlinks_file] || begin
+        print_header("Downloading langlinks for '#{opts[:lang]}' (#{dump_date})")
+        manager.download_langlinks(date: dump_date)
+      end
+
+      langs = opts[:langlinks_langs]&.split(",")&.map(&:strip)&.reject(&:empty?)
+      langs = nil if langs&.empty?
+
+      print_mode_banner("Import Langlinks", {
+        "Source" => File.basename(source),
+        "Metadata DB" => db_path,
+        "Languages" => langs ? langs.join(",") : "all"
+      })
+
+      importer = LanglinksImporter.new(db_path, cache_dir: opts[:cache_dir])
+      time_start = Time.now
+      last_report = Time.now
+      result = importer.import!(source, langs: langs, force: opts[:update_cache]) do |rows|
+        now = Time.now
+        if !quiet? && now - last_report >= DEFAULT_PROGRESS_INTERVAL
+          last_report = now
+          puts pastel.dim(format("  [%s] %d rows imported", now.strftime("%H:%M:%S"), rows))
+        end
+      end
+
+      if result[:status] == :already_imported
+        print_success("Langlinks already imported (at #{result[:imported_at]}, #{result[:row_count]} rows).")
+        print_info_message("Use -U/--update-cache to re-import.")
+      else
+        print_success("Langlinks imported: #{result[:row_count]} rows in #{format_duration(Time.now - time_start)}")
+        prov = result[:provenance]
+        print_info("Source", prov[:source].to_s)
+        print_info("Languages", prov[:lang_filter].to_s)
+        (result[:sanity] || []).each do |check|
+          msg = format("join check ll_lang=%s: %d/%d titles found in %s (%.1f%%)",
+                       check[:lang], check[:matched], check[:sampled],
+                       check[:against], check[:match_rate] * 100)
+          if check[:warning]
+            print_warning("#{msg} — below 90%; title normalization may mismatch")
+          else
+            print_info_message(msg)
+          end
+        end
+      end
+      CliUI::EXIT_SUCCESS
+    rescue ArgumentError => e
+      print_error(e.message)
+      CliUI::EXIT_ERROR
     end
 
     # Query the metadata index and print matching article titles

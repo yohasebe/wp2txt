@@ -142,6 +142,14 @@ module Wp2txt
           opt :fts_optimize, "Optimize an existing full-text index (merge segments; idempotent)",
               default: false, short: :none
 
+          # Langlinks import (interlanguage links into the metadata index)
+          opt :import_langlinks, "Import interlanguage links (langlinks dump) into the metadata index (requires --lang)",
+              default: false, short: :none
+          opt :langlinks_file, "Use a local langlinks .sql(.gz) file instead of downloading (with --import-langlinks)",
+              type: String, short: :none
+          opt :langlinks_langs, "Comma-separated target languages to import with --import-langlinks (default: all)",
+              type: String, short: :none
+
           opt :file_size, "Approximate size (in MB) of each output file (0 for single file)",
               default: 10, short: "-f"
           opt :num_procs, "Number of parallel processes (auto-detected based on CPU/memory)",
@@ -350,6 +358,41 @@ module Wp2txt
 
         if opts[:search] && (opts[:build_index] || opts[:find_articles])
           Optimist.die "--search cannot be combined with --build-index/--find-articles"
+        end
+
+        # Langlinks import is a standalone mode requiring --lang
+        if opts[:import_langlinks]
+          Optimist.die "--import-langlinks requires --lang" if opts[:lang].nil?
+
+          conflicts = []
+          conflicts << "--build-index" if opts[:build_index]
+          conflicts << "--find-articles" if opts[:find_articles]
+          conflicts << "--search" if opts[:search]
+          conflicts << "--fts-optimize" if opts[:fts_optimize]
+          conflicts << "--articles" if opts[:articles]
+          conflicts << "--from-category" if opts[:from_category]
+          conflicts << "--section-stats" if opts[:section_stats]
+          unless conflicts.empty?
+            Optimist.die "--import-langlinks cannot be combined with #{conflicts.join(', ')}"
+          end
+        end
+
+        if opts[:langlinks_file] && !opts[:import_langlinks]
+          Optimist.die "--langlinks-file requires --import-langlinks"
+        end
+
+        if opts[:langlinks_file] && !File.exist?(opts[:langlinks_file])
+          Optimist.die :langlinks_file, "file does not exist"
+        end
+
+        if opts[:langlinks_langs] && !opts[:import_langlinks]
+          Optimist.die "--langlinks-langs requires --import-langlinks"
+        end
+
+        if opts[:langlinks_langs]
+          invalid = opts[:langlinks_langs].split(",").map(&:strip).reject(&:empty?) -
+                    opts[:langlinks_langs].split(",").map(&:strip).grep(/\A[a-z][a-z0-9-]{1,11}\z/)
+          Optimist.die :langlinks_langs, "invalid language code(s): #{invalid.join(', ')}" unless invalid.empty?
         end
 
         if opts[:build_index] || opts[:find_articles] || opts[:search] || opts[:fts_optimize]

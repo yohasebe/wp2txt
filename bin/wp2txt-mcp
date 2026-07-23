@@ -159,16 +159,18 @@ end
 
 server.define_tool(
   name: "query_sql",
-  description: "Read-only SQL (SELECT/WITH only) against the index databases — the escape hatch for questions the fixed tools cannot express (multi-way intersections, aggregations, joins). Call describe_schema first to see the tables. Main DB: pages(page_id, title, namespace, redirect_to, text_length), page_categories(page_id, category), page_sections(page_id, heading, level, ord), category_hierarchy(child, parent), alias_sets. When the fulltext tier exists, the FTS DB is attached as `fts` (fts.fts_sections MATCH ..., fts.fts_map). Filter articles with namespace = 0 AND redirect_to IS NULL. Rows are capped by `limit` (default 200, max 1000) with truncated flag; long cells are clipped. Queries are killed after 30 seconds (the error explains the likely cause); the tables are large (millions of rows), so constrain joins with indexed keys (page_id) and add WHERE filters.",
+  description: "Read-only SQL (SELECT/WITH only) against the index databases — the escape hatch for questions the fixed tools cannot express (multi-way intersections, aggregations, joins). Call describe_schema first to see the tables. Main DB: pages(page_id, title, namespace, redirect_to, text_length), page_categories(page_id, category), page_sections(page_id, heading, level, ord), category_hierarchy(child, parent), alias_sets; a langlinks table (ll_from = source page_id, ll_lang, ll_title) is also present when interlanguage links were imported via wp2txt --import-langlinks. When the fulltext tier exists, the FTS DB is attached as `fts` (fts.fts_sections MATCH ..., fts.fts_map). Cross-language: pass attach: [\"en\",\"de\"] to read-only ATTACH other locally installed languages' indexes, referenced as {lang}_meta.pages / {lang}_meta.page_sections / ... and {lang}_fts when that language has a fulltext tier — attached DBs share the main DB's schema. Hyphenated language codes map to underscored aliases (e.g. zh-yue → zh_yue_meta). Only installed languages are accepted (the main language itself cannot be attached); the response's `attached` field lists what was attached (dump_name, fts, dump_mismatch when the dates differ). Join langlinks (ll_from = page_id) to map articles across languages. Filter articles with namespace = 0 AND redirect_to IS NULL. Rows are capped by `limit` (default 200, max 1000) with truncated flag; long cells are clipped. Queries are killed after 30 seconds (the error explains the likely cause); the tables are large (millions of rows), so constrain joins with indexed keys (page_id) and add WHERE filters.",
   input_schema: {
     properties: {
       sql: { type: "string" },
-      limit: { type: "integer", minimum: 1, maximum: 1000 }
+      limit: { type: "integer", minimum: 1, maximum: 1000 },
+      attach: { type: "array", items: { type: "string" },
+                description: "Language codes of other locally installed dumps to ATTACH read-only as {lang}_meta / {lang}_fts (default: none)" }
     },
     required: ["sql"]
   }
-) do |sql:, limit: 200, server_context:|
-  respond { corpus.query_sql(sql, limit: limit) }
+) do |sql:, limit: 200, attach: [], server_context:|
+  respond { corpus.query_sql(sql, limit: limit, attach: attach) }
 end
 
 server.define_tool(

@@ -33,6 +33,26 @@ RSpec.describe "Wp2txt Auto Download" do
       end
     end
 
+    describe "langlinks paths" do
+      it "builds URL and cache path for an explicit dump date (no network)" do
+        manager = Wp2txt::DumpManager.new(:ja, cache_dir: cache_dir)
+        expect(manager.langlinks_url("20260101")).to eq(
+          "https://dumps.wikimedia.org/jawiki/20260101/jawiki-20260101-langlinks.sql.gz"
+        )
+        expect(manager.cached_langlinks_path("20260101")).to eq(
+          File.join(cache_dir, "jawiki-20260101-langlinks.sql.gz")
+        )
+      end
+
+      it "reuses a cached langlinks file without downloading" do
+        manager = Wp2txt::DumpManager.new(:ja, cache_dir: cache_dir)
+        path = manager.cached_langlinks_path("20260101")
+        File.write(path, "cached")
+        expect(manager.download_langlinks(date: "20260101")).to eq(path)
+        expect(File.read(path)).to eq("cached")
+      end
+    end
+
     describe "#cache_status" do
       it "returns status hash with expected keys" do
         manager = Wp2txt::DumpManager.new(:ja, cache_dir: cache_dir)
@@ -282,6 +302,63 @@ RSpec.describe "Wp2txt Auto Download" do
           File.write(input_file, "<test/>")
           suppress_stderr do
             expect { Wp2txt::CLI.parse_options(["--input=#{input_file}", "--articles=Test"]) }.to raise_error(SystemExit)
+          end
+        end
+      end
+
+      context "--import-langlinks option" do
+        it "accepts --import-langlinks with --lang" do
+          opts = Wp2txt::CLI.parse_options(["--lang=ja", "--import-langlinks", "--cache-dir=#{cache_dir}"])
+          expect(opts[:import_langlinks]).to be true
+        end
+
+        it "requires --lang" do
+          suppress_stderr do
+            expect { Wp2txt::CLI.parse_options(["--import-langlinks", "--cache-dir=#{cache_dir}"]) }.to raise_error(SystemExit)
+          end
+        end
+
+        it "cannot be combined with --build-index" do
+          suppress_stderr do
+            expect do
+              Wp2txt::CLI.parse_options(["--lang=ja", "--import-langlinks", "--build-index", "--cache-dir=#{cache_dir}"])
+            end.to raise_error(SystemExit)
+          end
+        end
+
+        it "accepts --langlinks-file with an existing file" do
+          file = File.join(cache_dir, "jawiki-20260101-langlinks.sql")
+          File.write(file, "")
+          opts = Wp2txt::CLI.parse_options(["--lang=ja", "--import-langlinks", "--langlinks-file=#{file}", "--cache-dir=#{cache_dir}"])
+          expect(opts[:langlinks_file]).to eq(file)
+        end
+
+        it "rejects --langlinks-file without --import-langlinks" do
+          suppress_stderr do
+            expect do
+              Wp2txt::CLI.parse_options(["--lang=ja", "--langlinks-file=x.sql", "--cache-dir=#{cache_dir}"])
+            end.to raise_error(SystemExit)
+          end
+        end
+
+        it "rejects a missing --langlinks-file" do
+          suppress_stderr do
+            expect do
+              Wp2txt::CLI.parse_options(["--lang=ja", "--import-langlinks", "--langlinks-file=#{cache_dir}/nope.sql", "--cache-dir=#{cache_dir}"])
+            end.to raise_error(SystemExit)
+          end
+        end
+
+        it "accepts --langlinks-langs as a comma-separated list" do
+          opts = Wp2txt::CLI.parse_options(["--lang=ja", "--import-langlinks", "--langlinks-langs=en,de,fr", "--cache-dir=#{cache_dir}"])
+          expect(opts[:langlinks_langs]).to eq("en,de,fr")
+        end
+
+        it "rejects invalid language codes in --langlinks-langs" do
+          suppress_stderr do
+            expect do
+              Wp2txt::CLI.parse_options(["--lang=ja", "--import-langlinks", "--langlinks-langs=en,../x", "--cache-dir=#{cache_dir}"])
+            end.to raise_error(SystemExit)
           end
         end
       end

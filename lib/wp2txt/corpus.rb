@@ -2,6 +2,7 @@
 
 require "json"
 require "time"
+require "uri"
 require_relative "../wp2txt"
 require_relative "article"
 require_relative "utils"
@@ -110,7 +111,8 @@ module Wp2txt
         metadata_current: @metadata.built? && @metadata.valid_for?(@multistream_path),
         fulltext_current: fts.built? && fts.valid_for?(@multistream_path),
         stats: stats,
-        fulltext: fts.built? ? fts.stats : nil
+        fulltext: fts.built? ? fts.stats : nil,
+        langlinks: @metadata.built? ? @metadata.langlinks_provenance : nil
       }
     end
 
@@ -404,7 +406,12 @@ module Wp2txt
     # can only be stopped by killing the process running it. On timeout, the
     # error message includes an EXPLAIN QUERY PLAN diagnosis when a likely
     # cause (nested full scans, unbounded recursion) is recognizable.
-    def query_sql(sql, limit: SQL_ROW_LIMIT, timeout: SQL_TIMEOUT_SECONDS)
+    #
+    # @param attach [Array<String>] language codes of other locally installed
+    #   dumps to ATTACH read-only as {lang}_meta / {lang}_fts (e.g. ["en"] →
+    #   en_meta.pages). Codes are validated and resolved server-side; user SQL
+    #   itself can never contain ATTACH (SQL_FORBIDDEN).
+    def query_sql(sql, limit: SQL_ROW_LIMIT, timeout: SQL_TIMEOUT_SECONDS, attach: [])
       raise ArgumentError, "only SELECT/WITH queries are allowed" unless sql =~ /\A\s*(SELECT|WITH)\b/i
       # Screen keywords outside string literals and quoted identifiers only, so
       # legitimate data values (e.g. title LIKE '%Update%') are not rejected
@@ -412,11 +419,27 @@ module Wp2txt
       raise ArgumentError, "query contains a forbidden keyword" if screened.match?(SQL_FORBIDDEN)
 
       limit = [[limit.to_i, 1].max, 1000].min
-      if Process.respond_to?(:fork)
-        run_sql_in_subprocess(sql, limit, timeout)
-      else
-        run_sql_on(readonly_db, sql, limit)
+      attachments = resolve_attachments(attach)
+      result = if Process.respond_to?(:fork)
+                 run_sql_in_subprocess(sql, limit, timeout, attachments)
+               elsif attachments.empty?
+                 run_sql_on(readonly_db, sql, limit)
+               else
+                 db = build_readonly_connection(attach_fts: fts.built?, attachments: attachments)
+                 begin
+                   run_sql_on(db, sql, limit)
+                 ensure
+                   db.close
+                 end
+               end
+      unless attachments.empty?
+        result[:attached] = attachments.map do |a|
+          entry = { lang: a[:lang], dump_name: a[:dump_name], built_with: a[:built_with], fts: a[:fts] }
+          entry[:dump_mismatch] = true if a[:dump_mismatch]
+          entry
+        end
       end
+      result
     rescue SQLite3::Exception => e
       raise ArgumentError, "SQL error: #{e.message}"
     end
@@ -448,12 +471,73 @@ module Wp2txt
       @readonly_db ||= build_readonly_connection(attach_fts: fts.built?)
     end
 
-    def build_readonly_connection(attach_fts:, fts_path: fts.db_path)
+    def build_readonly_connection(attach_fts:, fts_path: fts.db_path, attachments: [])
       db = SQLite3::Database.new(@metadata.db_path, readonly: true)
       db.busy_timeout = 5000
       # Attached databases inherit the main connection's read-only flag
       db.execute("ATTACH DATABASE ? AS fts", [fts_path]) if attach_fts
+      # Cross-dump attachments: aliases and paths come only from validated
+      # language codes resolved server-side (resolve_attachments), never from
+      # user SQL; opened via mode=ro URIs (belt-and-braces with the
+      # inherited read-only flag)
+      attachments.each do |a|
+        db.execute("ATTACH DATABASE ? AS #{a[:alias]}_meta", [readonly_uri(a[:meta_path])])
+        db.execute("ATTACH DATABASE ? AS #{a[:alias]}_fts", [readonly_uri(a[:fts_path])]) if a[:fts_path]
+      end
       db
+    end
+
+    # Language codes accepted by query_sql's attach argument
+    ATTACH_LANG_REGEX = /\A[a-z][a-z0-9-]{1,11}\z/
+
+    # Validate attach language codes and resolve them to local index DBs.
+    # The argument carries language codes only — never file paths; path
+    # resolution (glob the cache dir, inspect dump_name/built state) is
+    # server-side. Selection rule: prefer the dump with the same date as the
+    # main DB; otherwise take the most recently built one and flag the entry
+    # with dump_mismatch so the response must note it.
+    def resolve_attachments(attach)
+      Array(attach).compact.map(&:to_s).uniq.map do |lang|
+        unless lang.match?(ATTACH_LANG_REGEX)
+          raise ArgumentError, "invalid language code for attach: #{lang.inspect}"
+        end
+        if lang == own_lang
+          raise ArgumentError, "cannot attach '#{lang}': it is the language of the main database"
+        end
+
+        candidates = MetadataIndex.cached_candidates(lang, cache_dir: @cache_dir)
+        if candidates.empty?
+          raise ArgumentError,
+                "no installed index found for '#{lang}' (build it with: wp2txt --build-index -L #{lang})"
+        end
+
+        main_date = dump_name[/\d{8}\z/]
+        pick = candidates.find { |c| c[:dump_name].to_s.end_with?(main_date.to_s) }
+        mismatch = pick.nil?
+        pick ||= candidates.first
+
+        fts_path = pick[:db_path].sub(/#{MetadataIndex::CACHE_SUFFIX}\z/, FtsIndex::CACHE_SUFFIX)
+        has_fts = File.exist?(fts_path) && fts_db_built?(fts_path)
+
+        { lang: lang, alias: lang.tr("-", "_"),
+          meta_path: pick[:db_path], fts_path: has_fts ? fts_path : nil,
+          dump_name: pick[:dump_name], built_with: pick[:built_with],
+          fts: has_fts, dump_mismatch: mismatch }
+      end
+    end
+
+    def fts_db_built?(path)
+      meta = MetadataIndex.read_metadata_file(path)
+      meta && meta[:schema_version].to_i == FtsIndex::SCHEMA_VERSION && !meta[:built_at].nil?
+    end
+
+    # "jawiki-20260701" => "ja"
+    def own_lang
+      dump_name[/\A([a-z0-9_-]+?)wiki/, 1]
+    end
+
+    def readonly_uri(path)
+      "file:#{URI::DEFAULT_PARSER.escape(File.expand_path(path))}?mode=ro"
     end
 
     # Row extraction shared by the inline (Windows fallback) and subprocess paths
@@ -475,14 +559,14 @@ module Wp2txt
     # its own read-only connection (no inherited handles), runs the query, and
     # ships the result back over a pipe; a query that outlives the deadline is
     # SIGKILLed — the only reliable abort while the gem holds the GVL.
-    def run_sql_in_subprocess(sql, limit, timeout)
+    def run_sql_in_subprocess(sql, limit, timeout, attachments = [])
       attach_fts = fts.built?
       fts_path = fts.db_path
       reader_io, writer_io = IO.pipe
       pid = Process.fork do
         reader_io.close
         outcome = begin
-          db = build_readonly_connection(attach_fts: attach_fts, fts_path: fts_path)
+          db = build_readonly_connection(attach_fts: attach_fts, fts_path: fts_path, attachments: attachments)
           { ok: run_sql_on(db, sql, limit) }
         rescue SQLite3::Exception => e
           { err: "SQL error: #{e.message}" }

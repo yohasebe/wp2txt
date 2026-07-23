@@ -23,6 +23,9 @@ tags
 # Claude Code development files
 CLAUDE.md
 
+# Private design/research notes (not for publication)
+docs/
+
 # Error logs
 error_log.txt
 spec/examples.txt
