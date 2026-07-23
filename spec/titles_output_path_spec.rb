@@ -86,6 +86,42 @@ RSpec.describe "titles extraction and SQL file output" do
       expect(result[:articles_extracted]).to eq(0)
     end
 
+    it "does not flag truncation for missing titles when the cap is not reached" do
+      out = File.join(@dir, "t.jsonl")
+      result = @corpus.extract_corpus(
+        output_path: out, content: "summary",
+        titles: ["Film A", "Ghost One", "Ghost Two"], num_processes: 0
+      )
+
+      expect(result[:not_found][:count]).to eq(2)
+      expect(result[:articles_extracted]).to eq(1)
+      expect(result[:truncated]).to be false
+    end
+
+    it "deduplicates titles that resolve to the same article" do
+      db = SQLite3::Database.new(@db_path)
+      db.execute("INSERT INTO pages (page_id, title, namespace, redirect_to, text_length) VALUES (98, 'Ancient Film', 0, 'Film A', 0)")
+      db.close
+
+      # (a) two aliases redirecting to the same target
+      out1 = File.join(@dir, "t1.jsonl")
+      result1 = @corpus.extract_corpus(
+        output_path: out1, content: "summary",
+        titles: ["Old Film", "Ancient Film"], num_processes: 0
+      )
+      expect(result1[:articles_extracted]).to eq(1)
+      expect(read_jsonl(out1).map { |r| r["title"] }).to eq(["Film A"])
+
+      # (b) a direct title plus its redirect alias
+      out2 = File.join(@dir, "t2.jsonl")
+      result2 = @corpus.extract_corpus(
+        output_path: out2, content: "summary",
+        titles: ["Film A", "Old Film"], num_processes: 0
+      )
+      expect(result2[:articles_extracted]).to eq(1)
+      expect(read_jsonl(out2).map { |r| r["title"] }).to eq(["Film A"])
+    end
+
     it "rejects combination with filter arguments (set is defined twice)" do
       out = File.join(@dir, "t.jsonl")
       [

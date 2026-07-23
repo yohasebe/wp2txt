@@ -368,7 +368,9 @@ module Wp2txt
                 max_articles || resolved.size
               end
         titles = resolved.first(cap)
-        truncated = total > titles.size
+        # Truncated means "cut by the cap" only; shortfalls from missing
+        # titles are explained by not_found, not by this flag
+        truncated = resolved.size > titles.size
       else
         total = @metadata.count_articles(**filters)
         cap = if limit.positive?
@@ -467,7 +469,10 @@ module Wp2txt
           found << t
         end
       end
-      [found, missing]
+      # Resolution can collapse distinct inputs onto one article (two aliases
+      # redirecting to the same target, or a direct title plus its alias):
+      # dedupe so no article is extracted twice, preserving first-seen order
+      [found.uniq, missing]
     end
 
     # ------------------------------------------------------------------
