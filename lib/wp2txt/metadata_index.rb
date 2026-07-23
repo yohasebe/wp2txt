@@ -319,6 +319,22 @@ module Wp2txt
       ).map(&:first)
     end
 
+    # Look up titles in pages (existence + redirect target), batched to keep
+    # the IN clause small. Used by Corpus#extract_corpus titles: resolution.
+    # @return [Hash] { title => redirect_to_or_nil } for the titles that exist
+    def redirect_map(titles)
+      result = {}
+      titles.each_slice(500) do |slice|
+        placeholders = slice.map { "?" }.join(",")
+        open_db.execute(
+          "SELECT title, redirect_to FROM pages WHERE title IN (#{placeholders})", slice
+        ).each do |title, redirect_to|
+          result[title] = redirect_to
+        end
+      end
+      result
+    end
+
     # Subcategory tree starting at category, as [{name:, depth:}, ...] (BFS order)
     def category_tree(category, depth: 2)
       cat = self.class.normalize_category(category)
