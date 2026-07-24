@@ -34,7 +34,7 @@ WP2TXT extracts plain text and category information from Wikipedia dump files. I
 - **Multilingual support** - Category and redirect detection for 350+ Wikipedia languages
 - **Streaming processing** - Process large dumps without intermediate files
 - **JSON output** - Machine-readable JSONL format for data pipelines
-- **Offline metadata index** - Exhaustive, version-pinned queries over categories and section headings, no API required
+- **Offline research indexes** - Exhaustive, version-pinned queries over categories, section headings, and full text; interlanguage links for cross-edition SQL
 - **MCP server** - Expose a local dump to LLM agents (Claude, ChatGPT, Gemini, local models) for grounded, reproducible corpus work
 
 ## Use Cases
@@ -79,19 +79,21 @@ The Docker image bundles everything — Ruby, decompression tools, and the MCP s
 **Interactive / batch CLI:**
 
 ```shell
-docker run -it -v /path/to/localdata:/data yohasebe/wp2txt
+docker run -it -v /path/to/localdata:/data ghcr.io/yohasebe/wp2txt
 ```
 
 The `wp2txt` command is available inside the container. Use `/data` for input/output files.
+
+Images are published to GitHub Container Registry (`ghcr.io/yohasebe/wp2txt`); Docker Hub (`yohasebe/wp2txt`) is maintained as a mirror.
 
 **MCP server (no Ruby required on the host):**
 
 ```shell
 # Build the indexes once (cached in a named volume so they persist)
-docker run -it -v wp2txt:/root/.wp2txt yohasebe/wp2txt wp2txt --build-index --fulltext -L ja
+docker run -it -v wp2txt:/root/.wp2txt ghcr.io/yohasebe/wp2txt wp2txt --build-index --fulltext -L ja
 
 # Register with an MCP client, e.g. Claude Code
-claude mcp add wp2txt -- docker run -i --rm -v wp2txt:/root/.wp2txt yohasebe/wp2txt wp2txt-mcp -L ja
+claude mcp add wp2txt -- docker run -i --rm -v wp2txt:/root/.wp2txt ghcr.io/yohasebe/wp2txt wp2txt-mcp -L ja
 ```
 
 Note: use `-i` (not `-it`) when running the MCP server — a TTY would corrupt the JSON-RPC stream. The named volume (`wp2txt:`) holds downloaded dumps and indexes; without it they are lost when the container exits.
@@ -253,63 +255,28 @@ By default, citation templates are removed. Use `--extract-citations` to extract
 
 Supported: `{{cite book}}`, `{{cite web}}`, `{{cite news}}`, `{{cite journal}}`, `{{Citation}}`, etc.
 
-## Offline Metadata Index
+## Research Infrastructure (Indexes, Exhaustive Queries, MCP)
 
-Build a local SQLite index of a dump — per-article categories, section headings, redirects, and the category hierarchy — extracted from the dump itself (no API access, no rate limits, version-pinned for reproducibility):
+Beyond text extraction, wp2txt can turn a dump into a **local, version-pinned research
+database**: SQLite indexes over categories, section headings, redirects, and (optionally)
+the full article text, plus interlanguage links for cross-edition comparison — all
+queryable offline, exhaustively, and exposed to LLM agents via an MCP server.
 
-    $ wp2txt --build-index --lang=ja     # downloads dump if needed; ja: ~15 min, ~1.7 GB index
-
-Then run exhaustive queries entirely offline:
-
-    # All film articles (recursing 3 levels of subcategories) that have a plot section
-    $ wp2txt --find-articles --in-category "映画作品" -D 3 --has-section "あらすじ" --lang=ja
-
-    # Machine-readable output with total count
-    $ wp2txt --find-articles --in-category "Films" -D 2 -j json --limit 100 --lang=en
-
-Unlike web/API access, these queries are *exhaustive* (they scan every article, not search-ranked results) and *reproducible* (pinned to a specific dump version). Answering "which of the 1.5M articles have X" takes milliseconds once the index is built.
-
-### Full-Text Search
-
-Add `--fulltext` to also build an FTS5 index over the article text itself (tokenizer auto-selected: character-trigram for Japanese/Chinese/Korean, word-based for space-delimited languages):
-
-    $ wp2txt --build-index --fulltext --lang=ja
-    $ wp2txt --search "タイムループ" --in-category "映画作品" -D 3 --lang=ja
-
-Search hits report the article, section, and a snippet; totals are exhaustive counts, so `0 matches` is a verifiable absence claim for that dump version. The index is contentless (stores only the inverted index; snippets are re-rendered from the dump), keeping disk overhead moderate.
-
-## MCP Server (LLM Integration)
-
-`wp2txt-mcp` exposes a local dump to LLM agents (Claude, ChatGPT, Gemini, local models — any MCP-capable client) via the Model Context Protocol:
-
-    $ gem install mcp                    # optional dependency, needed only for the server
-    $ wp2txt --build-index --lang=ja     # prerequisite
-    $ wp2txt-mcp --lang=ja               # stdio MCP server
-
-Example client configuration (e.g., Claude Desktop / Claude Code):
-
-```json
-{
-  "mcpServers": {
-    "wp2txt": { "command": "wp2txt-mcp", "args": ["--lang", "ja"] }
-  }
-}
+```console
+$ wp2txt --build-index --fulltext --lang=ja      # build the indexes
+$ wp2txt --find-articles --in-category "映画作品" -D 3 --has-section "あらすじ" --lang=ja
+$ wp2txt --search "タイムループ" --in-category "映画作品" -D 3 --lang=ja
+$ wp2txt --import-langlinks -L ja --langlinks-langs en,de,fr,zh,ko
+$ wp2txt-mcp --lang=ja                           # stdio MCP server for LLM agents
 ```
 
-Tools provided:
+Unlike web/API access, these queries scan every article (a `0 matches` result is a
+verifiable absence claim for that dump version) and are reproducible: extractions record
+the dump version and query in a `.meta.json` sidecar.
 
-| Tool | Purpose |
-|------|---------|
-| `dump_info` | Dump version, index tiers, corpus statistics |
-| `get_article` / `get_sections` / `list_headings` | Single-article access (redirect-aware) |
-| `find_articles` | Exhaustive filtered listing (category recursion, section headings, title match) |
-| `category_tree` / `section_stats` | Scope exploration and heading frequency discovery |
-| `section_cooccurrence` | Verify section-alias hypotheses (synonyms rarely co-occur in one article) |
-| `save_alias_set` etc. | Persist verified per-dump alias groups (server-side co-occurrence guardrail) |
-| `extract_corpus` | Filtered extraction to JSONL + reproducibility sidecar; optional RAG chunking |
-| `start_extract_job` / `job_status` / `cancel_job` | Background jobs for large extractions |
-
-Design principles: large results go to disk (the model receives a summary plus a 3-record sample, never the full corpus); every output records the dump version and query in a `.meta.json` sidecar; section aliases are discovered from real dump statistics by the LLM and mechanically verified — no hand-maintained per-language dictionaries. The bundled `discover_aliases` prompt walks any agent through the verification protocol.
+**→ See the [Research Infrastructure Guide](docs/RESEARCH.md)** for index building,
+exhaustive queries, full-text search, interlanguage links, cross-language SQL, the full
+MCP tool list, and design principles.
 
 ## Command Line Options
 
@@ -384,6 +351,15 @@ Design principles: large results go to disk (the model receives a summary plus a
       -v, --version                    Print version
       -h, --help                       Show help
 
+### Research infrastructure options
+
+    --build-index                    Build the metadata index (add --fulltext for FTS)
+    --find-articles / --search       Exhaustive offline queries (see docs/RESEARCH.md)
+    --import-langlinks               Import interlanguage links (version-matched)
+    --fts-optimize                   Optimize an existing full-text index
+
+See the [Research Infrastructure Guide](docs/RESEARCH.md) for details.
+
 ## Configuration File
 
 Create persistent settings with:
@@ -424,6 +400,10 @@ Turbo mode (default) splits bz2 into XML chunks first, then processes in paralle
 ## Changelog
 
 See [CHANGELOG.md](CHANGELOG.md) for detailed release notes.
+
+**v2.3.0 (July 2026)**: Interlanguage links import, cross-language SQL (multi-dump ATTACH), explicit-title extraction, SQL results to file with reproducibility sidecars, GHCR image publishing.
+
+**v2.2.0 (July 2026)**: Offline metadata index, FTS5 full-text search, MCP server, query_sql escape hatch, extraction jobs.
 
 **v2.1.0 (February 2026)**: SQLite caching, Ractor parallelism (Ruby 4.0+), template expansion, content markers, Docker image update.
 

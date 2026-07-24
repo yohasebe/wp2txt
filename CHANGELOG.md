@@ -5,7 +5,10 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [2.3.0] - 2026-07-24
+
+- **Documentation split**: README now focuses on text extraction; the research layer (indexes, exhaustive queries, full-text search, langlinks, cross-language SQL, MCP server) is documented in the new [Research Infrastructure Guide](docs/RESEARCH.md), including the complete MCP tool table
+- **Container images on GHCR**: images are now published to `ghcr.io/yohasebe/wp2txt` (Docker Hub `yohasebe/wp2txt` is maintained as a mirror)
 
 - **`extract_corpus` `titles:` argument**: Extract an explicit set of article titles (e.g. a set determined via `query_sql`) — titles are normalized (MediaWiki rules), deduplicated preserving input order, and one redirect hop is resolved; missing titles (including redirects to nowhere) are skipped and reported as `not_found` (count + 20-title sample, also in the `.meta.json` sidecar). Mutually exclusive with the filter arguments (set operations belong in SQL); capped at 10,000 titles. The sidecar records `titles_count` + `titles_sha256` (order-independent) for reproducibility, enumerating the full list when ≤100 titles. Also available via `start_extract_job`
 - **`query_sql` `output_path:` argument**: Write ALL rows of a large result to a JSONL file (with a `.meta.json` sidecar recording the SQL, dump version, attach configuration, row count, and tool version) and return only a summary + 3-row sample — the extract_corpus D4 pattern generalized to SQL. Writes happen in the forked child (so the 30s SIGKILL deadline covers them) to a `.partial` file that the parent atomically renames on success and removes on every failure path (child crash, timeout kill, query error). Hard cap `SQL_FILE_ROW_LIMIT` = 5M rows (`truncated` flag), cells clipped at 64KB (`cells_clipped` count), duplicate column names are made unique (`_2` suffix), `limit` is ignored in this mode, and existing files require `overwrite: true`. The MCP layer's output-dir confinement is now a shared helper (`Wp2txt::OutputPath.confine`) used by extract_corpus, start_extract_job, and query_sql alike
