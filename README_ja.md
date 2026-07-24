@@ -34,6 +34,8 @@ WP2TXTはWikipediaダンプファイルからプレーンテキストとカテ�
 - **多言語対応** - 350以上のWikipedia言語でカテゴリ・リダイレクトを検出
 - **ストリーミング処理** - 中間ファイルなしで大規模ダンプを処理
 - **JSON出力** - データパイプライン向けの機械可読JSONL形式
+- **オフライン研究索引** - カテゴリ・節見出し・全文に対する悉皆的・版固定クエリ、言語間リンクによる言語版横断SQL
+- **MCPサーバー** - ローカルダンプをLLMエージェント（Claude、ChatGPT、Gemini、ローカルモデル）に公開
 
 ## ユースケース
 
@@ -43,6 +45,8 @@ wp2txtは以下の用途に適しています：
 - トピック領域を横断した比較言語研究
 - NLPタスク向けのメタデータ付きWikipediaテキスト抽出
 - 並行カテゴリ構造を利用した対照言語研究
+- 版固定のRAG知識ベース・LLM評価データセット
+- web検索では原理的に不可能な悉皆的言明（「このカテゴリのどの記事にもXへの言及がない」）
 
 ## データアクセス
 
@@ -71,10 +75,12 @@ Windows：[Bzip2 for Windows](http://gnuwin32.sourceforge.net/packages/bzip2.htm
 ### Docker（代替方法）
 
 ```shell
-docker run -it -v /path/to/localdata:/data yohasebe/wp2txt
+docker run -it -v /path/to/localdata:/data ghcr.io/yohasebe/wp2txt
 ```
 
 `wp2txt`コマンドはコンテナ内で使用可能です。入出力には`/data`ディレクトリを使用してください。
+
+イメージはGitHub Container Registry（`ghcr.io/yohasebe/wp2txt`）で公開されています（Docker Hub `yohasebe/wp2txt` はミラーとして維持）。
 
 ## 基本的な使い方
 
@@ -327,6 +333,28 @@ defaults:
 
 コマンドラインオプションは設定ファイルの設定を上書きします。
 
+## 研究基盤（索引・悉皆クエリ・MCP）
+
+テキスト抽出に加えて、wp2txtはダンプを**ローカルな版固定研究データベース**に変換できます。
+カテゴリ・節見出し・リダイレクト・（オプションで）記事全文のSQLite索引、言語版横断比較のための
+言語間リンク（langlinks）— すべてオフラインで悉皆的にクエリでき、MCPサーバー経由で
+LLMエージェントにも公開できます。
+
+```console
+$ wp2txt --build-index --fulltext --lang=ja      # 索引の構築
+$ wp2txt --find-articles --in-category "映画作品" -D 3 --has-section "あらすじ" --lang=ja
+$ wp2txt --search "タイムループ" --in-category "映画作品" -D 3 --lang=ja
+$ wp2txt --import-langlinks -L ja --langlinks-langs en,de,fr,zh,ko
+$ wp2txt-mcp --lang=ja                           # LLMエージェント向けMCPサーバー
+```
+
+web/API アクセスと異なり、これらのクエリは全記事を走査します（`0件` は当該ダンプ版に対する
+検証可能な不在の言明になります）。抽出結果には dump 版とクエリを記録した `.meta.json`
+サイドカーが付き、再現可能です。
+
+**→ 詳細は [Research Infrastructure Guide](docs/RESEARCH.md)（英語）を参照**：
+索引構築、悉皆クエリ、全文検索、言語間リンク、言語版横断SQL、MCPツール一覧、設計原則。
+
 ## パフォーマンス
 
 MacBook Air M4でのベンチマーク結果（7並列プロセス、ターボモード、ダウンロード時間除く）:
@@ -346,6 +374,10 @@ MacBook Air M4でのベンチマーク結果（7並列プロセス、ターボ�
 ## 変更履歴
 
 詳細なリリースノートは[CHANGELOG.md](CHANGELOG.md)を参照してください。
+
+**v2.3.0（2026年7月）**: 言語間リンク取り込み、言語版横断SQL（multi-dump ATTACH）、明示タイトル集合の抽出、SQL結果のファイル出力と再現性サイドカー、GHCRイメージ公開。
+
+**v2.2.0（2026年7月）**: オフラインメタデータ索引、FTS5全文検索、MCPサーバー、query_sql、抽出ジョブ。
 
 **v2.1.0（2026年2月）**: SQLiteキャッシュ、Ractor並列処理（Ruby 4.0+）、テンプレート展開、コンテンツマーカー、Dockerイメージ更新。
 
