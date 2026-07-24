@@ -1,7 +1,10 @@
 # frozen_string_literal: true
 
+require "digest"
+require "fileutils"
 require "json"
 require "time"
+require "uri"
 require_relative "../wp2txt"
 require_relative "article"
 require_relative "utils"
@@ -110,7 +113,8 @@ module Wp2txt
         metadata_current: @metadata.built? && @metadata.valid_for?(@multistream_path),
         fulltext_current: fts.built? && fts.valid_for?(@multistream_path),
         stats: stats,
-        fulltext: fts.built? ? fts.stats : nil
+        fulltext: fts.built? ? fts.stats : nil,
+        langlinks: @metadata.built? ? @metadata.langlinks_provenance : nil
       }
     end
 
@@ -300,8 +304,16 @@ module Wp2txt
     # Titles fetched/rendered per batch while streaming to disk
     EXTRACT_BATCH_SIZE = 200
 
+    # Max titles accepted by extract_corpus titles: (larger sets belong in
+    # filter-based extraction or a background job)
+    TITLES_MAX = 10_000
+
     # @param output_path [String] JSONL destination (sidecar .meta.json is added)
     # @param content [String] "sections" | "full" | "summary"
+    # @param titles [Array<String>, nil] explicit article titles to extract
+    #   (e.g. a set determined via query_sql). Normalized, deduplicated, one
+    #   redirect hop resolved; missing titles are reported as not_found.
+    #   Mutually exclusive with the filter arguments
     # @param chunk_size [Integer, nil] split text into ~N-char chunks (RAG-ready records)
     # @param chunk_overlap [Integer] overlap between consecutive chunks
     # @param max_articles [Integer, nil] sync cap (nil = unlimited, for jobs)
@@ -309,7 +321,7 @@ module Wp2txt
     # @param cancel_check [Proc, nil] polled between batches; truthy return aborts with Cancelled
     def extract_corpus(output_path:, content: "sections", sections: nil, alias_set: nil,
                        category: nil, depth: 0, categories: nil, category_match: nil,
-                       title_match: nil, limit: 0,
+                       title_match: nil, limit: 0, titles: nil,
                        chunk_size: nil, chunk_overlap: 0,
                        max_articles: DEFAULT_MAX_SYNC_ARTICLES, num_processes: 4,
                        progress: nil, cancel_check: nil)
@@ -319,17 +331,56 @@ module Wp2txt
       raise ArgumentError, "chunk_overlap must be smaller than chunk_size" if chunk_size && chunk_overlap >= chunk_size
       raise ArgumentError, "chunking is not supported for content: \"wikitext\"" if chunk_size && content == "wikitext"
 
+      if titles
+        raise ArgumentError, "titles must be an array of title strings" unless titles.is_a?(Array)
+        if titles.size > TITLES_MAX
+          raise ArgumentError, "titles accepts at most #{TITLES_MAX} titles (got #{titles.size}); " \
+                               "use filter-based extraction or a background job for larger sets"
+        end
+        conflicts = []
+        conflicts << "category" if category
+        conflicts << "categories" if categories
+        conflicts << "category_match" if category_match
+        conflicts << "title_match" if title_match
+        unless conflicts.empty?
+          raise ArgumentError, "titles cannot be combined with #{conflicts.join(', ')} — the article " \
+                               "set would be defined twice; perform set operations in query_sql and " \
+                               "pass the resulting titles via titles:"
+        end
+      end
+
       filters = { category: category, depth: depth, categories: categories,
                   category_match: category_match, sections: sections,
                   alias_set: alias_set, title_match: title_match }
-      total = @metadata.count_articles(**filters)
-      cap = if limit.positive?
-              max_articles ? [limit, max_articles].min : limit
-            else
-              max_articles || total
-            end
-      titles = @metadata.find_articles(**filters, limit: cap)
-      truncated = total > titles.size
+      not_found = nil
+      titles_record = nil
+      if titles
+        normalized = titles.map { |t| MetadataIndex.normalize_title(t) }.reject(&:empty?).uniq
+        titles_record = { titles_count: normalized.size,
+                          titles_sha256: Digest::SHA256.hexdigest(normalized.sort.join("\n")) }
+        titles_record[:titles] = normalized if normalized.size <= 100
+        total = normalized.size
+        resolved, missing = resolve_explicit_titles(normalized)
+        not_found = { count: missing.size, sample: missing.first(20) }
+        cap = if limit.positive?
+                max_articles ? [limit, max_articles].min : limit
+              else
+                max_articles || resolved.size
+              end
+        titles = resolved.first(cap)
+        # Truncated means "cut by the cap" only; shortfalls from missing
+        # titles are explained by not_found, not by this flag
+        truncated = resolved.size > titles.size
+      else
+        total = @metadata.count_articles(**filters)
+        cap = if limit.positive?
+                max_articles ? [limit, max_articles].min : limit
+              else
+                max_articles || total
+              end
+        titles = @metadata.find_articles(**filters, limit: cap)
+        truncated = total > titles.size
+      end
 
       resolved_sections = content == "summary" ? [SectionExtractor::SUMMARY_KEY] : expand_with_alias_set(sections, alias_set)
       alias_contents = alias_set ? get_alias_set(alias_set)&.dig(:groups) : nil
@@ -372,19 +423,56 @@ module Wp2txt
         tool: "wp2txt #{Wp2txt::VERSION}",
         dump: dump_name,
         generated_at: Time.now.utc.iso8601,
-        query: filters.compact.merge(content: content, resolved_sections: resolved_sections,
-                                     chunk_size: chunk_size, chunk_overlap: chunk_size ? chunk_overlap : nil).compact,
+        query: (titles_record || filters.compact).merge(
+          content: content, resolved_sections: resolved_sections,
+          chunk_size: chunk_size, chunk_overlap: chunk_size ? chunk_overlap : nil
+        ).compact,
         alias_set_contents: alias_contents,
         total_matching: total,
         articles_extracted: articles_extracted,
         records_written: records_written,
-        truncated: truncated
+        truncated: truncated,
+        not_found: not_found
       ))
 
       { output_path: output_path, meta_path: meta_path, dump: dump_name,
         total_matching: total, articles_extracted: articles_extracted,
         records_written: records_written, truncated: truncated,
-        bytes: File.size(output_path), sample: sample }
+        bytes: File.size(output_path), sample: sample,
+        not_found: not_found }.compact
+    end
+
+    # Resolve explicit titles against the pages table: existence plus one
+    # redirect hop (same rule as get_article). Input order is preserved.
+    # @return [Array(Array<String>, Array<String>)] [found_titles, missing_titles]
+    def resolve_explicit_titles(titles)
+      map = @metadata.redirect_map(titles)
+      targets = titles.filter_map { |t| map[t] }
+                      .map { |t| MetadataIndex.normalize_title(t) }.uniq
+      target_map = targets.empty? ? {} : @metadata.redirect_map(targets)
+
+      found = []
+      missing = []
+      titles.each do |t|
+        if !map.key?(t)
+          missing << t
+        elsif (target = map[t])
+          # Redirect: extract under the resolved title; a redirect whose
+          # target does not exist counts as not found
+          target = MetadataIndex.normalize_title(target)
+          if target_map.key?(target)
+            found << target
+          else
+            missing << t
+          end
+        else
+          found << t
+        end
+      end
+      # Resolution can collapse distinct inputs onto one article (two aliases
+      # redirecting to the same target, or a direct title plus its alias):
+      # dedupe so no article is extracted twice, preserving first-seen order
+      [found.uniq, missing]
     end
 
     # ------------------------------------------------------------------
@@ -396,6 +484,11 @@ module Wp2txt
     SQL_TIMEOUT_SECONDS = 30
     SQL_FORBIDDEN = /\b(ATTACH|DETACH|PRAGMA|INSERT|UPDATE|DELETE|DROP|CREATE|ALTER|REPLACE|VACUUM|REINDEX)\b/i
 
+    # File-output mode (query_sql output_path:): hard row cap and per-cell
+    # clip (insurance against runaway blobs, not context economy)
+    SQL_FILE_ROW_LIMIT = 5_000_000
+    SQL_FILE_CELL_LIMIT = 64 * 1024
+
     # Run a read-only SELECT against the metadata DB (with the FTS DB attached
     # as `fts` when built). Defense layers: keyword screening (outside string
     # literals), an SQLITE_OPEN_READONLY connection so writes are impossible at
@@ -404,19 +497,41 @@ module Wp2txt
     # can only be stopped by killing the process running it. On timeout, the
     # error message includes an EXPLAIN QUERY PLAN diagnosis when a likely
     # cause (nested full scans, unbounded recursion) is recognizable.
-    def query_sql(sql, limit: SQL_ROW_LIMIT, timeout: SQL_TIMEOUT_SECONDS)
+    #
+    # @param attach [Array<String>] language codes of other locally installed
+    #   dumps to ATTACH read-only as {lang}_meta / {lang}_fts (e.g. ["en"] →
+    #   en_meta.pages). Codes are validated and resolved server-side; user SQL
+    #   itself can never contain ATTACH (SQL_FORBIDDEN).
+    # @param output_path [String, nil] when given, write ALL rows (up to
+    #   SQL_FILE_ROW_LIMIT) to a JSONL file plus a .meta.json sidecar, and
+    #   return only a summary + 3-row sample; `limit` is ignored in this mode
+    # @param overwrite [Boolean] replace an existing output file (default: refuse)
+    def query_sql(sql, limit: SQL_ROW_LIMIT, timeout: SQL_TIMEOUT_SECONDS, attach: [],
+                  output_path: nil, overwrite: false)
       raise ArgumentError, "only SELECT/WITH queries are allowed" unless sql =~ /\A\s*(SELECT|WITH)\b/i
       # Screen keywords outside string literals and quoted identifiers only, so
       # legitimate data values (e.g. title LIKE '%Update%') are not rejected
       screened = sql.gsub(/'(?:[^']|'')*'/m, "''").gsub(/"(?:[^"]|"")*"/m, '""')
       raise ArgumentError, "query contains a forbidden keyword" if screened.match?(SQL_FORBIDDEN)
 
+      attachments = resolve_attachments(attach)
+      return query_sql_to_file(sql, timeout, attachments, output_path, overwrite) if output_path
+
       limit = [[limit.to_i, 1].max, 1000].min
-      if Process.respond_to?(:fork)
-        run_sql_in_subprocess(sql, limit, timeout)
-      else
-        run_sql_on(readonly_db, sql, limit)
-      end
+      result = if Process.respond_to?(:fork)
+                 run_sql_in_subprocess(sql, limit, timeout, attachments)
+               elsif attachments.empty?
+                 run_sql_on(readonly_db, sql, limit)
+               else
+                 db = build_readonly_connection(attach_fts: fts.built?, attachments: attachments)
+                 begin
+                   run_sql_on(db, sql, limit)
+                 ensure
+                   db.close
+                 end
+               end
+      result[:attached] = attachments_summary(attachments) unless attachments.empty?
+      result
     rescue SQLite3::Exception => e
       raise ArgumentError, "SQL error: #{e.message}"
     end
@@ -448,12 +563,73 @@ module Wp2txt
       @readonly_db ||= build_readonly_connection(attach_fts: fts.built?)
     end
 
-    def build_readonly_connection(attach_fts:, fts_path: fts.db_path)
+    def build_readonly_connection(attach_fts:, fts_path: fts.db_path, attachments: [])
       db = SQLite3::Database.new(@metadata.db_path, readonly: true)
       db.busy_timeout = 5000
       # Attached databases inherit the main connection's read-only flag
       db.execute("ATTACH DATABASE ? AS fts", [fts_path]) if attach_fts
+      # Cross-dump attachments: aliases and paths come only from validated
+      # language codes resolved server-side (resolve_attachments), never from
+      # user SQL; opened via mode=ro URIs (belt-and-braces with the
+      # inherited read-only flag)
+      attachments.each do |a|
+        db.execute("ATTACH DATABASE ? AS #{a[:alias]}_meta", [readonly_uri(a[:meta_path])])
+        db.execute("ATTACH DATABASE ? AS #{a[:alias]}_fts", [readonly_uri(a[:fts_path])]) if a[:fts_path]
+      end
       db
+    end
+
+    # Language codes accepted by query_sql's attach argument
+    ATTACH_LANG_REGEX = /\A[a-z][a-z0-9-]{1,11}\z/
+
+    # Validate attach language codes and resolve them to local index DBs.
+    # The argument carries language codes only — never file paths; path
+    # resolution (glob the cache dir, inspect dump_name/built state) is
+    # server-side. Selection rule: prefer the dump with the same date as the
+    # main DB; otherwise take the most recently built one and flag the entry
+    # with dump_mismatch so the response must note it.
+    def resolve_attachments(attach)
+      Array(attach).compact.map(&:to_s).uniq.map do |lang|
+        unless lang.match?(ATTACH_LANG_REGEX)
+          raise ArgumentError, "invalid language code for attach: #{lang.inspect}"
+        end
+        if lang == own_lang
+          raise ArgumentError, "cannot attach '#{lang}': it is the language of the main database"
+        end
+
+        candidates = MetadataIndex.cached_candidates(lang, cache_dir: @cache_dir)
+        if candidates.empty?
+          raise ArgumentError,
+                "no installed index found for '#{lang}' (build it with: wp2txt --build-index -L #{lang})"
+        end
+
+        main_date = dump_name[/\d{8}\z/]
+        pick = candidates.find { |c| c[:dump_name].to_s.end_with?(main_date.to_s) }
+        mismatch = pick.nil?
+        pick ||= candidates.first
+
+        fts_path = pick[:db_path].sub(/#{MetadataIndex::CACHE_SUFFIX}\z/, FtsIndex::CACHE_SUFFIX)
+        has_fts = File.exist?(fts_path) && fts_db_built?(fts_path)
+
+        { lang: lang, alias: lang.tr("-", "_"),
+          meta_path: pick[:db_path], fts_path: has_fts ? fts_path : nil,
+          dump_name: pick[:dump_name], built_with: pick[:built_with],
+          fts: has_fts, dump_mismatch: mismatch }
+      end
+    end
+
+    def fts_db_built?(path)
+      meta = MetadataIndex.read_metadata_file(path)
+      meta && meta[:schema_version].to_i == FtsIndex::SCHEMA_VERSION && !meta[:built_at].nil?
+    end
+
+    # "jawiki-20260701" => "ja"
+    def own_lang
+      dump_name[/\A([a-z0-9_-]+?)wiki/, 1]
+    end
+
+    def readonly_uri(path)
+      "file:#{URI::DEFAULT_PARSER.escape(File.expand_path(path))}?mode=ro"
     end
 
     # Row extraction shared by the inline (Windows fallback) and subprocess paths
@@ -475,14 +651,14 @@ module Wp2txt
     # its own read-only connection (no inherited handles), runs the query, and
     # ships the result back over a pipe; a query that outlives the deadline is
     # SIGKILLed — the only reliable abort while the gem holds the GVL.
-    def run_sql_in_subprocess(sql, limit, timeout)
+    def run_sql_in_subprocess(sql, limit, timeout, attachments = [])
       attach_fts = fts.built?
       fts_path = fts.db_path
       reader_io, writer_io = IO.pipe
       pid = Process.fork do
         reader_io.close
         outcome = begin
-          db = build_readonly_connection(attach_fts: attach_fts, fts_path: fts_path)
+          db = build_readonly_connection(attach_fts: attach_fts, fts_path: fts_path, attachments: attachments)
           { ok: run_sql_on(db, sql, limit) }
         rescue SQLite3::Exception => e
           { err: "SQL error: #{e.message}" }
@@ -508,6 +684,165 @@ module Wp2txt
       outcome[:ok]
     ensure
       reader_io&.close
+    end
+
+    # ------------------------------------------------------------------
+    # query_sql file-output mode (D4 generalized to SQL: the full result
+    # goes to disk, the caller receives a summary plus a small sample)
+    # ------------------------------------------------------------------
+
+    # Provenance summary of resolved attachments, shared by the interactive
+    # and file-output responses
+    def attachments_summary(attachments)
+      attachments.map do |a|
+        entry = { lang: a[:lang], dump_name: a[:dump_name], built_with: a[:built_with], fts: a[:fts] }
+        entry[:dump_mismatch] = true if a[:dump_mismatch]
+        entry
+      end
+    end
+
+    # Write the full query result to output_path as JSONL. Atomicity: the
+    # child (or inline fallback) writes "#{output_path}.partial"; the parent
+    # renames it into place only on success and removes it on every failure
+    # path (child crash, timeout kill, error over the pipe) — a partially
+    # written file is never presented as a result. The .meta.json sidecar is
+    # written by the parent after the rename succeeds.
+    def query_sql_to_file(sql, timeout, attachments, output_path, overwrite)
+      if File.exist?(output_path) && !overwrite
+        raise ArgumentError, "output file already exists: #{output_path} (pass overwrite: true to replace it)"
+      end
+
+      partial = "#{output_path}.partial"
+      FileUtils.rm_f(partial)
+      outcome = begin
+        if Process.respond_to?(:fork)
+          run_sql_file_in_subprocess(sql, timeout, attachments, partial)
+        else
+          db = build_readonly_connection(attach_fts: fts.built?, attachments: attachments)
+          begin
+            run_sql_file_on(db, sql, partial)
+          ensure
+            db.close
+          end
+        end
+      rescue StandardError
+        FileUtils.rm_f(partial)
+        raise
+      end
+
+      File.rename(partial, output_path)
+      write_sql_sidecar(output_path, sql, attachments, outcome)
+
+      result = { output_path: output_path, meta_path: "#{output_path}.meta.json",
+                 columns: outcome[:columns], row_count: outcome[:row_count],
+                 truncated: outcome[:truncated], cells_clipped: outcome[:cells_clipped],
+                 sample: outcome[:sample], bytes: File.size(output_path) }
+      result[:attached] = attachments_summary(attachments) unless attachments.empty?
+      result
+    end
+
+    # Stream the query result into partial_path as JSONL, one object per row
+    # keyed by (deduplicated) column names. Runs in the forked child for the
+    # subprocess path: the 30s SIGKILL deadline covers the writing too.
+    def run_sql_file_on(db, sql, partial_path)
+      columns = nil
+      row_count = 0
+      cells_clipped = 0
+      truncated = false
+      sample = []
+
+      File.open(partial_path, "w") do |f|
+        db.query(sql) do |result|
+          columns = unique_columns(result.columns)
+          result.each do |row|
+            if row_count >= SQL_FILE_ROW_LIMIT
+              truncated = true
+              break
+            end
+
+            record = {}
+            row.each_with_index do |value, i|
+              if value.is_a?(String) && value.length > SQL_FILE_CELL_LIMIT
+                value = "#{value[0, SQL_FILE_CELL_LIMIT]}…"
+                cells_clipped += 1
+              end
+              record[columns[i]] = value
+            end
+            f.puts(JSON.generate(record))
+            sample << record if sample.size < 3
+            row_count += 1
+          end
+        end
+      end
+
+      { columns: columns, row_count: row_count, truncated: truncated,
+        cells_clipped: cells_clipped, sample: sample }
+    end
+
+    # Duplicate result column names (SELECT 1 AS x, 2 AS x) are suffixed
+    # (_2, _3, ...) so every JSONL record key is unique
+    def unique_columns(columns)
+      seen = Hash.new(0)
+      columns.map do |c|
+        seen[c] += 1
+        seen[c] == 1 ? c : "#{c}_#{seen[c]}"
+      end
+    end
+
+    # Subprocess driver for file-output mode; same fork/pipe/SIGKILL
+    # structure as run_sql_in_subprocess, but the child writes the rows to
+    # partial_path and ships back only the summary
+    def run_sql_file_in_subprocess(sql, timeout, attachments, partial_path)
+      attach_fts = fts.built?
+      fts_path = fts.db_path
+      reader_io, writer_io = IO.pipe
+      pid = Process.fork do
+        reader_io.close
+        outcome = begin
+          db = build_readonly_connection(attach_fts: attach_fts, fts_path: fts_path, attachments: attachments)
+          { ok: run_sql_file_on(db, sql, partial_path) }
+        rescue SQLite3::Exception => e
+          { err: "SQL error: #{e.message}" }
+        rescue StandardError => e
+          { err: "#{e.class}: #{e.message}" }
+        end
+        Marshal.dump(outcome, writer_io)
+        writer_io.close
+        exit!(0)
+      end
+      writer_io.close
+
+      unless IO.select([reader_io], nil, nil, timeout)
+        Process.kill("KILL", pid)
+        Process.waitpid(pid)
+        raise ArgumentError, "query exceeded the #{timeout}s time limit#{explain_plan_hint(sql)}"
+      end
+      payload = reader_io.read
+      Process.waitpid(pid)
+      raise ArgumentError, "query failed: the child process died without a result" if payload.empty?
+
+      outcome = Marshal.load(payload)
+      raise ArgumentError, outcome[:err] if outcome[:err]
+
+      outcome[:ok]
+    ensure
+      reader_io&.close
+    end
+
+    # Reproducibility sidecar, written by the parent after the atomic rename
+    def write_sql_sidecar(output_path, sql, attachments, outcome)
+      File.write("#{output_path}.meta.json", JSON.pretty_generate(
+        tool: "query_sql",
+        dump: dump_name,
+        built_with: @metadata.stats&.dig(:built_with),
+        sql: sql,
+        attached: attachments.map { |a| { lang: a[:lang], dump_name: a[:dump_name], built_with: a[:built_with] } },
+        row_count: outcome[:row_count],
+        truncated: outcome[:truncated],
+        cells_clipped: outcome[:cells_clipped],
+        generated_at: Time.now.utc.iso8601,
+        wp2txt_version: Wp2txt::VERSION
+      ))
     end
 
     # Best-effort post-mortem for a timed-out query: EXPLAIN QUERY PLAN is

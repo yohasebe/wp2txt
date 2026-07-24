@@ -711,6 +711,7 @@ class WpApp
     return run_find_articles(opts) if opts[:find_articles]
     return run_search(opts) if opts[:search]
     return run_fts_optimize(opts) if opts[:fts_optimize]
+    return run_import_langlinks(opts) if opts[:import_langlinks]
 
     # Determine input source
     if opts[:from_category] && opts[:lang]

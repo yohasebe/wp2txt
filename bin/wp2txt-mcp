@@ -24,6 +24,7 @@ require "optimist"
 require "json"
 require_relative "../lib/wp2txt/corpus"
 require_relative "../lib/wp2txt/corpus_jobs"
+require_relative "../lib/wp2txt/output_path"
 require_relative "../lib/wp2txt/version"
 
 opts = Optimist.options do
@@ -159,16 +160,23 @@ end
 
 server.define_tool(
   name: "query_sql",
-  description: "Read-only SQL (SELECT/WITH only) against the index databases — the escape hatch for questions the fixed tools cannot express (multi-way intersections, aggregations, joins). Call describe_schema first to see the tables. Main DB: pages(page_id, title, namespace, redirect_to, text_length), page_categories(page_id, category), page_sections(page_id, heading, level, ord), category_hierarchy(child, parent), alias_sets. When the fulltext tier exists, the FTS DB is attached as `fts` (fts.fts_sections MATCH ..., fts.fts_map). Filter articles with namespace = 0 AND redirect_to IS NULL. Rows are capped by `limit` (default 200, max 1000) with truncated flag; long cells are clipped. Queries are killed after 30 seconds (the error explains the likely cause); the tables are large (millions of rows), so constrain joins with indexed keys (page_id) and add WHERE filters.",
+  description: "Read-only SQL (SELECT/WITH only) against the index databases — the escape hatch for questions the fixed tools cannot express (multi-way intersections, aggregations, joins). Call describe_schema first to see the tables. Main DB: pages(page_id, title, namespace, redirect_to, text_length), page_categories(page_id, category), page_sections(page_id, heading, level, ord), category_hierarchy(child, parent), alias_sets; a langlinks table (ll_from = source page_id, ll_lang, ll_title) is also present when interlanguage links were imported via wp2txt --import-langlinks. When the fulltext tier exists, the FTS DB is attached as `fts` (fts.fts_sections MATCH ..., fts.fts_map). Cross-language: pass attach: [\"en\",\"de\"] to read-only ATTACH other locally installed languages' indexes, referenced as {lang}_meta.pages / {lang}_meta.page_sections / ... and {lang}_fts when that language has a fulltext tier — attached DBs share the main DB's schema. Hyphenated language codes map to underscored aliases (e.g. zh-yue → zh_yue_meta). Only installed languages are accepted (the main language itself cannot be attached); the response's `attached` field lists what was attached (dump_name, fts, dump_mismatch when the dates differ). Join langlinks (ll_from = page_id) to map articles across languages. Filter articles with namespace = 0 AND redirect_to IS NULL. Rows are capped by `limit` (default 200, max 1000) with truncated flag; long cells are clipped. output_path: write ALL rows to a JSONL file (with a .meta.json recording the SQL, dump versions, and attach configuration) and return only a summary + 3-row sample — use this whenever the result is large; `limit` is ignored in this mode. Queries are killed after 30 seconds (the error explains the likely cause); the tables are large (millions of rows), so constrain joins with indexed keys (page_id) and add WHERE filters.",
   input_schema: {
     properties: {
       sql: { type: "string" },
-      limit: { type: "integer", minimum: 1, maximum: 1000 }
+      limit: { type: "integer", minimum: 1, maximum: 1000 },
+      attach: { type: "array", items: { type: "string" },
+                description: "Language codes of other locally installed dumps to ATTACH read-only as {lang}_meta / {lang}_fts (default: none)" },
+      output_path: { type: "string", description: "JSONL output path for ALL rows; relative paths resolve under the server's output dir" },
+      overwrite: { type: "boolean", description: "Replace an existing output file (default: refuse)" }
     },
     required: ["sql"]
   }
-) do |sql:, limit: 200, server_context:|
-  respond { corpus.query_sql(sql, limit: limit) }
+) do |sql:, limit: 200, attach: [], output_path: nil, overwrite: false, server_context:|
+  respond do
+    path = output_path && Wp2txt::OutputPath.confine(output_path, OUTPUT_DIR, overwrite: overwrite)
+    corpus.query_sql(sql, limit: limit, attach: attach, output_path: path, overwrite: overwrite)
+  end
 end
 
 server.define_tool(
@@ -279,6 +287,8 @@ EXTRACT_SCHEMA = {
   properties: {
     output_path: { type: "string", description: "JSONL output path; relative paths resolve under the server's output dir" },
     content: { type: "string", enum: ["sections", "summary", "full", "wikitext"] },
+    titles: { type: "array", items: { type: "string" }, maxItems: 10_000,
+              description: "Explicit article titles to extract (mutually exclusive with the filter arguments)" },
     sections: { type: "array", items: { type: "string" } },
     alias_set: { type: "string" },
     category: { type: "string" },
@@ -294,23 +304,12 @@ EXTRACT_SCHEMA = {
   required: ["output_path", "content"]
 }.freeze
 
-def extract_params(output_path:, content:, sections: nil, alias_set: nil, category: nil,
+def extract_params(output_path:, content:, titles: nil, sections: nil, alias_set: nil, category: nil,
                    depth: 0, categories: nil, category_match: nil,
                    title_match: nil, limit: 0, chunk_size: nil, chunk_overlap: 0,
                    overwrite: false)
-  # Confine writes to the server's output directory (an agent mixing up paths
-  # must not be able to clobber arbitrary user files), and refuse to silently
-  # replace existing outputs
-  path = File.expand_path(output_path, OUTPUT_DIR)
-  base = File.expand_path(OUTPUT_DIR)
-  unless path == base || path.start_with?(base + File::SEPARATOR)
-    raise ArgumentError, "output_path must stay within the server output directory (#{base})"
-  end
-  if File.exist?(path) && !overwrite
-    raise ArgumentError, "output file already exists: #{path} (pass overwrite: true to replace it)"
-  end
-
-  { output_path: path, content: content,
+  { output_path: Wp2txt::OutputPath.confine(output_path, OUTPUT_DIR, overwrite: overwrite),
+    content: content, titles: titles,
     sections: sections, alias_set: alias_set, category: category, depth: depth,
     categories: categories, category_match: category_match,
     title_match: title_match, limit: limit, chunk_size: chunk_size, chunk_overlap: chunk_overlap }
@@ -318,7 +317,7 @@ end
 
 server.define_tool(
   name: "extract_corpus",
-  description: "Extract matching articles to a JSONL file on disk (with a .meta.json sidecar recording dump version and query for reproducibility). Returns a summary and the first 3 records only — the full corpus stays on disk; process it with your own tools. content: 'sections' (named sections only), 'summary' (lead text), 'full' (whole cleaned article), or 'wikitext' (raw markup, for mining infoboxes/templates that cleaning replaces with markers). Filters are the same as find_articles (category/depth, categories, category_match, title_match). Optional chunk_size/chunk_overlap produce one RAG-ready record per chunk with section_path and chunk_index (not with wikitext). Synchronous, capped at 5000 articles (result flags truncation) — use start_extract_job for larger extractions. Dry-run the filters with find_articles first.",
+  description: "Extract matching articles to a JSONL file on disk (with a .meta.json sidecar recording dump version and query for reproducibility). Returns a summary and the first 3 records only — the full corpus stays on disk; process it with your own tools. content: 'sections' (named sections only), 'summary' (lead text), 'full' (whole cleaned article), or 'wikitext' (raw markup, for mining infoboxes/templates that cleaning replaces with markers). Filters are the same as find_articles (category/depth, categories, category_match, title_match). titles: extract an explicit list of articles (e.g. a set determined via query_sql); mutually exclusive with the filter arguments; redirects are resolved; missing titles are reported in not_found. Optional chunk_size/chunk_overlap produce one RAG-ready record per chunk with section_path and chunk_index (not with wikitext). Synchronous, capped at 5000 articles (result flags truncation) — use start_extract_job for larger extractions. Dry-run the filters with find_articles first.",
   input_schema: EXTRACT_SCHEMA
 ) do |server_context:, **args|
   respond { corpus.extract_corpus(**extract_params(**args)) }

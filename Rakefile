@@ -39,7 +39,10 @@ task :push do
       # docker buildx create --name mybuilder
       # docker buildx use mybuilder
       # docker buildx inspect --bootstrap
-      docker buildx build --platform linux/amd64,linux/arm64 -t yohasebe/wp2txt:#{Wp2txt::VERSION} -t yohasebe/wp2txt:latest . --push
+      docker buildx build --platform linux/amd64,linux/arm64 \
+        -t ghcr.io/yohasebe/wp2txt:#{Wp2txt::VERSION} -t ghcr.io/yohasebe/wp2txt:latest \
+        -t yohasebe/wp2txt:#{Wp2txt::VERSION} -t yohasebe/wp2txt:latest \
+        . --push
     BASH
   SCRIPT
 end

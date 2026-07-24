@@ -826,6 +826,35 @@ module Wp2txt
       File.join(@cache_dir, "#{@lang}wiki-#{latest_dump_date}-multistream.xml.bz2")
     end
 
+    # URL of the langlinks dump for an explicit dump date
+    def langlinks_url(date)
+      wiki = "#{@lang}wiki"
+      "#{DUMP_BASE_URL}/#{wiki}/#{date}/#{wiki}-#{date}-langlinks.sql.gz"
+    end
+
+    # Cache path of the langlinks dump for an explicit dump date
+    def cached_langlinks_path(date)
+      File.join(@cache_dir, "#{@lang}wiki-#{date}-langlinks.sql.gz")
+    end
+
+    # Download the langlinks dump for an explicit dump date. The date MUST
+    # come from the built metadata index (not latest_dump_date) so the
+    # imported links stay pinned to the indexed dump version.
+    def download_langlinks(date:, force: false)
+      path = cached_langlinks_path(date)
+      if File.exist?(path) && !force
+        puts "Langlinks already cached: #{File.basename(path)}"
+        $stdout.flush
+        return path
+      end
+
+      url = langlinks_url(date)
+      puts "Downloading langlinks: #{url}"
+      $stdout.flush
+      download_file(url, path)
+      path
+    end
+
     # Check if cache is fresh (within configured days)
     def cache_fresh?(days = nil)
       days ||= @dump_expiry_days

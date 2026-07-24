@@ -37,13 +37,45 @@ module Wp2txt
       File.join(dir, "#{basename}_#{path_hash}#{CACHE_SUFFIX}")
     end
 
-    # Normalize a category name the way MediaWiki treats titles:
+    # Normalize a page title the way MediaWiki treats titles:
     # underscores to spaces, trimmed, first letter capitalized
-    def self.normalize_category(name)
+    def self.normalize_title(name)
       n = name.to_s.tr("_", " ").strip.squeeze(" ")
       return n if n.empty?
 
       n[0].upcase + n[1..].to_s
+    end
+
+    # Normalize a category name (same MediaWiki title rules as normalize_title)
+    def self.normalize_category(name)
+      normalize_title(name)
+    end
+
+    # Built metadata DBs for one language found in a cache directory, most
+    # recently built first. Used for cross-dump ATTACH resolution (Corpus)
+    # and langlinks sanity checks (LanglinksImporter).
+    # @return [Array<Hash>] [{db_path:, dump_name:, built_at:, built_with:}]
+    def self.cached_candidates(lang, cache_dir: nil)
+      dir = cache_dir || File.expand_path("~/.wp2txt/cache")
+      Dir.glob(File.join(dir, "#{lang}wiki-*#{CACHE_SUFFIX}")).filter_map do |path|
+        meta = read_metadata_file(path)
+        next unless meta && meta[:schema_version].to_i == SCHEMA_VERSION && meta[:built_at]
+
+        { db_path: path, dump_name: meta[:dump_name], built_at: meta[:built_at],
+          built_with: meta[:wp2txt_version] }
+      end.sort_by { |c| c[:built_at].to_s }.reverse
+    end
+
+    # Light, read-only metadata table read for a DB file we do not manage
+    def self.read_metadata_file(path)
+      db = SQLite3::Database.new(path, readonly: true)
+      result = {}
+      db.execute("SELECT key, value FROM metadata") { |key, value| result[key.to_sym] = value }
+      result
+    rescue SQLite3::Exception
+      nil
+    ensure
+      db&.close
     end
 
     # Remove wiki markup from a heading ('''bold''', [[link|label]], HTML tags)
@@ -109,6 +141,24 @@ module Wp2txt
         category_count: count_scalar("SELECT COUNT(DISTINCT category) FROM page_categories"),
         section_count: count_scalar("SELECT COUNT(*) FROM page_sections")
       }
+    end
+
+    # Provenance of an imported langlinks table (nil when not imported).
+    # The langlinks table is an optional post-build addition (LanglinksImporter),
+    # so its absence does not affect built? or schema_version.
+    def langlinks_provenance
+      return nil unless File.exist?(@db_path)
+
+      meta = read_metadata
+      return nil unless meta && meta[:langlinks_imported_at]
+
+      { source: meta[:langlinks_source],
+        source_size: meta[:langlinks_source_size].to_i,
+        imported_at: meta[:langlinks_imported_at],
+        imported_with: meta[:langlinks_wp2txt_version],
+        lang_filter: meta[:langlinks_lang_filter],
+        row_count: meta[:langlinks_row_count].to_i,
+        skipped_invalid: meta[:langlinks_skipped_invalid].to_i }
     end
 
     def close
@@ -267,6 +317,22 @@ module Wp2txt
       open_db.execute(
         "SELECT category FROM page_categories WHERE page_id = ? ORDER BY category", [row[0]]
       ).map(&:first)
+    end
+
+    # Look up titles in pages (existence + redirect target), batched to keep
+    # the IN clause small. Used by Corpus#extract_corpus titles: resolution.
+    # @return [Hash] { title => redirect_to_or_nil } for the titles that exist
+    def redirect_map(titles)
+      result = {}
+      titles.each_slice(500) do |slice|
+        placeholders = slice.map { "?" }.join(",")
+        open_db.execute(
+          "SELECT title, redirect_to FROM pages WHERE title IN (#{placeholders})", slice
+        ).each do |title, redirect_to|
+          result[title] = redirect_to
+        end
+      end
+      result
     end
 
     # Subcategory tree starting at category, as [{name:, depth:}, ...] (BFS order)

@@ -1,5 +1,8 @@
 FROM ruby:4.0.1-alpine3.23
 
+# Link the GHCR package to the source repository
+LABEL org.opencontainers.image.source="https://github.com/yohasebe/wp2txt"
+
 WORKDIR /wp2txt
 COPY . ./
 RUN rm -f Gemfile.lock
