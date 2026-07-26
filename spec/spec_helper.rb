@@ -59,6 +59,28 @@ RSpec.configure do |config|
     mocks.verify_partial_doubles = true
   end
 
+  # Per-example wall-clock guard. The suite deliberately exercises runaway
+  # queries and forked workers; an interrupted or wedged example must not turn
+  # into a process spinning at 100% CPU for days (observed 2026-07-24).
+  # Slowest legitimate example is ~14s, so 120s is pure headroom. Override with
+  # WP2TXT_SPEC_TIMEOUT=0 to disable, or tag an example :no_timeout.
+  spec_timeout = (ENV["WP2TXT_SPEC_TIMEOUT"] || 120).to_i
+  if spec_timeout.positive?
+    require "timeout"
+    config.around(:each) do |example|
+      if example.metadata[:no_timeout]
+        example.run
+      else
+        begin
+          Timeout.timeout(spec_timeout) { example.run }
+        rescue Timeout::Error
+          raise "example exceeded the #{spec_timeout}s spec timeout (possible hang; " \
+                "set WP2TXT_SPEC_TIMEOUT=0 to disable this guard)"
+        end
+      end
+    end
+  end
+
   config.shared_context_metadata_behavior = :apply_to_host_groups
   config.filter_run_when_matching :focus
   config.example_status_persistence_file_path = "spec/examples.txt"

@@ -5,6 +5,11 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+- **Runaway-query hardening**: a `query_sql` child process now sets its own kernel-enforced CPU limit (`RLIMIT_CPU`, the query timeout plus a small grace) in addition to the parent's wall-clock kill. Previously a child orphaned by the parent's death — an interrupted test run, a closed terminal, a crashed server — kept executing forever: sqlite3 holds the GVL inside `sqlite3_step`, so Ruby never reaches a signal-safe point and even SIGTERM is ignored. Observed in the wild as two processes spinning at 99% CPU for over five days. The CPU limit is strictly more permissive than the existing wall-clock deadline, so no query that would otherwise succeed is affected
+- **Test-suite hang guard**: each example now runs under a wall-clock timeout (120s default; `WP2TXT_SPEC_TIMEOUT=0` disables it, the `:no_timeout` tag exempts an example). The suite deliberately exercises runaway queries, so a wedged example must fail rather than spin
+
 ## [2.3.0] - 2026-07-24
 
 - **Documentation split**: README now focuses on text extraction; the research layer (indexes, exhaustive queries, full-text search, langlinks, cross-language SQL, MCP server) is documented in the new [Research Infrastructure Guide](docs/RESEARCH.md), including the complete MCP tool table

@@ -482,6 +482,31 @@ module Wp2txt
     SQL_ROW_LIMIT = 200
     SQL_CELL_LIMIT = 2000
     SQL_TIMEOUT_SECONDS = 30
+
+    # Grace added to the child's own CPU limit: the parent's IO.select deadline
+    # should normally fire first; this is the fallback for when it cannot.
+    SQL_CHILD_CPU_GRACE = 5
+
+    # Self-imposed deadline for a query child, applied inside the fork.
+    #
+    # The parent kills the child on timeout, but a child ORPHANED by the
+    # parent's death (interrupted test run, closed terminal, crashed server)
+    # would otherwise spin forever: sqlite3 holds the GVL inside sqlite3_step,
+    # so Ruby's deferred signal handling never reaches a safe point and even
+    # SIGTERM is ignored — only SIGKILL or the kernel can stop it. A CPU
+    # rlimit is enforced by the kernel regardless of the GVL (SIGXCPU at the
+    # soft limit, SIGKILL at the hard one), so the child always dies on its own.
+    def self.apply_child_cpu_limit(timeout)
+      return unless Process.respond_to?(:setrlimit) && defined?(Process::RLIMIT_CPU)
+
+      seconds = timeout.to_f.ceil
+      Process.setrlimit(Process::RLIMIT_CPU,
+                        seconds + SQL_CHILD_CPU_GRACE,
+                        seconds + (SQL_CHILD_CPU_GRACE * 2))
+    rescue StandardError
+      # A platform without CPU rlimits keeps the previous behaviour (parent-only kill)
+      nil
+    end
     SQL_FORBIDDEN = /\b(ATTACH|DETACH|PRAGMA|INSERT|UPDATE|DELETE|DROP|CREATE|ALTER|REPLACE|VACUUM|REINDEX)\b/i
 
     # File-output mode (query_sql output_path:): hard row cap and per-cell
@@ -656,6 +681,7 @@ module Wp2txt
       fts_path = fts.db_path
       reader_io, writer_io = IO.pipe
       pid = Process.fork do
+        self.class.apply_child_cpu_limit(timeout)
         reader_io.close
         outcome = begin
           db = build_readonly_connection(attach_fts: attach_fts, fts_path: fts_path, attachments: attachments)
@@ -797,6 +823,7 @@ module Wp2txt
       fts_path = fts.db_path
       reader_io, writer_io = IO.pipe
       pid = Process.fork do
+        self.class.apply_child_cpu_limit(timeout)
         reader_io.close
         outcome = begin
           db = build_readonly_connection(attach_fts: attach_fts, fts_path: fts_path, attachments: attachments)

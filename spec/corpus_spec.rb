@@ -199,6 +199,31 @@ RSpec.describe Wp2txt::Corpus do
       expect(Process.clock_gettime(Process::CLOCK_MONOTONIC) - start).to be < 5
     end
 
+    it "gives the query child its own kernel-enforced CPU limit" do
+      # A child orphaned by the parent's death (interrupted test run, closed
+      # terminal) must still die on its own: sqlite3 holds the GVL inside
+      # sqlite3_step, so signals are never processed and only the kernel can
+      # stop it. Verified here by reading the limit the child actually gets.
+      skip "no CPU rlimits on this platform" unless Process.respond_to?(:setrlimit)
+
+      reader, writer = IO.pipe
+      pid = Process.fork do
+        reader.close
+        Wp2txt::Corpus.apply_child_cpu_limit(30)
+        writer.puts(Process.getrlimit(Process::RLIMIT_CPU).inspect)
+        writer.close
+        exit!(0)
+      end
+      writer.close
+      limits = reader.read
+      reader.close
+      Process.waitpid(pid)
+
+      # 30s query timeout => soft 35s / hard 40s of CPU time. Both exceed the
+      # parent's own wall-clock deadline, so no legitimate query is affected.
+      expect(limits.strip).to eq("[35, 40]")
+    end
+
     it "keeps serving queries after a timeout" do
       expect do
         @corpus.query_sql("WITH RECURSIVE c(x) AS (SELECT 1 UNION ALL SELECT x + 1 FROM c) SELECT COUNT(*) FROM c", timeout: 1)
