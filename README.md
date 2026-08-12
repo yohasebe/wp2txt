@@ -84,7 +84,7 @@ docker run -it -v /path/to/localdata:/data ghcr.io/yohasebe/wp2txt
 
 The `wp2txt` command is available inside the container. Use `/data` for input/output files.
 
-Images are published to GitHub Container Registry (`ghcr.io/yohasebe/wp2txt`); Docker Hub (`yohasebe/wp2txt`) is maintained as a mirror.
+Images are published to GitHub Container Registry (`ghcr.io/yohasebe/wp2txt`). The former Docker Hub repository (`yohasebe/wp2txt`) is no longer updated as of 2.3.1.
 
 **MCP server (no Ruby required on the host):**
 

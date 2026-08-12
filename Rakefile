@@ -32,16 +32,39 @@ Rake::Task["build"].enhance([:normalize_permissions])
 # Docker
 # =============================================================================
 
-desc "Push Docker images"
-task :push do
+# Paths that must never reach a published image. The image is built from the
+# working tree, so anything ignored locally (private notes, scratch files)
+# would otherwise ride along; 2.3.0's images shipped research-notes/ this way.
+IMAGE_FORBIDDEN_PATHS = %w[/wp2txt/research-notes /wp2txt/tmp /wp2txt/.git /wp2txt/CLAUDE.md /wp2txt/.claude].freeze
+
+desc "Verify a built image contains no private material (run before pushing)"
+task :verify_image, [:tag] do |_t, args|
+  tag = args[:tag] || "wp2txt-verify:local"
+  checks = IMAGE_FORBIDDEN_PATHS.map { |p| "test -e #{p} && echo LEAK:#{p}" }.join("; ")
+  out = `docker run --rm #{tag} sh -c '#{checks}; true' 2>&1`
+  leaks = out.lines.grep(/^LEAK:/).map(&:strip)
+  abort "Image #{tag} contains private paths:\n  #{leaks.join("\n  ")}" unless leaks.empty?
+
+  puts "OK: #{tag} contains none of #{IMAGE_FORBIDDEN_PATHS.join(', ')}"
+end
+
+desc "Build the image locally and verify it, without pushing"
+task :check_image do
+  sh "docker build -t wp2txt-verify:local ."
+  Rake::Task[:verify_image].invoke
+end
+
+desc "Build and push Docker images to GHCR (verifies a local build first)"
+task push: :check_image do
+  # Docker Hub was retired after 2.3.0; GHCR (ghcr.io/yohasebe/wp2txt) is the
+  # only registry. Requires `docker buildx use multiarch` and a ghcr.io login.
   sh <<-SCRIPT.strip_heredoc, { verbose: false }
     /bin/bash -xeu <<'BASH'
-      # docker buildx create --name mybuilder
-      # docker buildx use mybuilder
+      # docker buildx create --name multiarch
+      # docker buildx use multiarch
       # docker buildx inspect --bootstrap
       docker buildx build --platform linux/amd64,linux/arm64 \
         -t ghcr.io/yohasebe/wp2txt:#{Wp2txt::VERSION} -t ghcr.io/yohasebe/wp2txt:latest \
-        -t yohasebe/wp2txt:#{Wp2txt::VERSION} -t yohasebe/wp2txt:latest \
         . --push
     BASH
   SCRIPT

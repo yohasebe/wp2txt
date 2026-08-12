@@ -395,7 +395,8 @@ info = Wp2txt::Bz2Validator.file_info("/path/to/file.bz2")
 Build and push Docker images:
 
 ```bash
-rake push  # Builds multi-arch and pushes to Docker Hub
+rake check_image  # Builds the image locally and verifies it carries no private files
+rake push        # Verifies, then builds multi-arch and pushes to GHCR
 ```
 
 ## Release Process

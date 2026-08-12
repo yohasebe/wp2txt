@@ -7,7 +7,12 @@ WORKDIR /wp2txt
 COPY . ./
 RUN rm -f Gemfile.lock
 
-# Install dependencies (git is required by gemspec's `git ls-files`)
+# Install dependencies (git is required by gemspec's `git ls-files`).
+# The repository's .gitignore is copied in deliberately: `git add -A` must
+# honour it so the file list here matches a local `gem build` — without it,
+# ignored material (private notes, scratch files) would land in the image.
+# The throwaway .git is removed afterwards: it holds a blob copy of every
+# added file and is dead weight in the published image.
 RUN apk update && \
     apk upgrade && \
     apk add --no-cache \
@@ -17,6 +22,7 @@ RUN apk update && \
       build-base curl-dev wget && \
     git init && git add -A && \
     bundle install -j4 && \
+    rm -rf /wp2txt/.git && \
     apk del .build-packages
 
 # lbzip2 is not available as an Alpine package; build from source

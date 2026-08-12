@@ -80,7 +80,7 @@ docker run -it -v /path/to/localdata:/data ghcr.io/yohasebe/wp2txt
 
 `wp2txt`コマンドはコンテナ内で使用可能です。入出力には`/data`ディレクトリを使用してください。
 
-イメージはGitHub Container Registry（`ghcr.io/yohasebe/wp2txt`）で公開されています（Docker Hub `yohasebe/wp2txt` はミラーとして維持）。
+イメージはGitHub Container Registry（`ghcr.io/yohasebe/wp2txt`）で公開されています。旧 Docker Hub リポジトリ（`yohasebe/wp2txt`）は 2.3.1 以降更新されません。
 
 ## 基本的な使い方
 

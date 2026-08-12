@@ -6,11 +6,12 @@ pkg
 spec
 coverage
 tmp
+.bundle
+research-notes
 benchmark_results
 data/output_samples
 scripts
 .dockerignore
-.gitignore
 .solargraph.yml
 .rubocop.yml
 Gemfile.lock
