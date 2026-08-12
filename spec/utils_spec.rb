@@ -59,6 +59,53 @@ RSpec.describe "Wp2txt Utils" do
     end
   end
 
+  # Regression: process_external_links used to strip the brackets of the
+  # [ref]/[/ref] markers (contents "ref" / "/ref" take the parts.size == 1
+  # branch), so remove_ref could no longer find them and the tag names plus
+  # reference body leaked into the extracted text. These tests exercise the
+  # composed make_reference -> format_wiki path, since testing remove_ref in
+  # isolation passes even with the bug.
+  describe "reference markers through format_wiki" do
+    it "removes <ref>...</ref> including the body" do
+      input = "Paris was founded.<ref>Patrick Boucheron, France in the World (2019) pp 81-86.</ref> The city grew."
+      result = format_wiki(make_reference(input))
+      expect(result).to eq "Paris was founded. The city grew."
+    end
+
+    it "removes named <ref name=\"x\">...</ref> including the body" do
+      input = "Fine dining.<ref name=\"lemonde\">Le Monde, 2 February 2015</ref> Paris has."
+      result = format_wiki(make_reference(input))
+      expect(result).to eq "Fine dining. Paris has."
+    end
+
+    it "removes self-closing <ref name=\"x\"/>" do
+      input = "An asteroid,<ref name=\"x\"/> and a building."
+      result = format_wiki(make_reference(input))
+      expect(result).to eq "An asteroid, and a building."
+    end
+
+    it "removes consecutive <ref>A</ref><ref>B</ref> without joining tag names" do
+      input = "Text<ref>A</ref><ref>B</ref> more."
+      result = format_wiki(make_reference(input))
+      expect(result).to eq "Text more."
+    end
+
+    it "keeps [ref]...[/ref] markers when config[:ref] is true" do
+      input = "Paris was founded.<ref>Patrick Boucheron, France in the World (2019) pp 81-86.</ref> The city grew."
+      result = format_wiki(make_reference(input), ref: true)
+      expect(result).to eq "Paris was founded.[ref]Patrick Boucheron, France in the World (2019) pp 81-86.[/ref] The city grew."
+    end
+
+    # Guards against the rejected fix of returning "[ref]" from the scanner
+    # block: that makes process_nested_single_pass re-detect the same spot
+    # until MAX_NESTING_ITERATIONS, leaving external links unprocessed.
+    it "still processes external links outside [ref] markers" do
+      input = "Claim.<ref>See [http://example.com the site] for detail.</ref> Next [http://foo.com Foo] end."
+      expect(format_wiki(make_reference(input))).to eq "Claim. Next Foo end."
+      expect(format_wiki(make_reference(input), ref: true)).to eq "Claim.[ref]See the site for detail.[/ref] Next Foo end."
+    end
+  end
+
   describe "remove_table" do
     it "removes table formated parts" do
       str_before = "{| ... \n{| ... \n ...|}\n ...|}"

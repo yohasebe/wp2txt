@@ -415,11 +415,24 @@ module Wp2txt
     result.strip
   end
 
+  # Reference markers are already in [ref] form when external links are
+  # processed, and the scanner would strip their brackets (making remove_ref
+  # fail). Hide them behind placeholders for the duration of the scan.
+  # NOTE: do not special-case them inside the block instead — returning
+  # "[ref]" from the block makes process_nested_single_pass re-detect the same
+  # spot forever, burning MAX_NESTING_ITERATIONS and leaving the whole string
+  # unprocessed (measured: 478x slower, no links processed).
+  REF_OPEN_PLACEHOLDER  = "«REFOPEN»"
+  REF_CLOSE_PLACEHOLDER = "«REFCLOSE»"
+
   def process_external_links(str)
     # Early exit if no external links present
     return str unless str.include?("[")
 
-    process_nested_single_pass(str, "[", "]") do |contents|
+    protected_str = str.gsub("[ref]", REF_OPEN_PLACEHOLDER)
+                       .gsub("[/ref]", REF_CLOSE_PLACEHOLDER)
+
+    processed = process_nested_single_pass(protected_str, "[", "]") do |contents|
       if /\A\s.+\s\z/ =~ contents
         " (#{contents.strip}) "
       else
@@ -432,6 +445,9 @@ module Wp2txt
         end
       end
     end
+
+    processed.gsub(REF_OPEN_PLACEHOLDER, "[ref]")
+             .gsub(REF_CLOSE_PLACEHOLDER, "[/ref]")
   end
 
   #################### template processing ####################
