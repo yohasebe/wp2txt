@@ -168,6 +168,24 @@ RSpec.describe "Wp2txt Utils" do
       expect(paragraphs[0][1]).to include("First para.")
       expect(paragraphs[1][1]).to include("Second para.")
     end
+
+    # An unclosed <ref> must not pair with a later </ref> across paragraphs;
+    # the body text stays (a floating [ref] is the pre-existing behavior for
+    # this malformed markup).
+    it "does not swallow paragraphs when a <ref> is left unclosed" do
+      wikitext = "First para with <ref>unclosed reference.\n\nSecond para here.\n\n" \
+                 "Third para with <ref>closed</ref> end."
+      result = render_elements(wikitext)
+      expect(result).to include("Second para here.")
+      expect(result).to include("First para with")
+    end
+
+    it "handles a multi-line reference with a group attribute" do
+      result = render_elements("Claim.<ref group=\"note\">Author\nTitle 2019</ref> Next.")
+      expect(result).not_to include("[ref]")
+      expect(result).not_to include("[/ref]")
+      expect(result).to include("Claim. Next.")
+    end
   end
 
   describe "remove_table" do

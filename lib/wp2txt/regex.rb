@@ -212,8 +212,11 @@ module Wp2txt
   MAKE_REFERENCE_REGEX_B = Regexp.new('<ref[^>]*\/>', Regexp::IGNORECASE)
   # A reference carrying no content adds nothing in either mode
   MAKE_REFERENCE_REGEX_EMPTY = Regexp.new('<ref[^>]*>\s*<\/ref>', Regexp::MULTILINE | Regexp::IGNORECASE)
-  # One whole reference span, used to normalize newlines inside it
-  MAKE_REFERENCE_REGEX_SPAN  = Regexp.new('<ref[^>]*>.*?<\/ref>', Regexp::MULTILINE | Regexp::IGNORECASE)
+  # One whole reference span, used to normalize newlines inside it.
+  # The span must not contain another opening <ref: an unclosed <ref> would
+  # otherwise pair with a later </ref> and swallow the paragraphs in between.
+  MAKE_REFERENCE_REGEX_SPAN = Regexp.new('<ref[^>]*>(?:(?!<ref[\s>]).)*?<\/ref>',
+                                         Regexp::MULTILINE | Regexp::IGNORECASE)
   MAKE_REFERENCE_REGEX_C = Regexp.new('<ref[^>]*>', Regexp::IGNORECASE)
   MAKE_REFERENCE_REGEX_D = Regexp.new('<\/ref>', Regexp::IGNORECASE)
   FORMAT_REF_REGEX = Regexp.new('\[ref\](.*?)\[\/ref\]', Regexp::MULTILINE)
