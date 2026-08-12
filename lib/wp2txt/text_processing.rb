@@ -308,6 +308,14 @@ module Wp2txt
     result = +str.to_s
     result.gsub!(MAKE_REFERENCE_REGEX_A, "\n")
     result.gsub!(MAKE_REFERENCE_REGEX_B, "")
+    # Element splitting (Article#parse) breaks paragraphs at newlines, so a
+    # reference written across lines would land in separate elements and its
+    # [ref]/[/ref] pair would never be visible to remove_ref at the same time.
+    # Drop empty references outright, and flatten the rest onto one line so
+    # multi-line references behave exactly like single-line ones (this is also
+    # what makes --extract-citations work on multi-line cite templates).
+    result.gsub!(MAKE_REFERENCE_REGEX_EMPTY, "")
+    result.gsub!(MAKE_REFERENCE_REGEX_SPAN) { |span| span.gsub(/\s*\n\s*/, " ") }
     result.gsub!(MAKE_REFERENCE_REGEX_C, "[ref]")
     result.gsub!(MAKE_REFERENCE_REGEX_D, "[/ref]")
     result

@@ -106,6 +106,70 @@ RSpec.describe "Wp2txt Utils" do
     end
   end
 
+  # Regression: element splitting (Article#parse) breaks paragraphs at
+  # newlines, so a reference written across lines landed in separate elements
+  # with [ref] and [/ref] never visible to remove_ref at the same time. This
+  # also meant --extract-citations never fired for multi-line cite templates.
+  # These tests go through Article.new -> format_wiki per element, since
+  # passing a string to format_wiki directly skips element splitting and does
+  # not reproduce the bug.
+  describe "multi-line references through element splitting" do
+    def render_elements(wikitext, config = {})
+      Wp2txt::Article.new(wikitext).elements.map { |e| format_wiki(e[1], config) }.join
+    end
+
+    it "removes an empty reference spanning a blank line" do
+      result = render_elements("...in the Super League.<ref>\n\n</ref> In 2006, Catalans Dragons became...")
+      expect(result).not_to include("[ref]")
+      expect(result).not_to include("[/ref]")
+      expect(result).to include("Super League. In 2006,")
+    end
+
+    it "removes a named empty reference spanning a blank line" do
+      result = render_elements("Claim.<ref name=\"x\">\n\n</ref> Next.")
+      expect(result).not_to include("[ref]")
+      expect(result).not_to include("[/ref]")
+      expect(result).to include("Claim. Next.")
+    end
+
+    it "removes a non-empty reference spanning a blank line" do
+      result = render_elements("Claim.<ref>Author\n\nPublisher</ref> Next.")
+      expect(result).not_to include("[ref]")
+      expect(result).not_to include("[/ref]")
+      expect(result).to include("Claim. Next.")
+    end
+
+    it "removes a multi-line cite template reference (with and without leading space)" do
+      ["Claim.<ref> {{cite book\n |title=Foo\n |year=2019}}</ref> Next.",
+       "Claim.<ref>{{cite book\n|title=Foo\n|year=2019}}</ref> Next."].each do |input|
+        result = render_elements(input)
+        expect(result).not_to include("[ref]")
+        expect(result).not_to include("[/ref]")
+        expect(result).not_to include("cite book")
+        expect(result).to include("Claim. Next.")
+      end
+    end
+
+    # The core of this fix: before, only the multi-line form leaked raw
+    # markup, so --extract-citations silently did nothing for it.
+    it "extracts citations identically from single-line and multi-line cite templates" do
+      config = { extract_citations: true, ref: true }
+      single = render_elements("Claim.<ref>{{cite book|title=Foo|year=2019}}</ref> Next.", config)
+      multi  = render_elements("Claim.<ref>{{cite book\n|title=Foo\n|year=2019}}</ref> Next.", config)
+      expect(multi).to eq single
+      expect(single).to include("[ref]\"Foo\". 2019.[/ref]")
+    end
+
+    # Control: newlines outside references must still split paragraphs.
+    it "still splits ordinary paragraph boundaries at blank lines" do
+      elements = Wp2txt::Article.new("First para.\n\nSecond para.").elements
+      paragraphs = elements.select { |e| e[0] == :mw_paragraph }
+      expect(paragraphs.size).to eq 2
+      expect(paragraphs[0][1]).to include("First para.")
+      expect(paragraphs[1][1]).to include("Second para.")
+    end
+  end
+
   describe "remove_table" do
     it "removes table formated parts" do
       str_before = "{| ... \n{| ... \n ...|}\n ...|}"
