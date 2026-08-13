@@ -36,3 +36,4 @@ benchmark_results/
 
 # Developer-specific Ruby version
 .ruby-version
+.private-doc-tokens

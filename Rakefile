@@ -34,7 +34,7 @@ Rake::Task["build"].enhance([:normalize_permissions])
 
 # Paths that must never reach a published image. The image is built from the
 # working tree, so anything ignored locally (private notes, scratch files)
-# would otherwise ride along; 2.3.0's images shipped research-notes/ this way.
+# would otherwise ride along.
 IMAGE_FORBIDDEN_PATHS = %w[/wp2txt/research-notes /wp2txt/tmp /wp2txt/.git /wp2txt/CLAUDE.md /wp2txt/.claude].freeze
 
 desc "Verify a built image contains no private material (run before pushing)"
