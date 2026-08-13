@@ -255,12 +255,12 @@ By default, citation templates are removed. Use `--extract-citations` to extract
 
 Supported: `{{cite book}}`, `{{cite web}}`, `{{cite news}}`, `{{cite journal}}`, `{{Citation}}`, etc.
 
-## Research Infrastructure (Indexes, Exhaustive Queries, MCP)
+## Offline Indexes, Queries, and the MCP Server
 
-Beyond text extraction, wp2txt can turn a dump into a **local, version-pinned research
-database**: SQLite indexes over categories, section headings, redirects, and (optionally)
-the full article text, plus interlanguage links for cross-edition comparison — all
-queryable offline, exhaustively, and exposed to LLM agents via an MCP server.
+Beyond text extraction, wp2txt can turn a dump into a **local, version-pinned database**:
+SQLite indexes over categories, section headings, redirects, and (optionally) the full
+article text, plus interlanguage links for cross-edition comparison — all queryable
+offline, and usable from an LLM client via an MCP server.
 
 ```console
 $ wp2txt --build-index --fulltext --lang=ja      # build the indexes
@@ -270,13 +270,12 @@ $ wp2txt --import-langlinks -L ja --langlinks-langs en,de,fr,zh,ko
 $ wp2txt-mcp --lang=ja                           # stdio MCP server for LLM agents
 ```
 
-Unlike web/API access, these queries scan every article (a `0 matches` result is a
-verifiable absence claim for that dump version) and are reproducible: extractions record
-the dump version and query in a `.meta.json` sidecar.
+These queries scan every article — `0 matches` means the term is absent from that dump
+version — and extractions record the dump version and query in a `.meta.json` sidecar,
+so results can be reproduced later.
 
-**→ See the [Research Infrastructure Guide](docs/RESEARCH.md)** for index building,
-exhaustive queries, full-text search, interlanguage links, cross-language SQL, the full
-MCP tool list, and design principles.
+**→ See [docs/INDEXES.md](docs/INDEXES.md)** for index building, offline queries,
+full-text search, interlanguage links, cross-language SQL, and the full MCP tool list.
 
 ## Command Line Options
 
@@ -354,11 +353,11 @@ MCP tool list, and design principles.
 ### Research infrastructure options
 
     --build-index                    Build the metadata index (add --fulltext for FTS)
-    --find-articles / --search       Exhaustive offline queries (see docs/RESEARCH.md)
+    --find-articles / --search       Offline queries over a whole edition (see docs/INDEXES.md)
     --import-langlinks               Import interlanguage links (version-matched)
     --fts-optimize                   Optimize an existing full-text index
 
-See the [Research Infrastructure Guide](docs/RESEARCH.md) for details.
+See [docs/INDEXES.md](docs/INDEXES.md) for details.
 
 ## Configuration File
 

@@ -383,6 +383,14 @@ info = Wp2txt::Bz2Validator.file_info("/path/to/file.bz2")
 2. Redirect keywords: `data/language_redirects.json`
 3. Scripts: `scripts/generate_language_data.rb`
 
+## Documentation
+
+User-facing documents (README, README_ja, CHANGELOG, docs/) describe what a user can
+observe and what they need to do — not how the code works internally or why it is
+designed the way it is. Keep implementation detail in this file and in code comments,
+and keep design rationale out of the public repository entirely. The MCP tool table in
+docs/INDEXES.md is checked against the actual server surface by spec/docs_sync_spec.rb.
+
 ## Code Style
 
 - Ruby 2.6+ compatibility

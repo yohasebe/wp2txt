@@ -1,40 +1,31 @@
-# wp2txt Research Infrastructure Guide
+# Offline Indexes, Queries, and the MCP Server
 
-This guide covers the research-oriented layer of wp2txt: local indexes over Wikipedia
-dumps, exhaustive offline queries, full-text search, cross-language SQL, and the MCP
-server that exposes all of this to LLM agents.
+This guide covers wp2txt's index-based features: local indexes over Wikipedia dumps,
+offline queries across a whole edition, full-text search, interlanguage links,
+cross-language SQL, and the MCP server for connecting an LLM client.
 
 For plain-text extraction (the classic wp2txt), see the [README](../README.md).
 
-## Concept
-
-Web search and the Wikipedia API operate on ranked, paginated, ever-changing data. They
-can show that something *exists*, but they cannot make **exhaustive** claims ("342 of the
-11,486 film articles with a plot section mention X — and none of the others do"), and
-their answers change from day to day.
-
-wp2txt takes the opposite approach: build local indexes over an official dump file, so that
-every query is
-
-- **exhaustive** — it scans every article, not search-ranked results;
-- **version-pinned** — results are tied to one dump (e.g. `jawiki-20260701`) and
-  reproducible later;
-- **agent-operable** — the MCP server exposes the whole layer to LLM agents, with
-  guardrails and provenance records designed for autonomous use.
+Everything below runs against a downloaded dump file: queries cover every article of the
+edition rather than a page of search results, results are tied to one dump (e.g.
+`jawiki-20260701`) and can be reproduced later, and nothing goes over the network once
+the dump is downloaded. Typical uses: "which of the 1.5M articles have a plot section",
+"how many film articles mention X, and which ones don't", "how do the section structures
+of the same article differ between the English and Japanese editions".
 
 ## 1. Building the indexes
 
 ```console
-# Tier 1: metadata index (categories, section headings, redirects, category hierarchy)
+# Metadata index (categories, section headings, redirects, category hierarchy)
 $ wp2txt --build-index --lang=ja
 
-# Tier 1 + Tier 2: add an FTS5 full-text index over the cleaned article text
+# Metadata index + FTS5 full-text index over the cleaned article text
 $ wp2txt --build-index --fulltext --lang=ja
 ```
 
 The dump is downloaded automatically if needed and everything is cached under
 `~/.wp2txt/cache/`. Ballpark figures (Apple Silicon laptop): Japanese Wikipedia ~15 min /
-~1.7 GB for the metadata index, ~1.5 h / ~12 GB with full text; English roughly 4× the
+~1.7 GB for the metadata index, ~1.5 h / ~12 GB with full text; English roughly 2.5–3× the
 time, ~10 GB / ~12 GB respectively.
 
 The full-text tokenizer is selected per language: character trigrams for Japanese,
@@ -58,8 +49,8 @@ $ wp2txt --find-articles --in-category "Films" -D 2 -j json --limit 100 --lang=e
 $ wp2txt --search "タイムループ" --in-category "映画作品" -D 3 --lang=ja
 ```
 
-Search totals are exhaustive counts, so `0 matches` is a verifiable **absence claim** for
-that dump version — something ranked web search cannot provide.
+Search totals count every match in the edition, so `0 matches` means the term is absent
+from that dump version — a result you can state and re-verify later.
 
 ## 3. Interlanguage links (langlinks)
 
@@ -114,7 +105,7 @@ $ claude mcp add wp2txt -- docker run -i --rm -v wp2txt:/root/.wp2txt ghcr.io/yo
 
 | Tool | Purpose |
 |------|---------|
-| `dump_info` | Dump identity, index tiers, corpus statistics, langlinks provenance |
+| `dump_info` | Dump identity, installed indexes, corpus statistics, langlinks provenance |
 | `get_article` / `get_sections` / `list_headings` / `get_categories` | Single-article access (redirect-aware) |
 | `find_articles` | Exhaustive filtered listing (category recursion, category AND / pattern match, section headings, title match) |
 | `category_tree` / `section_stats` | Scope exploration and heading-frequency discovery |
@@ -126,17 +117,19 @@ $ claude mcp add wp2txt -- docker run -i --rm -v wp2txt:/root/.wp2txt ghcr.io/yo
 | `extract_corpus` | Filtered or explicit-title extraction to JSONL + reproducibility sidecar; optional RAG chunking |
 | `start_extract_job` / `job_status` / `cancel_job` / `list_jobs` | Background jobs for large extractions |
 
-### Design principles
+### What happens when your assistant uses these tools
 
-- **Division of labor**: the tool does mechanical, exhaustive narrowing and counting;
-  semantic judgment is left to the LLM. The LLM never has to count.
-- **Context economy**: large results go to disk; the model receives a summary plus a
-  3-record sample, never the full corpus.
-- **Reproducibility**: every extraction and file-writing query records the dump version,
-  the query, and any alias sets in a `.meta.json` sidecar.
-- **Guardrails**: SQL is screened and executed read-only in a killable subprocess;
-  alias sets are re-verified server-side before saving; output paths are confined to the
-  server's output directory.
+- **Filtering and counting run over the whole dump**, and your assistant reads the result
+  rather than tallying articles itself.
+- **Large results are written to a file**; the reply carries a summary and a short sample.
+  Your corpus lands on disk intact instead of being paraphrased through the chat.
+- **Extractions are traceable.** Extractions and file-writing queries leave a `.meta.json`
+  next to the output recording the dump version, the query, and any alias sets used, so
+  you can reproduce or cite the result later.
+- **The tools cannot change your data.** Queries run read-only and are stopped after 30
+  seconds, saved alias sets are re-checked before being stored, and files can only be
+  written under the server's output directory — worth knowing if you plan to let an
+  assistant work unattended.
 
 ## 5. Cross-language SQL
 
@@ -157,12 +150,12 @@ query_sql(
 ```
 
 Attached databases appear as `{lang}_meta` (and `{lang}_fts` when that language has a
-full-text tier) and share the main database's schema. Language codes are validated and
-resolved server-side; user SQL can never contain ATTACH itself. The response records what
-was attached (dump names included), and flags date mismatches between editions.
+full-text index) and share the main database's schema. You pass language codes, not paths,
+and the SQL you write cannot attach anything itself. The response lists what was attached,
+including each edition's dump name, and flags it when the dates differ.
 
-To the best of our knowledge no other system offers version-pinned, cross-edition SQL over
-both metadata **and** article text, fully offline.
+This runs entirely offline against pinned dump versions, so a cross-edition comparison can
+be re-run later and produce the same numbers.
 
 ## 6. Large results, explicit sets, and reproducibility
 
@@ -182,26 +175,34 @@ extract_corpus(titles: ["東京物語", "羅生門", ...], content: "summary",
   redirect hop, and reports unmatched titles in `not_found` — closing the loop
   *SQL decides the set → the tool materializes it → the LLM reads it*.
 
-## 7. The alias discovery loop
+## 7. Section alias sets
 
-Section headings vary ("Plot" vs "Synopsis"; 「あらすじ」 vs 「ストーリー」). wp2txt ships
-no per-language dictionaries. Instead, agents discover aliases from the dump itself:
+Section headings vary by article and by language ("Plot" vs "Synopsis"; 「あらすじ」 vs
+「ストーリー」), and wp2txt ships no per-language dictionaries. Three tools manage named
+groups of equivalent headings instead:
 
-1. `section_stats` — find the actual headings used in a scope
-2. LLM proposes synonym groups
-3. `section_cooccurrence` — verify mechanically (true synonyms almost never co-occur in
-   the same article; a high co-occurrence ratio is evidence *against* the hypothesis)
-4. `save_alias_set` — persist the verified groups, re-checked server-side, and recorded
-   in every extraction that uses them
+- `section_stats` lists the headings actually used in a scope, with counts.
+- `section_cooccurrence` reports how often two headings appear in the same article.
+  Headings that mean the same thing rarely co-occur, so a high ratio is evidence that
+  they are *different* sections (「概要」 and 「あらすじ」 co-occur often — not synonyms).
+- `save_alias_set` stores a named group. The group is re-checked against co-occurrence
+  before saving; a failing group is not stored and the call returns `saved: false`
+  rather than an error. Pass `force` to override, and use `list_alias_sets` to see
+  what is stored.
 
-The bundled `discover_aliases` MCP prompt walks any agent through this protocol.
+Queries then accept `alias_set: "name"` in place of a heading list, and extractions
+record the group's exact contents in their `.meta.json`. The bundled `discover_aliases`
+prompt walks an LLM client through building and saving a set.
 
-## 8. Honest limitations
+## 8. Limitations to keep in mind
 
-- Queries operate on the **cleaned-text space**: content replaced by markers
-  (`[MATH]`, `[CODE]`, `[TABLE]`, …) is not searchable.
-- Trigram languages (ja/zh/ko) cannot match queries shorter than 3 characters;
-  word-based languages have no stemming (`run` ≠ `running`). Both are deliberate:
-  exact counts and absence claims require predictable matching.
-- Categories and links come from the dump itself, as written by editors — they inherit
-  Wikipedia's own inconsistencies, which is precisely what makes them worth studying.
+- Searches run over the **cleaned text**: content that extraction replaces with a marker
+  (`[MATH]`, `[CODE]`, `[TABLE]`, …) cannot be matched. A count is a count of the cleaned
+  text, not of the raw wikitext.
+- Japanese, Chinese, and Korean indexes cannot match queries shorter than 3 characters.
+  Word-based languages match exact forms only — `run` does not find `running`. Plan your
+  search terms accordingly, especially when you intend to report a zero result.
+- Categories and interlanguage links are read from the dump as editors wrote them.
+  Categories added by a template rather than written in the article text are not visible
+  to wp2txt, which can make a category look much smaller than it is on the website —
+  check against the article text if a count looks wrong.

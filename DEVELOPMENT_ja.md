@@ -383,6 +383,13 @@ info = Wp2txt::Bz2Validator.file_info("/path/to/file.bz2")
 2. リダイレクトキーワード: `data/language_redirects.json`
 3. スクリプト: `scripts/generate_language_data.rb`
 
+## ドキュメンテーション
+
+利用者向け文書（README, README_ja, CHANGELOG, docs/）には、利用者が観測できることと
+利用者が取るべき行動だけを書く — コードが内部でどう動くか、なぜそう設計したかは書かない。
+実装の詳細は本ファイルとコードコメントに、設計の理由づけは公開リポジトリの外に置く。
+docs/INDEXES.md の MCP ツール表は spec/docs_sync_spec.rb が実際のサーバー表面と照合する。
+
 ## コードスタイル
 
 - Ruby 2.6+互換性
