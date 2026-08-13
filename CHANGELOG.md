@@ -8,6 +8,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 Entries were rewritten in August 2026 to describe what changed for people using
 wp2txt, rather than how it was implemented. The changes themselves are unaltered.
 
+## [2.3.2] - 2026-08-13
+
+- **Documentation release — no code changes.** The changelog and guides bundled with the gem and the container image are rewritten to say what each change means for someone using wp2txt, rather than how it was implemented. The guide formerly at `docs/RESEARCH.md` is now [docs/INDEXES.md](docs/INDEXES.md) ("Offline Indexes, Queries, and the MCP Server")
+
 ## [2.3.1] - 2026-08-12
 
 - **Fix: references leaked into extracted text**: reference contents — tag remnants like `ref…/ref` and the bibliographic text inside them — could end up in the extracted body text, breaking sentence splitting and mixing citation details into running prose. In a spot check of five English articles this affected about 70 places per article. References are now removed cleanly (or kept intact as `[ref]…[/ref]` with `--ref`), including references written across several lines and empty ones
