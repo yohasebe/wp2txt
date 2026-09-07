@@ -15,6 +15,7 @@ scripts
 .solargraph.yml
 .rubocop.yml
 Gemfile.lock
+.private-doc-tokens
 CLAUDE.md
 DEVELOPMENT.md
 DEVELOPMENT_ja.md
