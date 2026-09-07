@@ -14,6 +14,7 @@ require_relative "metadata_index"
 require_relative "fts_index"
 require_relative "section_extractor"
 require_relative "version"
+require_relative "output_path"
 
 module Wp2txt
   # Facade over a local dump: single-article access (Tier 0, multistream),
@@ -324,7 +325,7 @@ module Wp2txt
                        title_match: nil, limit: 0, titles: nil,
                        chunk_size: nil, chunk_overlap: 0,
                        max_articles: DEFAULT_MAX_SYNC_ARTICLES, num_processes: 4,
-                       progress: nil, cancel_check: nil)
+                       progress: nil, cancel_check: nil, overwrite: false)
       if content == "sections" && Array(sections).empty? && alias_set.nil?
         raise ArgumentError, "content: \"sections\" requires sections or alias_set"
       end
@@ -394,46 +395,48 @@ module Wp2txt
       titles_done = 0
       sample = []
 
-      File.open(output_path, "w") do |f|
-        titles.each_slice(EXTRACT_BATCH_SIZE) do |batch|
-          raise Cancelled if cancel_check&.call
-
-          pages = reader.extract_articles_parallel(batch, num_processes: num_processes)
-          batch.each do |t|
-            page = pages[t]
-            next unless page
-
-            records = build_records(page, content, resolved_sections, chunk_size, chunk_overlap)
-            next if records.empty?
-
-            articles_extracted += 1
-            records.each do |record|
-              f.puts(JSON.generate(record))
-              records_written += 1
-              sample << record if sample.size < 3
-            end
-          end
-          titles_done += batch.size
-          progress&.call(titles_done, titles.size)
-        end
-      end
-
       meta_path = "#{output_path}.meta.json"
-      File.write(meta_path, JSON.pretty_generate(
-        tool: "wp2txt #{Wp2txt::VERSION}",
-        dump: dump_name,
-        generated_at: Time.now.utc.iso8601,
-        query: (titles_record || filters.compact).merge(
-          content: content, resolved_sections: resolved_sections,
-          chunk_size: chunk_size, chunk_overlap: chunk_size ? chunk_overlap : nil
-        ).compact,
-        alias_set_contents: alias_contents,
-        total_matching: total,
-        articles_extracted: articles_extracted,
-        records_written: records_written,
-        truncated: truncated,
-        not_found: not_found
-      ))
+      OutputPath.write_pair(output_path, overwrite: overwrite) do |staged_output, staged_meta|
+        File.open(staged_output, "w") do |f|
+          titles.each_slice(EXTRACT_BATCH_SIZE) do |batch|
+            raise Cancelled if cancel_check&.call
+
+            pages = reader.extract_articles_parallel(batch, num_processes: num_processes)
+            batch.each do |t|
+              page = pages[t]
+              next unless page
+
+              records = build_records(page, content, resolved_sections, chunk_size, chunk_overlap)
+              next if records.empty?
+
+              articles_extracted += 1
+              records.each do |record|
+                f.puts(JSON.generate(record))
+                records_written += 1
+                sample << record if sample.size < 3
+              end
+            end
+            titles_done += batch.size
+            progress&.call(titles_done, titles.size)
+          end
+        end
+
+        File.write(staged_meta, JSON.pretty_generate(
+          tool: "wp2txt #{Wp2txt::VERSION}",
+          dump: dump_name,
+          generated_at: Time.now.utc.iso8601,
+          query: (titles_record || filters.compact).merge(
+            content: content, resolved_sections: resolved_sections,
+            chunk_size: chunk_size, chunk_overlap: chunk_size ? chunk_overlap : nil
+          ).compact,
+          alias_set_contents: alias_contents,
+          total_matching: total,
+          articles_extracted: articles_extracted,
+          records_written: records_written,
+          truncated: truncated,
+          not_found: not_found
+        ))
+      end
 
       { output_path: output_path, meta_path: meta_path, dump: dump_name,
         total_matching: total, articles_extracted: articles_extracted,
@@ -661,15 +664,19 @@ module Wp2txt
     def run_sql_on(db, sql, limit)
       columns = nil
       rows = []
+      truncated = false
       db.query(sql) do |result|
         columns = result.columns
         result.each do |row|
-          break if rows.size >= limit
+          if rows.size >= limit
+            truncated = true
+            break
+          end
 
           rows << row.map { |v| v.is_a?(String) && v.length > SQL_CELL_LIMIT ? "#{v[0, SQL_CELL_LIMIT]}…" : v }
         end
       end
-      { columns: columns, rows: rows, row_count: rows.size, truncated: rows.size >= limit }
+      { columns: columns, rows: rows, row_count: rows.size, truncated: truncated }
     end
 
     # Execute the query in a forked child with a hard deadline: the child opens
@@ -727,37 +734,23 @@ module Wp2txt
       end
     end
 
-    # Write the full query result to output_path as JSONL. Atomicity: the
-    # child (or inline fallback) writes "#{output_path}.partial"; the parent
-    # renames it into place only on success and removes it on every failure
-    # path (child crash, timeout kill, error over the pipe) — a partially
-    # written file is never presented as a result. The .meta.json sidecar is
-    # written by the parent after the rename succeeds.
+    # Stage JSONL and provenance in unique files, then publish on success.
+    # OutputPath owns exclusive destination reservations and failure cleanup.
     def query_sql_to_file(sql, timeout, attachments, output_path, overwrite)
-      if File.exist?(output_path) && !overwrite
-        raise ArgumentError, "output file already exists: #{output_path} (pass overwrite: true to replace it)"
+      outcome = OutputPath.write_pair(output_path, overwrite: overwrite) do |partial, staged_meta|
+        result = if Process.respond_to?(:fork)
+                   run_sql_file_in_subprocess(sql, timeout, attachments, partial)
+                 else
+                   db = build_readonly_connection(attach_fts: fts.built?, attachments: attachments)
+                   begin
+                     run_sql_file_on(db, sql, partial)
+                   ensure
+                     db.close
+                   end
+                 end
+        write_sql_sidecar(staged_meta, sql, attachments, result)
+        result
       end
-
-      partial = "#{output_path}.partial"
-      FileUtils.rm_f(partial)
-      outcome = begin
-        if Process.respond_to?(:fork)
-          run_sql_file_in_subprocess(sql, timeout, attachments, partial)
-        else
-          db = build_readonly_connection(attach_fts: fts.built?, attachments: attachments)
-          begin
-            run_sql_file_on(db, sql, partial)
-          ensure
-            db.close
-          end
-        end
-      rescue StandardError
-        FileUtils.rm_f(partial)
-        raise
-      end
-
-      File.rename(partial, output_path)
-      write_sql_sidecar(output_path, sql, attachments, outcome)
 
       result = { output_path: output_path, meta_path: "#{output_path}.meta.json",
                  columns: outcome[:columns], row_count: outcome[:row_count],
@@ -772,6 +765,7 @@ module Wp2txt
     # subprocess path: the 30s SIGKILL deadline covers the writing too.
     def run_sql_file_on(db, sql, partial_path)
       columns = nil
+      column_mapping = nil
       row_count = 0
       cells_clipped = 0
       truncated = false
@@ -779,7 +773,11 @@ module Wp2txt
 
       File.open(partial_path, "w") do |f|
         db.query(sql) do |result|
-          columns = unique_columns(result.columns)
+          original_columns = result.columns
+          columns = unique_columns(original_columns)
+          column_mapping = original_columns.each_with_index.map do |name, ordinal|
+            { ordinal: ordinal, original_name: name, output_name: columns[ordinal] }
+          end
           result.each do |row|
             if row_count >= SQL_FILE_ROW_LIMIT
               truncated = true
@@ -788,8 +786,8 @@ module Wp2txt
 
             record = {}
             row.each_with_index do |value, i|
-              if value.is_a?(String) && value.length > SQL_FILE_CELL_LIMIT
-                value = "#{value[0, SQL_FILE_CELL_LIMIT]}…"
+              if value.is_a?(String) && value.bytesize > SQL_FILE_CELL_LIMIT
+                value = clip_file_cell(value)
                 cells_clipped += 1
               end
               record[columns[i]] = value
@@ -801,18 +799,35 @@ module Wp2txt
         end
       end
 
-      { columns: columns, row_count: row_count, truncated: truncated,
+      { columns: columns, column_mapping: column_mapping, row_count: row_count, truncated: truncated,
         cells_clipped: cells_clipped, sample: sample }
     end
 
     # Duplicate result column names (SELECT 1 AS x, 2 AS x) are suffixed
     # (_2, _3, ...) so every JSONL record key is unique
     def unique_columns(columns)
-      seen = Hash.new(0)
-      columns.map do |c|
-        seen[c] += 1
-        seen[c] == 1 ? c : "#{c}_#{seen[c]}"
+      reserved = columns.to_h { |name| [name, true] }
+      used = {}
+      columns.map do |name|
+        candidate = name
+        suffix = 2
+        while used[candidate] || (candidate != name && reserved[candidate])
+          candidate = "#{name}_#{suffix}"
+          suffix += 1
+        end
+        used[candidate] = true
+        candidate
       end
+    end
+
+    # SQL_FILE_CELL_LIMIT is a byte ceiling INCLUDING the UTF-8 ellipsis.
+    # Remove only the incomplete UTF-8 suffix after a byte-based cut.
+    def clip_file_cell(value)
+      utf8 = value.dup.force_encoding(Encoding::UTF_8)
+      raise JSON::GeneratorError, "SQL cell contains invalid UTF-8" unless utf8.valid_encoding?
+
+      prefix = utf8.byteslice(0, SQL_FILE_CELL_LIMIT - "…".bytesize).force_encoding(Encoding::UTF_8)
+      "#{prefix.scrub("")}…"
     end
 
     # Subprocess driver for file-output mode; same fork/pipe/SIGKILL
@@ -856,9 +871,9 @@ module Wp2txt
       reader_io&.close
     end
 
-    # Reproducibility sidecar, written by the parent after the atomic rename
-    def write_sql_sidecar(output_path, sql, attachments, outcome)
-      File.write("#{output_path}.meta.json", JSON.pretty_generate(
+    # Reproducibility sidecar, staged by the parent before publication.
+    def write_sql_sidecar(meta_path, sql, attachments, outcome)
+      File.write(meta_path, JSON.pretty_generate(
         tool: "query_sql",
         dump: dump_name,
         built_with: @metadata.stats&.dig(:built_with),
@@ -867,6 +882,8 @@ module Wp2txt
         row_count: outcome[:row_count],
         truncated: outcome[:truncated],
         cells_clipped: outcome[:cells_clipped],
+        column_mapping: outcome[:column_mapping],
+        cell_byte_limit: SQL_FILE_CELL_LIMIT,
         generated_at: Time.now.utc.iso8601,
         wp2txt_version: Wp2txt::VERSION
       ))

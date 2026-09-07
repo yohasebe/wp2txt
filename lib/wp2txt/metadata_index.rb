@@ -643,6 +643,7 @@ module Wp2txt
       Parallel.map(
         batches,
         in_processes: @num_processes,
+        preserve_results: false,
         finish: lambda { |_item, _idx, result|
           index.insert_batch(result)
           done += 1
@@ -686,7 +687,7 @@ module Wp2txt
       return unless page_id
 
       title = unescape_xml(title)
-      ns = (block[NS_REGEX, 1] || "0").to_i
+      ns = Wp2txt.namespace_id(block[NS_REGEX, 1])
       text = block[TEXT_REGEX, 1] || ""
       text = unescape_xml(text)
       # Strip HTML comments before scanning, matching what the Article parser

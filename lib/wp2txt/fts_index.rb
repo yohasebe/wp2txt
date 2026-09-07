@@ -19,6 +19,12 @@ module Wp2txt
   # Queries ATTACH the Tier 1 metadata DB so category/section/redirect
   # filters compose with MATCH in plain SQL.
   class FtsIndex
+    class ShortQueryError < ArgumentError
+      def code
+        "query_too_short"
+      end
+    end
+
     SCHEMA_VERSION = 2
     CACHE_SUFFIX = "_fts.sqlite3"
 
@@ -206,6 +212,9 @@ module Wp2txt
     # @return [Hash] { total:, total_is_capped:, hits: [{page_id:, title:, heading:, ord:}] }
     def search(query, mode: "phrase", sections: nil, category: nil, depth: 0,
                limit: 20, offset: 0, count: "capped", count_cap: 1000)
+      if mode == "phrase" && tokenizer == "trigram" && query.length < 3
+        raise ShortQueryError, "trigram phrase searches require at least 3 Unicode characters"
+      end
       match_expr = mode == "query" ? query : phrase_query(query)
 
       conds = ["fts_sections MATCH ?", "p.namespace = 0", "p.redirect_to IS NULL"]
@@ -389,6 +398,7 @@ module Wp2txt
       Parallel.map(
         batches,
         in_processes: @num_processes,
+        preserve_results: false,
         finish: lambda { |_item, _idx, rows|
           index.insert_batch(rows)
           done += 1
@@ -423,7 +433,7 @@ module Wp2txt
       title = block[MetadataIndexBuilder::TITLE_REGEX, 1]
       return unless title && !title.empty?
 
-      ns = (block[MetadataIndexBuilder::NS_REGEX, 1] || "0").to_i
+      ns = Wp2txt.namespace_id(block[MetadataIndexBuilder::NS_REGEX, 1])
       return unless ns.zero?
 
       page_id = block[MetadataIndexBuilder::ID_REGEX, 1]&.to_i

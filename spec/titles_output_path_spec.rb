@@ -237,6 +237,46 @@ RSpec.describe "titles extraction and SQL file output" do
       expect(File.exist?("#{out}.partial")).to be false
     end
 
+    it "records ordinal to original name mappings in the sidecar for colliding names" do
+      out = File.join(@dir, "names.jsonl")
+      @corpus.query_sql('SELECT 1 AS x, 2 AS x, 3 AS x_2', output_path: out)
+      expect(read_jsonl(out)).to eq([{ "x" => 1, "x_3" => 2, "x_2" => 3 }])
+      meta = JSON.parse(File.read("#{out}.meta.json"))
+      expect(meta["column_mapping"]).to eq([
+        { "ordinal" => 0, "original_name" => "x", "output_name" => "x" },
+        { "ordinal" => 1, "original_name" => "x", "output_name" => "x_3" },
+        { "ordinal" => 2, "original_name" => "x_2", "output_name" => "x_2" }
+      ])
+      expect(meta["cell_byte_limit"]).to eq(65_536)
+    end
+
+    it "refuses sidecar collisions through both public output APIs" do
+      out = File.join(@dir, "sidecar.jsonl")
+      File.write("#{out}.meta.json", "old")
+      expect { @corpus.query_sql("SELECT 1", output_path: out) }.to raise_error(ArgumentError, /already exists/)
+      expect do
+        @corpus.extract_corpus(output_path: out, content: "summary", titles: ["Film A"], num_processes: 0)
+      end.to raise_error(ArgumentError, /already exists/)
+      expect(File.exist?(out)).to be false
+      expect(File.read("#{out}.meta.json")).to eq("old")
+    end
+
+    it "supports explicit overwrite for extraction and cleans up cancelled staging" do
+      out = File.join(@dir, "extract.jsonl")
+      File.write(out, "old")
+      File.write("#{out}.meta.json", "old metadata")
+      expect do
+        @corpus.extract_corpus(output_path: out, content: "summary", titles: ["Film A"],
+                               num_processes: 0, overwrite: true, cancel_check: -> { true })
+      end.to raise_error(Wp2txt::Corpus::Cancelled)
+      expect(File.read(out)).to eq("old")
+      expect(File.read("#{out}.meta.json")).to eq("old metadata")
+      expect(Dir.glob(File.join(@dir, ".wp2txt-*"))).to be_empty
+      @corpus.extract_corpus(output_path: out, content: "summary", titles: ["Film A"],
+                             num_processes: 0, overwrite: true)
+      expect(read_jsonl(out).first["title"]).to eq("Film A")
+    end
+
     it "ignores limit in file-output mode" do
       out = File.join(@dir, "q.jsonl")
       result = @corpus.query_sql("SELECT title FROM pages", output_path: out, limit: 1)
@@ -253,6 +293,14 @@ RSpec.describe "titles extraction and SQL file output" do
 
       @corpus.query_sql("SELECT 1 AS one", output_path: out, overwrite: true)
       expect(read_jsonl(out)).to eq([{ "one" => 1 }])
+    end
+
+    it "does not touch another writer's fixed .partial path" do
+      out = File.join(@dir, "q.jsonl")
+      File.write("#{out}.partial", "another writer")
+      @corpus.query_sql("SELECT 1", output_path: out)
+      expect(File.read("#{out}.partial")).to eq("another writer")
+      expect(Dir.glob(File.join(@dir, ".wp2txt-*"))).to be_empty
     end
 
     it "removes .partial and leaves no output on SQL error" do
@@ -291,7 +339,7 @@ RSpec.describe "titles extraction and SQL file output" do
 
       expect(result[:cells_clipped]).to eq(1)
       value = read_jsonl(out).first["big"]
-      expect(value.length).to eq(Wp2txt::Corpus::SQL_FILE_CELL_LIMIT + 1)
+      expect(value.bytesize).to eq(Wp2txt::Corpus::SQL_FILE_CELL_LIMIT)
     end
 
     it "writes a .meta.json sidecar with SQL, attach provenance, and counts" do
