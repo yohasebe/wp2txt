@@ -265,10 +265,10 @@ RSpec.describe "P1 correctness contracts" do
         skip "fork unavailable" if workers.positive? && !Process.respond_to?(:fork)
         payloads = ["日本語", "\xFF".b, ""]
         received = []
-        result = Parallel.map(payloads, in_processes: workers, preserve_results: false,
-                              finish: ->(_item, _i, value) { received << value }) { |value| value }
-        expect(received).to match_array(payloads)
-        expect(result.compact).to be_empty
+        returned = Parallel.each(payloads, in_processes: workers,
+                                 finish: ->(_item, _i, value) { received << value }) { |value| "rendered:#{value.bytesize}" }
+        expect(received).to match_array(payloads.map { |value| "rendered:#{value.bytesize}" })
+        expect(Array(returned).flatten.grep(/\Arendered:/)).to be_empty
       end
     end
 
@@ -276,7 +276,7 @@ RSpec.describe "P1 correctness contracts" do
       dump, index_path = create_fixture(@dir)
       index = Wp2txt::MultistreamIndex.new(index_path, use_cache: false, show_progress: false)
       calls = []
-      allow(Parallel).to receive(:map).and_wrap_original do |method, source, options, &block|
+      allow(Parallel).to receive(:each).and_wrap_original do |method, source, options, &block|
         calls << options
         method.call(source, options, &block)
       end
@@ -288,7 +288,7 @@ RSpec.describe "P1 correctness contracts" do
         db_path: File.join(@dir, "fts.sqlite3"), meta_db_path: meta_path, num_processes: 0).build
       expect(fts.search("Story", count: "exact")[:total]).to eq(2)
       expect(calls.size).to eq(2)
-      expect(calls.all? { |options| options[:preserve_results] == false && options[:finish] }).to be true
+      expect(calls.all? { |options| options[:finish] && !options.key?(:preserve_results) }).to be true
       fts.close
     end
   end

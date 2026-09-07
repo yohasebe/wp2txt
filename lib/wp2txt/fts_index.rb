@@ -395,11 +395,10 @@ module Wp2txt
       batches = pairs.each_slice(STREAMS_PER_BATCH).to_a
       done = 0
 
-      Parallel.map(
+      Parallel.each(
         batches,
         in_processes: @num_processes,
-        preserve_results: false,
-        finish: lambda { |_item, _idx, rows|
+                finish: lambda { |_item, _idx, rows|
           index.insert_batch(rows)
           done += 1
           progress&.call(done, batches.size)
