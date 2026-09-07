@@ -217,7 +217,8 @@ class WpApp
           next unless title_match
 
           title = title_match[1]
-          next if title.nil? || title.empty? || title.include?(":")
+          next if title.nil? || title.empty?
+          next unless Wp2txt.namespace_id(page_xml[%r{<ns>(-?\d+)</ns>}, 1]).zero?
 
           # Extract text content
           text_match = TEXT_REGEX.match(page_xml)
@@ -609,7 +610,8 @@ class WpApp
         next unless title_match
 
         title = title_match[1]
-        next if title.nil? || title.empty? || title.include?(":")
+        next if title.nil? || title.empty?
+        next unless Wp2txt.namespace_id(page_xml[%r{<ns>(-?\d+)</ns>}, 1]).zero?
 
         text_match = TEXT_REGEX.match(page_xml)
         next unless text_match

@@ -171,6 +171,46 @@ RSpec.describe "Wp2txt Full-Text Search" do
         end
       end
 
+      ["", "東", "東京", "é", "😀"].each do |query|
+        it "rejects the short phrase #{query.inspect} with a stable code" do
+          expect { @fts.search(query, count: "exact") }.to raise_error(Wp2txt::FtsIndex::ShortQueryError) { |error|
+            expect(error.code).to eq("query_too_short")
+          }
+        end
+      end
+
+      it "leaves raw FTS syntax to SQLite even for short expressions" do
+        expect(@fts.search('"東"', mode: "query", count: "exact")[:total]).to eq(0)
+        expect(@fts.search("\xFF".b, mode: "query", count: "exact")[:total]).to eq(0)
+      end
+
+      it "accepts three Unicode characters" do
+        expect(@fts.search("東京都", count: "exact")[:total]).to eq(0)
+      end
+
+      it "returns a coded MCP tool error instead of a zero-result success" do
+        @fts.close
+        requests = [
+          { jsonrpc: "2.0", id: 1, method: "initialize", params: {
+            protocolVersion: "2025-03-26", capabilities: {}, clientInfo: { name: "regression", version: "1" }
+          } },
+          { jsonrpc: "2.0", method: "notifications/initialized" },
+          { jsonrpc: "2.0", id: 2, method: "tools/call", params: {
+            name: "search_text", arguments: { query: "東京", count: "exact" }
+          } }
+        ]
+        stdout, stderr, status = Open3.capture3(RbConfig.ruby,
+          File.expand_path("../bin/wp2txt-mcp", __dir__), "--input", @multistream_path,
+          "--cache-dir", File.dirname(@multistream_path),
+          stdin_data: requests.map { |request| JSON.generate(request) }.join("\n") + "\n")
+        expect(status.success?).to be(true), stderr
+        response = stdout.lines.map { |line| JSON.parse(line) }.find { |message| message["id"] == 2 }
+        expect(response.dig("result", "isError")).to be true
+        payload = JSON.parse(response.dig("result", "content", 0, "text"))
+        expect(payload["code"]).to eq("query_too_short")
+        expect(payload).not_to have_key("total")
+      end
+
       it "matches substrings of three or more characters" do
         result = @fts.search("tory", count: "exact")
         expect(result[:total]).to eq(2)

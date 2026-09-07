@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require "bundler/gem_tasks"
+require "open3"
 require "rspec/core"
 require "rspec/core/rake_task"
 require_relative "./lib/wp2txt/version"
@@ -41,7 +42,8 @@ desc "Verify a built image contains no private material (run before pushing)"
 task :verify_image, [:tag] do |_t, args|
   tag = args[:tag] || "wp2txt-verify:local"
   checks = IMAGE_FORBIDDEN_PATHS.map { |p| "test -e #{p} && echo LEAK:#{p}" }.join("; ")
-  out = `docker run --rm #{tag} sh -c '#{checks}; true' 2>&1`
+  out, status = Open3.capture2e("docker", "run", "--rm", tag, "sh", "-c", "#{checks}; true")
+  abort "Image verification failed for #{tag}: #{out}" unless status.success?
   leaks = out.lines.grep(/^LEAK:/).map(&:strip)
   abort "Image #{tag} contains private paths:\n  #{leaks.join("\n  ")}" unless leaks.empty?
 

@@ -22,22 +22,24 @@ module Wp2txt
     # unbounded concurrent jobs would multiply workers against the same dump.
     # @return [Hash] { job_id:, status: "running" } or { error: ... }
     def start_extract(params)
-      running = @mutex.synchronize { @jobs.values.find { |s| s[:status] == "running" } }
-      if running
-        return { error: "another job is already running (#{running[:job_id]}); " \
-                        "poll job_status or cancel_job before starting a new one" }
+      job_id = @mutex.synchronize do
+        running = @jobs.values.find { |state| state[:status] == "running" }
+        if running
+          return { error: "another job is already running (#{running[:job_id]}); " \
+                          "poll job_status or cancel_job before starting a new one" }
+        end
+        id = format("job-%04d", @seq += 1)
+        @jobs[id] = {
+          job_id: id, status: "running", started_at: Time.now.utc.iso8601,
+          params: params, titles_done: 0, titles_total: nil, cancel: false
+        }
+        id
       end
 
-      job_id = @mutex.synchronize { format("job-%04d", @seq += 1) }
-      state = {
-        job_id: job_id, status: "running", started_at: Time.now.utc.iso8601,
-        params: params, titles_done: 0, titles_total: nil, cancel: false
-      }
-      @mutex.synchronize { @jobs[job_id] = state }
-
       thread = Thread.new do
-        corpus = @factory.call
+        corpus = nil
         begin
+          corpus = @factory.call
           result = corpus.extract_corpus(
             **params,
             max_articles: nil,
@@ -52,7 +54,7 @@ module Wp2txt
         rescue StandardError => e
           update(job_id) { |s| s[:status] = "error"; s[:error] = "#{e.class}: #{e.message}"; s[:finished_at] = Time.now.utc.iso8601 }
         ensure
-          corpus.close
+          corpus&.close
         end
       end
       thread.report_on_exception = false

@@ -130,6 +130,10 @@ $ claude mcp add wp2txt -- docker run -i --rm -v wp2txt:/root/.wp2txt ghcr.io/yo
   seconds, saved alias sets are re-checked before being stored, and files can only be
   written under the server's output directory — worth knowing if you plan to let an
   assistant work unattended.
+  Output confinement assumes a dedicated, trusted output directory: symlink paths are
+  rejected, both output and sidecar are exclusively reserved unless overwrite is requested,
+  and unique temporary files are renamed on success; concurrent replacement of parent
+  directories is outside this guarantee.
 
 ## 5. Cross-language SQL
 

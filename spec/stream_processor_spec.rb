@@ -112,12 +112,14 @@ RSpec.describe Wp2txt::StreamProcessor do
           </page>
           <page>
             <title>Wikipedia:Help</title>
+            <ns>4</ns>
             <revision>
               <text>Help content.</text>
             </revision>
           </page>
           <page>
             <title>File:Image.jpg</title>
+            <ns>6</ns>
             <revision>
               <text>File description.</text>
             </revision>
@@ -131,7 +133,7 @@ RSpec.describe Wp2txt::StreamProcessor do
         File.write(xml_file, xml_content)
       end
 
-      it "skips pages with colon in title (special pages)" do
+      it "skips non-article namespaces" do
         processor = described_class.new(xml_file)
         pages = processor.each_page.to_a
 

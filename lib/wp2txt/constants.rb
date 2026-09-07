@@ -1,6 +1,11 @@
 # frozen_string_literal: true
 
 module Wp2txt
+  # Missing namespace elements use the metadata scanner's historical ns=0 default.
+  def self.namespace_id(value)
+    (value || "0").to_i
+  end
+
   # =========================================================================
   # Custom Exception Classes
   # =========================================================================

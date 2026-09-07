@@ -73,7 +73,7 @@ def respond(&block)
   result = block.call
   MCP::Tool::Response.new([{ type: "text", text: JSON.generate(result) }])
 rescue ArgumentError => e
-  MCP::Tool::Response.new([{ type: "text", text: JSON.generate({ error: e.message }) }], error: true)
+  MCP::Tool::Response.new([{ type: "text", text: JSON.generate({ error: e.message, code: (e.code if e.respond_to?(:code)) }.compact) }], error: true)
 rescue StandardError => e
   MCP::Tool::Response.new([{ type: "text", text: JSON.generate({ error: "#{e.class}: #{e.message}" }) }], error: true)
 end
@@ -312,7 +312,8 @@ def extract_params(output_path:, content:, titles: nil, sections: nil, alias_set
     content: content, titles: titles,
     sections: sections, alias_set: alias_set, category: category, depth: depth,
     categories: categories, category_match: category_match,
-    title_match: title_match, limit: limit, chunk_size: chunk_size, chunk_overlap: chunk_overlap }
+    title_match: title_match, limit: limit, chunk_size: chunk_size, chunk_overlap: chunk_overlap,
+    overwrite: overwrite }
 end
 
 server.define_tool(
@@ -341,7 +342,7 @@ end
 
 server.define_tool(
   name: "cancel_job",
-  description: "Request cancellation of a running job (takes effect at the next batch boundary; the partial output file remains on disk).",
+  description: "Request cancellation of a running job (takes effect at the next batch boundary; staged output is removed).",
   input_schema: { properties: { job_id: { type: "string" } }, required: ["job_id"] }
 ) do |job_id:, server_context:|
   respond { job_manager.cancel(job_id) || { error: "unknown job: #{job_id}" } }

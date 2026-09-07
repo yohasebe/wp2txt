@@ -23,6 +23,7 @@ module Wp2txt
       @input_path = input_path
       @bz2_gem = bz2_gem
       @buffer = +""
+      @pending_bytes = +"".b
       @file_pointer = nil
       @adaptive_buffer = adaptive_buffer
       @buffer_size = adaptive_buffer ? calculate_optimal_buffer_size : DEFAULT_BUFFER_SIZE
@@ -99,7 +100,8 @@ module Wp2txt
     # Process a single XML file
     def process_xml_file(xml_file)
       @buffer = +""
-      @file_pointer = File.open(xml_file, "r:UTF-8")
+      @pending_bytes = +"".b
+      @file_pointer = File.open(xml_file, "rb")
 
       while (page = extract_next_page)
         result = parse_page_xml(page)
@@ -120,6 +122,7 @@ module Wp2txt
       end
 
       @buffer = +""
+      @pending_bytes = +"".b
       @file_pointer = open_bz2_stream
 
       while (page = extract_next_page)
@@ -158,14 +161,21 @@ module Wp2txt
     # Fill buffer from file pointer
     def fill_buffer
       chunk = @file_pointer.read(@buffer_size)
-      return false unless chunk
+      unless chunk
+        @buffer << @pending_bytes.to_s.dup.force_encoding(Encoding::UTF_8).scrub("")
+        @pending_bytes = +"".b
+        return false
+      end
 
       @bytes_read += chunk.bytesize
-
-      # Handle encoding for bz2 streams
-      chunk = chunk.force_encoding("UTF-8")
-      chunk = chunk.scrub("")
-      @buffer << chunk
+      bytes = @pending_bytes.to_s.b + chunk.b
+      # Retain a trailing UTF-8 sequence until the next read. Only complete
+      # chunks are scrubbed, so valid characters split by read are preserved.
+      tail = bytes[/[\xC2-\xF4][\x80-\xBF]{0,2}\z/n]
+      width = tail && (tail.getbyte(0) < 0xE0 ? 2 : tail.getbyte(0) < 0xF0 ? 3 : 4)
+      @pending_bytes = tail && tail.bytesize < width ? tail : +"".b
+      bytes = bytes.byteslice(0, bytes.bytesize - @pending_bytes.bytesize)
+      @buffer << bytes.force_encoding(Encoding::UTF_8).scrub("")
 
       # Adaptive buffer adjustment: if memory is low, reduce buffer size
       if @adaptive_buffer && MemoryMonitor.memory_low?
@@ -223,8 +233,8 @@ module Wp2txt
       return nil unless title_node
 
       title = title_node.content
-      # Skip special pages (containing colon in title like "Wikipedia:", "File:", etc.)
-      return nil if title.include?(":")
+      namespace = title_node.parent.at_css("ns")&.text
+      return nil unless Wp2txt.namespace_id(namespace).zero?
 
       text = text_node.content
 
