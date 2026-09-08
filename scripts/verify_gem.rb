@@ -17,6 +17,11 @@
 # With no gem path, the newest pkg/*.gem is used. With no --gemspec, the
 # single *.gemspec in the current directory is used.
 #
+# Placement: put this file in a directory the gemspec EXCLUDES (check with
+#   ruby -e 'puts Gem::Specification.load("x.gemspec").files.grep(/verify_gem/)'
+# — must print nothing). A `git ls-files` gemspec ships whatever is tracked, so
+# a gate placed in an unexcluded directory ships itself to users.
+#
 # Rakefile wiring (bundler/gem_tasks projects):
 #
 #   Rake::Task["build"].enhance { sh "ruby", "scripts/verify_gem.rb" }
@@ -106,6 +111,9 @@ bad = actual.select { |f| BAD_NAMES.any? { |re| f.match?(re) } }
 failures << "suspicious file names (#{bad.size}):\n  " + bad.join("\n  ") unless bad.empty?
 
 # --- 3. content scan (narrow patterns only; wide words like "token" are noise) ------
+# Patterns whose source text would itself match are written as adjacent string
+# literals (Ruby concatenates them), so that this file never trips its own scan if
+# a project ships it inside the gem. (wp2txt hit this with the Dropbox pattern.)
 SECRET_PATTERNS = {
   "GitHub token"        => /\bghp_[A-Za-z0-9]{36}\b|\bgithub_pat_[A-Za-z0-9_]{22,}\b/,
   "OpenAI-style key"    => /\bsk-[A-Za-z0-9_-]{20,}\b/,
@@ -114,16 +122,10 @@ SECRET_PATTERNS = {
   "Slack token"         => /\bxox[baprs]-[0-9A-Za-z-]{10,}\b/,
   "private key block"   => /-----BEGIN [A-Z ]*PRIVATE KEY-----/,
   "local absolute path" => %r{(?<![A-Za-z0-9_])/(Users|home)/[A-Za-z0-9_.-]+/},
-  "Dropbox path"        => %r{/CloudStorage/Dropbox/}
+  "Dropbox path"        => Regexp.new("/CloudStorage/" "Dropbox/")
 }.freeze
-# The gate ships inside this gem, and its own pattern literals (e.g. the
-# Dropbox-path regex source) match themselves. Exempt this one file from the
-# content scan only; name and permission checks still apply to it.
-CONTENT_SCAN_EXEMPT = ["scripts/verify_gem.rb"].freeze
-
 hits = []
 contents.each do |name, data|
-  next if CONTENT_SCAN_EXEMPT.include?(name)
   next if data.nil? || data.empty?
   text = data.dup.force_encoding("BINARY")
   SECRET_PATTERNS.each do |label, re|
