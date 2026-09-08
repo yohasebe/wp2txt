@@ -29,6 +29,10 @@ end
 
 Rake::Task["build"].enhance([:normalize_permissions])
 
+# Pre-release gate: verify the built gem's payload against spec.files and scan
+# it for names, content, and modes that must never ship (code-security protocol).
+Rake::Task["build"].enhance { sh "ruby", "scripts/verify_gem.rb" }
+
 # =============================================================================
 # Docker
 # =============================================================================
