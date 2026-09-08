@@ -19,7 +19,7 @@ wp2txt, rather than how it was implemented. The changes themselves are unaltered
 - **Output files stay inside the output directory**: a symbolic link within it could redirect a write outside, the `.meta.json` sidecar was not checked at all, and an existing file could slip past `overwrite: false`. Output and sidecar are now reserved together and written to a temporary file first, so a failed or cancelled run leaves your previous output untouched instead of a half-written file in its place
 - **Index builds no longer grow in memory with the size of the dump**: every batch of extracted text was kept until the build finished
 - **A background job that fails to start is now reported as failed**: it stayed `running` indefinitely and blocked every later job until the server was restarted
-- **The gem no longer ships maintainer scripts or images** (100 files instead of 109). If you were running `scripts/fetch_*.rb` from an installed gem, take them from the repository instead
+- **The gem no longer ships maintainer scripts or images**. If you were running `scripts/fetch_*.rb` from an installed gem, take them from the repository instead
 - **The Docker Hub repository has been removed**: images are published to GitHub Container Registry only. If you still pull from Docker Hub, switch with `docker pull ghcr.io/yohasebe/wp2txt`
 
 ## [2.3.2] - 2026-08-13
