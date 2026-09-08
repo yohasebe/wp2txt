@@ -1,0 +1,140 @@
+name: Publish image
+
+# Publishes the multi-arch container image to the GitHub Container Registry.
+#
+# Publishing happens here rather than from a maintainer's machine on purpose. A
+# local build sends the working tree as the build context, so anything sitting
+# there untracked rides along; a runner starts from a clean checkout, where such
+# files do not exist. Twice, private files reached published images this way.
+#
+# Fires on a v* tag. Run it by hand from the Actions tab for a dry run: the
+# default leaves `push` off, so it builds and gates without publishing.
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      push:
+        description: 'Publish to GHCR (off = build and gate only)'
+        type: boolean
+        default: false
+
+env:
+  IMAGE: ghcr.io/yohasebe/wp2txt
+
+jobs:
+  publish:
+    name: Build, gate, publish
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Work out the version and whether to publish
+        id: plan
+        run: |
+          set -euo pipefail
+          file_version=$(grep -oE '[0-9]+\.[0-9]+\.[0-9]+' lib/wp2txt/version.rb | head -1)
+          if [ -z "$file_version" ]; then
+            echo "could not read a version from lib/wp2txt/version.rb" >&2
+            exit 1
+          fi
+
+          if [ "${GITHUB_EVENT_NAME}" = "push" ]; then
+            tag_version="${GITHUB_REF_NAME#v}"
+            if [ "$tag_version" != "$file_version" ]; then
+              echo "tag ${GITHUB_REF_NAME} disagrees with lib/wp2txt/version.rb (${file_version})" >&2
+              echo "Publishing would tag the image with a version the code does not claim." >&2
+              exit 1
+            fi
+            publish=true
+          else
+            publish="${{ inputs.push }}"
+          fi
+
+          echo "version=$file_version" >> "$GITHUB_OUTPUT"
+          echo "publish=$publish" >> "$GITHUB_OUTPUT"
+          echo "Version $file_version; publish=$publish"
+
+      - uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: '3.3'
+
+      - uses: docker/setup-qemu-action@v3
+
+      - uses: docker/setup-buildx-action@v3
+
+      # Single arch, loaded into the daemon, so the gate can open it. The
+      # multi-arch build below reuses these layers from the builder's cache.
+      - name: Build for inspection (linux/amd64)
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: linux/amd64
+          load: true
+          push: false
+          tags: ${{ env.IMAGE }}:gate-candidate
+
+      - name: Gate — compare the image against the build context
+        run: ruby scripts/verify_image.rb "${IMAGE}:gate-candidate"
+
+      - name: Log in to GHCR
+        if: steps.plan.outputs.publish == 'true'
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push (linux/amd64, linux/arm64)
+        id: publish
+        if: steps.plan.outputs.publish == 'true'
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: |
+            ${{ env.IMAGE }}:${{ steps.plan.outputs.version }}
+            ${{ env.IMAGE }}:latest
+          labels: |
+            org.opencontainers.image.source=https://github.com/yohasebe/wp2txt
+            org.opencontainers.image.version=${{ steps.plan.outputs.version }}
+
+      # Reading it back without credentials is the only proof that a user can
+      # pull what was just published.
+      - name: Check the published digest is readable anonymously
+        if: steps.plan.outputs.publish == 'true'
+        run: |
+          set -euo pipefail
+          digest="${{ steps.publish.outputs.digest }}"
+          docker logout ghcr.io
+          for attempt in 1 2 3 4 5; do
+            if docker manifest inspect "${IMAGE}@${digest}" > /dev/null 2>&1; then
+              echo "readable anonymously: ${IMAGE}@${digest}"
+              exit 0
+            fi
+            echo "attempt ${attempt} failed; ghcr.io can lag a few seconds, retrying in 10s"
+            sleep 10
+          done
+          echo "${IMAGE}@${digest} is not readable anonymously" >&2
+          exit 1
+
+      - name: Summary
+        if: always()
+        run: |
+          {
+            echo "### wp2txt image"
+            echo
+            echo "- version: \`${{ steps.plan.outputs.version }}\`"
+            echo "- published: \`${{ steps.plan.outputs.publish }}\`"
+            if [ -n "${{ steps.publish.outputs.digest }}" ]; then
+              echo "- digest: \`${{ steps.publish.outputs.digest }}\`"
+              echo "- pull: \`docker pull ${IMAGE}:${{ steps.plan.outputs.version }}\`"
+            fi
+            echo "- run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          } >> "$GITHUB_STEP_SUMMARY"

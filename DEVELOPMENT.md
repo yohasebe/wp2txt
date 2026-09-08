@@ -400,12 +400,20 @@ docs/INDEXES.md is checked against the actual server surface by spec/docs_sync_s
 
 ## Docker
 
-Build and push Docker images:
+Images are published by GitHub Actions when a `v*` tag is pushed
+(`.github/workflows/publish-image.yml`), not from a maintainer's machine: a
+local build sends the working tree as its context, so untracked files ride
+along, while a runner starts from a clean checkout.
 
 ```bash
-rake check_image  # Builds the image locally and verifies it carries no private files
-rake push        # Verifies, then builds multi-arch and pushes to GHCR
+rake check_image   # Build locally and run the same gate the workflow runs
 ```
+
+The gate (`scripts/verify_image.rb`) lists what the image holds under `/wp2txt`
+and compares it against what Docker sends as the build context, in both
+directions. Anything unaccounted for fails, so a file the build starts
+producing must be added to `BUILD_ARTIFACTS` deliberately. To rehearse a
+publish, run the workflow from the Actions tab with **push** left off.
 
 ## Release Process
 
@@ -414,7 +422,7 @@ rake push        # Verifies, then builds multi-arch and pushes to GHCR
 3. Run full test suite: `bundle exec rspec`
 4. Build gem: `gem build wp2txt.gemspec`
 5. Push to RubyGems: `gem push wp2txt-*.gem`
-6. Push Docker image: `rake push`
+6. Push the `v*` tag — GitHub Actions builds, gates, and publishes the image
 7. Create GitHub release
 
 ## Useful Links

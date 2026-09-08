@@ -16,6 +16,8 @@ scripts
 .rubocop.yml
 Gemfile.lock
 .private-doc-tokens
+**/.DS_Store
+.ruby-version
 CLAUDE.md
 DEVELOPMENT.md
 DEVELOPMENT_ja.md

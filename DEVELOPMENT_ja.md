@@ -402,8 +402,7 @@ docs/INDEXES.md の MCP ツール表は spec/docs_sync_spec.rb が実際のサ�
 Dockerイメージのビルドとプッシュ：
 
 ```bash
-rake check_image  # ローカルでイメージをビルドし、私的ファイルの混入がないか検証
-rake push        # 検証したうえでマルチアーキテクチャでビルドしGHCRにプッシュ
+rake check_image   # ローカルでビルドし、CI と同じゲートを走らせる
 ```
 
 ## リリースプロセス
@@ -413,7 +412,7 @@ rake push        # 検証したうえでマルチアーキテクチャでビル�
 3. フルテストスイートを実行: `bundle exec rspec`
 4. gemをビルド: `gem build wp2txt.gemspec`
 5. RubyGemsにプッシュ: `gem push wp2txt-*.gem`
-6. Dockerイメージをプッシュ: `rake push`
+6. `v*` タグをプッシュ — GitHub Actions がビルド・検証・公開を行う
 7. GitHubリリースを作成
 
 ## 便利なリンク

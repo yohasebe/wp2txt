@@ -60,18 +60,18 @@ task :check_image do
   Rake::Task[:verify_image].invoke
 end
 
-desc "Build and push Docker images to GHCR (verifies a local build first)"
-task push: :check_image do
-  # Docker Hub was retired after 2.3.0; GHCR (ghcr.io/yohasebe/wp2txt) is the
-  # only registry. Requires `docker buildx use multiarch` and a ghcr.io login.
-  sh <<-SCRIPT.strip_heredoc, { verbose: false }
-    /bin/bash -xeu <<'BASH'
-      # docker buildx create --name multiarch
-      # docker buildx use multiarch
-      # docker buildx inspect --bootstrap
-      docker buildx build --platform linux/amd64,linux/arm64 \
-        -t ghcr.io/yohasebe/wp2txt:#{Wp2txt::VERSION} -t ghcr.io/yohasebe/wp2txt:latest \
-        . --push
-    BASH
-  SCRIPT
+desc "Explain how images are published (they are built and pushed by CI)"
+task :push do
+  abort <<~MESSAGE
+    Images are published by GitHub Actions, not from here.
+
+    A local build sends this working tree as the build context, so untracked
+    files ride along; a runner starts from a clean checkout, where they do not
+    exist. Push a v* tag and .github/workflows/publish-image.yml takes over:
+
+        rake release            # tags and pushes (also publishes the gem)
+
+    To rehearse without publishing, run the workflow from the Actions tab with
+    "push" left off. To check a local build, run `rake check_image`.
+  MESSAGE
 end
