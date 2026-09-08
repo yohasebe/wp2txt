@@ -8,6 +8,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 Entries were rewritten in August 2026 to describe what changed for people using
 wp2txt, rather than how it was implemented. The changes themselves are unaltered.
 
+## [2.3.3] - 2026-09-08
+
+- **Short searches no longer report a false zero**: in Japanese, Chinese, and Korean indexes a phrase of one or two characters could match nothing and come back as `0 matches`, which reads exactly like a term that is genuinely absent from the dump. Such a search now fails with an explicit error instead. If you recorded a zero result for a short term with an earlier version, re-check it
+- **Characters no longer vanish from extracted text**: a multi-byte character that happened to straddle an internal read boundary was dropped, silently and at unpredictable positions. Any non-ASCII text could be affected. Re-extract if you need the output to be exact
+- **Articles whose title contains a colon are no longer skipped**: `Star Trek: Voyager` and titles like it were mistaken for administrative pages and left out of both extraction and indexes. Rebuild with `--build-index -U` and re-extract to pick them up
+- **`query_sql` no longer loses values when column names repeat**: a query selecting two columns under the same name kept only one of them. Names are now made unique, and the `.meta.json` beside a file result records which output name corresponds to which column of your query
+- **Cell clipping counts bytes, not characters**: a long cell was measured in characters, so it could exceed the limit and still be reported as unclipped — 30,000 Japanese characters are 90,000 bytes. The limit is now 65,536 bytes, cut at a character boundary, and the count of clipped cells is accurate
+- **A result of exactly the requested size is no longer marked truncated**: `truncated` came back true when a result happened to fill the limit exactly, with nothing left behind
+- **Output files stay inside the output directory**: a symbolic link within it could redirect a write outside, the `.meta.json` sidecar was not checked at all, and an existing file could slip past `overwrite: false`. Output and sidecar are now reserved together and written to a temporary file first, so a failed or cancelled run leaves your previous output untouched instead of a half-written file in its place
+- **Index builds no longer grow in memory with the size of the dump**: every batch of extracted text was kept until the build finished
+- **A background job that fails to start is now reported as failed**: it stayed `running` indefinitely and blocked every later job until the server was restarted
+- **The gem no longer ships maintainer scripts or images** (100 files instead of 109). If you were running `scripts/fetch_*.rb` from an installed gem, take them from the repository instead
+- **The Docker Hub repository has been removed**: images are published to GitHub Container Registry only. If you still pull from Docker Hub, switch with `docker pull ghcr.io/yohasebe/wp2txt`
+
 ## [2.3.2] - 2026-08-13
 
 - **Documentation release — no code changes.** The changelog and guides bundled with the gem and the container image are rewritten to say what each change means for someone using wp2txt, rather than how it was implemented. The guide formerly at `docs/RESEARCH.md` is now [docs/INDEXES.md](docs/INDEXES.md) ("Offline Indexes, Queries, and the MCP Server")
