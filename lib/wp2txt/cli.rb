@@ -150,6 +150,16 @@ module Wp2txt
           opt :langlinks_langs, "Comma-separated target languages to import with --import-langlinks (default: all)",
               type: String, short: :none
 
+          # Wikidata item IDs and incoming-link counts, added to an existing metadata index
+          opt :import_page_props, "Import each article's Wikidata item ID (page_props dump) into the metadata index (requires --lang)",
+              default: false, short: :none
+          opt :page_props_file, "Use a local page_props .sql(.gz) file instead of downloading (with --import-page-props)",
+              type: String, short: :none
+          opt :count_links, "Count incoming links to each article and store them in the metadata index (requires --lang)",
+              default: false, short: :none
+          opt :lead_terms, "Add the lead's bold terms, their parenthesized notes, and reading templates to JSON output",
+              default: false, short: :none
+
           opt :file_size, "Approximate size (in MB) of each output file (0 for single file)",
               default: 10, short: "-f"
           opt :num_procs, "Number of parallel processes (auto-detected based on CPU/memory)",
@@ -375,6 +385,31 @@ module Wp2txt
           unless conflicts.empty?
             Optimist.die "--import-langlinks cannot be combined with #{conflicts.join(', ')}"
           end
+        end
+
+        # Page-props import and link counting are standalone modes on an existing index
+        { import_page_props: "--import-page-props", count_links: "--count-links" }.each do |key, flag|
+          next unless opts[key]
+
+          Optimist.die "#{flag} requires --lang" if opts[:lang].nil?
+          others = { build_index: "--build-index", find_articles: "--find-articles", search: "--search",
+                     fts_optimize: "--fts-optimize", import_langlinks: "--import-langlinks",
+                     import_page_props: "--import-page-props", count_links: "--count-links",
+                     articles: "--articles", from_category: "--from-category", section_stats: "--section-stats" }
+          conflicts = others.reject { |k, _| k == key }.select { |k, _| opts[k] }.values
+          Optimist.die "#{flag} cannot be combined with #{conflicts.join(', ')}" unless conflicts.empty?
+        end
+
+        if opts[:page_props_file] && !opts[:import_page_props]
+          Optimist.die "--page-props-file requires --import-page-props"
+        end
+
+        if opts[:page_props_file] && !File.exist?(opts[:page_props_file])
+          Optimist.die :page_props_file, "file does not exist"
+        end
+
+        if opts[:lead_terms] && opts[:format].to_s != "json"
+          Optimist.die "--lead-terms requires --format json"
         end
 
         if opts[:langlinks_file] && !opts[:import_langlinks]

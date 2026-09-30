@@ -177,6 +177,29 @@ Each line contains one JSON object:
 
 `page_id` and `revision_id` are the dump's own `<id>` values for the page and its
 revision, so a record can be traced back to the exact version of the article it came from.
+If Wikidata IDs have been imported into the metadata index for the dump
+(`--import-page-props`, see [docs/INDEXES.md](docs/INDEXES.md)), a `qid` field follows them.
+
+With `--lead-terms`, each record also lists the terms the article introduces in its lead:
+
+```json
+"lead_terms": [
+  {"index": 0, "text": "東京", "notes": ["とうきょう", "Tokyo"], "notes_text": "とうきょう、Tokyo",
+   "source": "bold", "span": {"bold": [0, 8], "paren": [8, 21]}}
+]
+```
+
+- `source: "bold"` — a bold term in the first lead paragraph that has one (up to five),
+  with the parenthesized text written right after it, split at top-level commas and
+  semicolons into `notes` (`notes_text` keeps it unsplit). Bold text inside templates,
+  image captions, and references is not counted.
+- `source: <template name>` — a reading template such as `{{読み仮名}}`, reported as
+  `text` and `reading`.
+- `span` gives character offsets `[start, end)` into the article's wikitext as stored in
+  the dump (XML entities decoded, nothing else changed), so the source of each term can be
+  cut out and checked later.
+- Nothing is interpreted: whether a note is a reading, a native spelling, or a date is left
+  to you.
 
 For redirect articles:
 

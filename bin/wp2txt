@@ -15,6 +15,7 @@ require_relative "../lib/wp2txt/formatter"
 require_relative "../lib/wp2txt/extractor"
 require_relative "../lib/wp2txt/ractor_worker"
 require_relative "../lib/wp2txt/index_commands"
+require_relative "../lib/wp2txt/lead_terms"
 
 require "etc"
 require "json"
@@ -53,6 +54,34 @@ class WpApp
       print_warning("--num-procs #{requested} is outside 1..#{Etc.nprocessors}; using #{used}.")
     end
     used
+  end
+
+  # Attach source identifiers and, when asked, lead terms to an article.
+  # raw_wikitext is the article as stored in the dump (XML-decoded, before
+  # comment removal): lead-term positions are offsets into exactly that text.
+  def set_source_fields(article, page_id, revision_id, raw_wikitext, config)
+    article.page_id = page_id
+    article.revision_id = revision_id
+    article.qid = config[:qids][page_id] if config[:qids] && page_id
+    return unless config[:lead_terms] && raw_wikitext
+
+    article.lead_terms = Wp2txt::LeadTerms.extract(raw_wikitext, render: ->(fragment) { format_wiki(fragment, config) })
+  end
+
+  # Wikidata item IDs from the metadata index of this dump, when imported
+  # (wp2txt --import-page-props); nil otherwise
+  def load_qids(input_path, cache_dir)
+    db_path = Wp2txt::MetadataIndex.path_for(File.expand_path(input_path), cache_dir: cache_dir)
+    return nil unless File.exist?(db_path)
+
+    db = SQLite3::Database.new(db_path, readonly: true)
+    return nil unless db.get_first_value("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'page_qids'")
+
+    db.execute("SELECT page_id, qid FROM page_qids").to_h
+  rescue SQLite3::Exception
+    nil
+  ensure
+    db&.close
   end
 
   # Process articles using turbo mode (split-first architecture from v1.x)
@@ -232,6 +261,8 @@ class WpApp
           text = page_xml[text_start...text_end_match.begin(0)]
           next if text.nil? || text.empty?
 
+          raw_wikitext = Wp2txt.xml_decode(text) if config[:lead_terms]
+
           # Decode XML entities
           text = text.gsub("&lt;", "<").gsub("&gt;", ">").gsub("&amp;", "&").gsub("&quot;", '"')
 
@@ -245,8 +276,7 @@ class WpApp
 
           article = Article.new(text, title, strip_tmarker)
           ids = Wp2txt.page_ids(page_xml)
-          article.page_id = ids[:page_id]
-          article.revision_id = ids[:revision_id]
+          set_source_fields(article, ids[:page_id], ids[:revision_id], raw_wikitext, config)
           result = format_article(article, config)
           next unless result
 
@@ -290,7 +320,7 @@ class WpApp
     base_name = base_name.sub(/\.xml$/, "") # Handle .xml.bz2
 
     # Create stream processor
-    stream = StreamProcessor.new(input_path, bz2_gem: bz2_gem)
+    stream = StreamProcessor.new(input_path, bz2_gem: bz2_gem, keep_raw_text: config[:lead_terms])
 
     # Create output writer
     writer = OutputWriter.new(
@@ -459,8 +489,7 @@ class WpApp
                 writer.flush
                 Parallel.map(pages, in_processes: num_processes) do |title, text, ids|
                   article = Article.new(text, title, strip_tmarker)
-                  article.page_id = ids&.dig(:page_id)
-                  article.revision_id = ids&.dig(:revision_id)
+                  set_source_fields(article, ids&.dig(:page_id), ids&.dig(:revision_id), ids&.dig(:raw_text), config)
                   format_article(article, config)
                 end
               end
@@ -724,6 +753,8 @@ class WpApp
     return run_search(opts) if opts[:search]
     return run_fts_optimize(opts) if opts[:fts_optimize]
     return run_import_langlinks(opts) if opts[:import_langlinks]
+    return run_import_page_props(opts) if opts[:import_page_props]
+    return run_count_links(opts) if opts[:count_links]
 
     # Determine input source
     if opts[:from_category] && opts[:lang]
@@ -763,7 +794,7 @@ class WpApp
       no_turbo: opts[:no_turbo]
     }
 
-    %i[title list heading table pre ref redirect multiline category category_only
+    %i[lead_terms title list heading table pre ref redirect multiline category category_only
        summary_only metadata_only marker extract_citations expand_templates
        section_output min_section_length skip_empty
        alias_file no_section_aliases section_stats show_matched_sections].each do |opt|
@@ -777,6 +808,10 @@ class WpApp
 
     # Parse markers option
     config[:markers] = parse_markers_option(opts[:markers])
+
+    # Wikidata item IDs ride along in JSON output when the index has them;
+    # loaded here, before any worker is forked, so workers share the table
+    config[:qids] = load_qids(input_path, opts[:cache_dir]) if format == :json
 
     # Handle section-stats mode (standalone, outputs to stdout)
     if opts[:section_stats]

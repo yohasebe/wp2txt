@@ -6,6 +6,19 @@ module Wp2txt
     (value || "0").to_i
   end
 
+  XML_ENTITIES = { "lt" => "<", "gt" => ">", "amp" => "&", "quot" => '"', "apos" => "'" }.freeze
+
+  # Decode XML character references in one pass, as an XML parser does
+  # (a single pass keeps "&amp;lt;" as the literal text "&lt;")
+  def self.xml_decode(str)
+    str.gsub(/&(?:(lt|gt|amp|quot|apos)|#(\d+)|#x(\h+));/) do
+      if Regexp.last_match(1) then XML_ENTITIES[Regexp.last_match(1)]
+      elsif Regexp.last_match(2) then Regexp.last_match(2).to_i.chr(Encoding::UTF_8)
+      else Regexp.last_match(3).to_i(16).chr(Encoding::UTF_8)
+      end
+    end
+  end
+
   # Page and revision IDs from one <page> element of a dump. The page's own
   # <id> precedes <revision>; the revision's <id> is its first child (the
   # contributor's <id> comes later). Only the header before <text> is read.
