@@ -151,7 +151,7 @@ module Wp2txt
               type: String, short: :none
 
           # Wikidata item IDs and incoming-link counts, added to an existing metadata index
-          opt :import_page_props, "Import each article's Wikidata item ID (page_props dump) into the metadata index (requires --lang)",
+          opt :import_page_props, "Import Wikidata IDs, disambiguation flags, and sort keys (page_props dump) into the metadata index (requires --lang)",
               default: false, short: :none
           opt :page_props_file, "Use a local page_props .sql(.gz) file instead of downloading (with --import-page-props)",
               type: String, short: :none
@@ -416,7 +416,7 @@ module Wp2txt
           Optimist.die "--lead-terms cannot be combined with --ractor"
         end
         if opts[:ractor] && opts[:format].to_s == "json"
-          warn "Warning: --ractor JSON output does not include page IDs, revision IDs, or Wikidata QIDs"
+          warn "Warning: --ractor JSON output does not include page IDs or revision IDs"
         end
 
         if opts[:langlinks_file] && !opts[:import_langlinks]

@@ -116,7 +116,7 @@ module Wp2txt
         stats: stats,
         fulltext: fts.built? ? fts.stats : nil,
         langlinks: @metadata.built? ? @metadata.langlinks_provenance : nil,
-        wikidata_ids: @metadata.built? ? @metadata.page_props_provenance : nil,
+        page_properties: @metadata.built? ? @metadata.page_props_provenance : nil,
         inlinks: @metadata.built? ? @metadata.links_provenance : nil
       }
     end
@@ -149,9 +149,10 @@ module Wp2txt
              else
                render_text(page)
              end
-      result = { id: page[:id], title: page[:title], format: format.to_s }
-      qid = @metadata.built? ? @metadata.qid_for(page[:id]) : nil
-      result[:qid] = qid if qid
+      result = { id: page[:id], title: page[:title] }
+      properties = @metadata.built? ? @metadata.properties_for(page[:id]) : nil
+      result.merge!(properties) if properties
+      result[:format] = format.to_s
       if max_chars && body.length > max_chars
         result.merge(text: body[0, max_chars], truncated: true, total_chars: body.length)
       else
@@ -413,8 +414,8 @@ module Wp2txt
               next unless page
 
               records = build_records(page, content, resolved_sections, chunk_size, chunk_overlap)
-              qid = @metadata.built? ? @metadata.qid_for(page[:id]) : nil
-              records.each { |record| record[:qid] = qid } if qid
+              properties = @metadata.built? ? @metadata.properties_for(page[:id]) : nil
+              records.each { |record| record.merge!(properties) } if properties
               next if records.empty?
 
               articles_extracted += 1

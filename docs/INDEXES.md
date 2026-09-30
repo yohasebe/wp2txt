@@ -71,7 +71,7 @@ $ wp2txt --import-langlinks -L ja --langlinks-langs en,de,fr,zh,ko
 This adds a `langlinks` table (`ll_from` = source page_id, `ll_lang`, `ll_title`) that can
 be joined in SQL. Tip: filter `ll_title != ''` — real dumps contain a few empty-title rows.
 
-### Wikidata IDs and incoming links
+### Page properties and incoming links
 
 Two more signals can be added to an existing metadata index, each with one command:
 
@@ -81,10 +81,21 @@ $ wp2txt --count-links -L ja         # how many articles link to each article
 ```
 
 - `--import-page-props` reads the official `page_props` dump of the **same date** as the
-  index (a mismatch is refused) and adds `page_qids` (`page_id`, `qid`). The source file's
-  name, size, SHA-256, and import time are reported by `dump_info`. Once imported, JSON
-  output carries a `qid` field next to `page_id`, and `get_article` / `extract_corpus`
-  include it too.
+  index (a mismatch is refused) and creates `page_properties` with columns `page_id`
+  (integer primary key), `qid` (nullable text), `disambiguation` (integer, default 0,
+  not null), and `sort_key` (nullable text). A row exists only for a page with at least
+  one of these properties.
+  The source file's name, size, SHA-256, import time, page count, each property's count,
+  and the count of invalid UTF-8 sort keys skipped are reported under
+  `dump_info.page_properties`. Once imported, JSON records always carry `qid`,
+  `sort_key`, and `disambiguation`, including null/false values for absent properties.
+  Before import, all three are omitted. `get_article` and `extract_corpus` use the
+  same rule. The three imported properties are `wikibase_item`, `defaultsort`, and
+  `disambiguation`; unrelated properties are ignored.
+  MediaWiki's disambiguation flag is more reliable than matching the page title.
+  Sort keys are language-specific: Japanese Wikipedia commonly removes voicing marks
+  and enlarges small kana (言語 → けんこ), while English may use "surname, given name".
+  A sort key is not a reading itself, but can help compare reading candidates.
 - `--count-links` scans the dump and adds `page_inlinks` (`page_id`, `inlinks`,
   `via_redirects`) for every article. Each linking article counts **once** per target,
   however many times it links; a link to a redirect counts for the redirect's target
@@ -107,11 +118,11 @@ Together with langlinks these let a query select articles by how referenced they
 within an edition, how many editions cover them, and what Wikidata says they are:
 
 ```sql
-SELECT p.title, i.inlinks, q.qid,
+SELECT p.title, i.inlinks, q.qid, q.sort_key, q.disambiguation,
        (SELECT COUNT(DISTINCT ll_lang) FROM langlinks l WHERE l.ll_from = p.page_id) AS editions
 FROM pages p
 JOIN page_inlinks i USING (page_id)
-LEFT JOIN page_qids q USING (page_id)
+LEFT JOIN page_properties q USING (page_id)
 WHERE p.namespace = 0 AND p.redirect_to IS NULL AND i.inlinks >= 5
 ORDER BY i.inlinks DESC
 ```

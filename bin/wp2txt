@@ -62,22 +62,28 @@ class WpApp
   def set_source_fields(article, page_id, revision_id, raw_wikitext, config)
     article.page_id = page_id
     article.revision_id = revision_id
-    article.qid = config[:qids][page_id] if config[:qids] && page_id
+    if config[:page_properties]
+      article.page_properties = Wp2txt::MetadataIndex.property_values(config[:page_properties][page_id])
+    end
     return unless config[:lead_terms] && raw_wikitext
 
     article.lead_terms = Wp2txt::LeadTerms.extract(raw_wikitext, render: ->(fragment) { format_wiki(fragment, config) })
   end
 
-  # Wikidata item IDs from the metadata index of this dump, when imported
+  # Page properties from the metadata index of this dump, when imported
   # (wp2txt --import-page-props); nil otherwise
-  def load_qids(input_path, cache_dir)
+  def load_page_properties(input_path, cache_dir)
     db_path = Wp2txt::MetadataIndex.path_for(File.expand_path(input_path), cache_dir: cache_dir)
     return nil unless File.exist?(db_path)
 
     db = SQLite3::Database.new(db_path, readonly: true)
-    return nil unless db.get_first_value("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'page_qids'")
+    return nil unless Wp2txt::MetadataIndex.page_properties_imported?(db)
 
-    db.execute("SELECT page_id, qid FROM page_qids").to_h
+    rows = {}
+    db.execute("SELECT page_id, qid, sort_key, disambiguation FROM page_properties") do |id, qid, key, flag|
+      rows[id] = [qid, key, flag]
+    end
+    rows
   rescue SQLite3::Exception
     nil
   ensure
@@ -474,11 +480,12 @@ class WpApp
   # Process a batch of pages in parallel
   # Uses Ractor for true parallelism when enabled, otherwise falls back to Parallel gem
   def process_batch(pages, writer, config, strip_tmarker, num_processes)
-    results = if config[:use_ractor] && Wp2txt::RactorWorker.available?
+    use_ractor = config[:use_ractor] && Wp2txt::RactorWorker.available?
+    results = if use_ractor
                 # Use Ractor-based parallel processing (true parallelism)
                 Wp2txt::RactorWorker.process_articles(
                   pages,
-                  config: config,
+                  config: config.reject { |key, _| key == :page_properties },
                   strip_tmarker: strip_tmarker,
                   num_workers: num_processes
                 )
@@ -494,7 +501,17 @@ class WpApp
                 end
               end
 
-    results.each do |result|
+    results.each_with_index do |result, index|
+      # Keep the bulk properties table in the parent, outside Ractor's
+      # shareable config. Results retain the order of the input pages.
+      if use_ractor && result.is_a?(Hash) && config[:page_properties]
+        id = pages[index][2]&.dig(:page_id)
+        properties = Wp2txt::MetadataIndex.property_values(config[:page_properties][id]).transform_keys(&:to_s)
+        result = result.each_with_object({}) do |(key, value), row|
+          row[key] = value
+          row.merge!(properties) if key == "title"
+        end
+      end
       writer.write(result) if result
     end
   end
@@ -809,9 +826,9 @@ class WpApp
     # Parse markers option
     config[:markers] = parse_markers_option(opts[:markers])
 
-    # Wikidata item IDs ride along in JSON output when the index has them;
+    # Imported page properties ride along in JSON output;
     # loaded here, before any worker is forked, so workers share the table
-    config[:qids] = load_qids(input_path, opts[:cache_dir]) if format == :json
+    config[:page_properties] = load_page_properties(input_path, opts[:cache_dir]) if format == :json
 
     # Handle section-stats mode (standalone, outputs to stdout)
     if opts[:section_stats]

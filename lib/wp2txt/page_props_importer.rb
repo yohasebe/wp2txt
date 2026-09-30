@@ -7,9 +7,9 @@ require_relative "sql_dump_reader"
 require_relative "version"
 
 module Wp2txt
-  # Imports each page's Wikidata item ID (the wikibase_item page property)
+  # Imports Wikidata IDs, disambiguation flags, and default sort keys
   # from the official page_props dump into the metadata index, as
-  # page_qids(page_id, qid). Like langlinks, the dump must carry the same
+  # page_properties. Like langlinks, the dump must carry the same
   # date as the index: IDs are only meaningful for the pages they came with.
   class PagePropsImporter
     BATCH_SIZE = 50_000
@@ -46,36 +46,63 @@ module Wp2txt
 
       if !force && (existing = imported_at(db))
         return { status: :already_imported, imported_at: existing,
-                 row_count: db.get_first_value("SELECT COUNT(*) FROM page_qids").to_i }
+                 row_count: db.get_first_value("SELECT COUNT(*) FROM page_properties").to_i, provenance: read_provenance(db) }
       end
 
-      db.execute("DROP TABLE IF EXISTS page_qids")
+      db.execute("DROP TABLE IF EXISTS page_qids") # replace the unreleased QID-only schema
+      db.execute("DROP TABLE IF EXISTS page_properties")
       # A failed load must leave the index looking "not imported"
       db.execute("DELETE FROM metadata WHERE key LIKE 'page\\_props\\_%' ESCAPE '\\'")
-      db.execute("CREATE TABLE page_qids (page_id INTEGER PRIMARY KEY, qid TEXT NOT NULL)")
+      db.execute(<<~SQL)
+        CREATE TABLE page_properties (
+          page_id INTEGER PRIMARY KEY,
+          qid TEXT,
+          disambiguation INTEGER NOT NULL DEFAULT 0,
+          sort_key TEXT
+        )
+      SQL
 
       rows_seen = 0
-      row_count = 0
+      skipped_invalid = 0
       batch = []
       flush = lambda do
         db.transaction do
-          stmt = db.prepare("INSERT OR REPLACE INTO page_qids (page_id, qid) VALUES (?, ?)")
+          stmt = db.prepare(<<~SQL)
+            INSERT INTO page_properties (page_id, qid, disambiguation, sort_key) VALUES (?, ?, ?, ?)
+            ON CONFLICT(page_id) DO UPDATE SET
+              qid = COALESCE(excluded.qid, page_properties.qid),
+              disambiguation = MAX(excluded.disambiguation, page_properties.disambiguation),
+              sort_key = COALESCE(excluded.sort_key, page_properties.sort_key)
+          SQL
           batch.each { |row| stmt.execute(row) }
           stmt.close
         end
-        row_count += batch.size
         batch.clear
       end
 
       SqlDumpReader.each_insert_line(source_path, "page_props") do |line|
         line.scan(TUPLE_REGEX) do |page, name, value|
           rows_seen += 1
-          next unless name == "wikibase_item"
+          row = [page.to_i, nil, 0, nil]
+          case name
+          when "wikibase_item"
+            qid = SqlDumpReader.unescape(value)
+            next unless QID_REGEX.match?(qid)
 
-          qid = SqlDumpReader.unescape(value)
-          next unless QID_REGEX.match?(qid)
-
-          batch << [page.to_i, qid.force_encoding(Encoding::UTF_8)]
+            row[1] = qid.force_encoding(Encoding::UTF_8)
+          when "disambiguation"
+            row[2] = 1
+          when "defaultsort"
+            key = SqlDumpReader.unescape(value).force_encoding(Encoding::UTF_8)
+            unless key.valid_encoding?
+              skipped_invalid += 1
+              next
+            end
+            row[3] = key
+          else
+            next
+          end
+          batch << row
           flush.call if batch.size >= BATCH_SIZE
         end
       end
@@ -86,7 +113,9 @@ module Wp2txt
                              "the file may be empty or in an unrecognized format"
       end
 
-      stamp_provenance(db, source_path, row_count)
+      counts = db.get_first_row("SELECT COUNT(*), COUNT(qid), SUM(disambiguation), COUNT(sort_key) FROM page_properties")
+      row_count = counts[0]
+      stamp_provenance(db, source_path, counts, skipped_invalid)
       { status: :imported, row_count: row_count, provenance: read_provenance(db) }
     ensure
       db&.close
@@ -101,18 +130,22 @@ module Wp2txt
     end
 
     def imported_at(db)
-      table = db.get_first_value("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'page_qids'")
+      table = db.get_first_value("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'page_properties'")
       table && metadata_value(db, "page_props_imported_at")
     end
 
-    def stamp_provenance(db, source_path, row_count)
+    def stamp_provenance(db, source_path, counts, skipped_invalid)
       values = {
         page_props_source: File.basename(source_path),
         page_props_source_size: File.size(source_path),
         page_props_source_sha256: Digest::SHA256.file(source_path).hexdigest,
         page_props_imported_at: Time.now.utc.iso8601,
         page_props_wp2txt_version: Wp2txt::VERSION,
-        page_props_qid_count: row_count
+        page_props_page_count: counts[0],
+        page_props_qid_count: counts[1],
+        page_props_disambiguation_count: counts[2].to_i,
+        page_props_sort_key_count: counts[3],
+        page_props_skipped_invalid_sort_keys: skipped_invalid
       }
       stmt = db.prepare("INSERT OR REPLACE INTO metadata (key, value) VALUES (?, ?)")
       values.each { |k, v| stmt.execute([k.to_s, v.to_s]) }
@@ -126,7 +159,11 @@ module Wp2txt
         source_sha256: metadata_value(db, "page_props_source_sha256"),
         imported_at: metadata_value(db, "page_props_imported_at"),
         imported_with: metadata_value(db, "page_props_wp2txt_version"),
-        qid_count: metadata_value(db, "page_props_qid_count").to_i
+        page_count: metadata_value(db, "page_props_page_count").to_i,
+        qid_count: metadata_value(db, "page_props_qid_count").to_i,
+        disambiguation_count: metadata_value(db, "page_props_disambiguation_count").to_i,
+        sort_key_count: metadata_value(db, "page_props_sort_key_count").to_i,
+        skipped_invalid_sort_keys: metadata_value(db, "page_props_skipped_invalid_sort_keys").to_i
       }
     end
   end

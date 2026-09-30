@@ -329,7 +329,7 @@ module Wp2txt
       CliUI::EXIT_ERROR
     end
 
-    # Import each article's Wikidata item ID from the page_props dump of the
+    # Import each article's page properties from the page_props dump of the
     # same date as the metadata index
     def run_import_page_props(opts)
       db_path, dump_date, manager = built_index_for(opts)
@@ -339,15 +339,18 @@ module Wp2txt
         print_header("Downloading page_props for '#{opts[:lang]}' (#{dump_date})")
         manager.download_page_props(date: dump_date)
       end
-      print_mode_banner("Import Wikidata IDs", { "Source" => File.basename(source), "Metadata DB" => db_path })
+      print_mode_banner("Import Page Properties", { "Source" => File.basename(source), "Metadata DB" => db_path })
 
       time_start = Time.now
       result = PagePropsImporter.new(db_path).import!(source, force: opts[:update_cache])
       if result[:status] == :already_imported
-        print_success("Wikidata IDs already imported (at #{result[:imported_at]}, #{result[:row_count]} pages).")
+        print_success("Page properties already imported (at #{result[:imported_at]}, #{result[:row_count]} pages).")
         print_info_message("Use -U/--update-cache to re-import.")
       else
-        print_success("Wikidata IDs imported: #{result[:row_count]} pages in #{format_duration(Time.now - time_start)}")
+        print_success("Page properties imported: #{result[:row_count]} pages in #{format_duration(Time.now - time_start)}")
+        provenance = result[:provenance]
+        print_info("Properties", "#{provenance[:qid_count]} QIDs, #{provenance[:disambiguation_count]} disambiguation flags, " \
+                                 "#{provenance[:sort_key_count]} sort keys; #{provenance[:skipped_invalid_sort_keys]} invalid sort keys skipped")
         print_info("SHA-256", result[:provenance][:source_sha256].to_s)
       end
       CliUI::EXIT_SUCCESS

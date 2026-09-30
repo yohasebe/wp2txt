@@ -189,6 +189,6 @@ RSpec.describe '2026-09-30 review regressions' do
   it '#10 warns about missing source identifiers in ractor JSON without rejecting it' do
     _, err, status = cli('--format', 'json', '--ractor', '--no-turbo', '-n', '1')
     expect(status.success?).to be(true), err
-    expect(err).to include('does not include page IDs, revision IDs, or Wikidata QIDs')
+    expect(err).to include('does not include page IDs or revision IDs')
   end
 end
