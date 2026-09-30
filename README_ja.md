@@ -156,13 +156,16 @@ CATEGORIES: カテゴリ1, カテゴリ2, カテゴリ3
 各行に1つのJSONオブジェクト：
 
 ```json
-{"title": "記事タイトル", "categories": ["カテゴリ1", "カテゴリ2"], "text": "...", "redirect": null}
+{"title": "記事タイトル", "page_id": 12345, "revision_id": 67890, "categories": ["カテゴリ1", "カテゴリ2"], "text": "...", "redirect": null}
 ```
+
+`page_id` と `revision_id` はダンプに記録されたページと版の `<id>` です。各レコードが
+どの記事のどの版から取り出されたかを後から辿れます。
 
 リダイレクト記事の場合：
 
 ```json
-{"title": "NYC", "categories": [], "text": "", "redirect": "New York City"}
+{"title": "NYC", "page_id": 23456, "revision_id": 78901, "categories": [], "text": "", "redirect": "New York City"}
 ```
 
 ## キャッシュ管理

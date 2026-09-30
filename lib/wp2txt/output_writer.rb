@@ -100,6 +100,14 @@ module Wp2txt
       raise Wp2txt::FileIOError, "Write failed: #{e.message}"
     end
 
+    # Push buffered output to the file. Call before forking: a child process
+    # inherits the buffer and writes it out again when it exits.
+    def flush
+      @mutex.synchronize do
+        @current_file.flush if @current_file && !@current_file.closed?
+      end
+    end
+
     # Close current file and finalize
     def close
       @mutex.synchronize do

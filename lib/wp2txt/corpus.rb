@@ -401,6 +401,8 @@ module Wp2txt
           titles.each_slice(EXTRACT_BATCH_SIZE) do |batch|
             raise Cancelled if cancel_check&.call
 
+            # Forked workers inherit this file's buffer and would write it again on exit
+            f.flush
             pages = reader.extract_articles_parallel(batch, num_processes: num_processes)
             batch.each do |t|
               page = pages[t]

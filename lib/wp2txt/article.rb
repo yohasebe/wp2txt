@@ -26,7 +26,7 @@ module Wp2txt
   # an article contains elements, each of which is [TYPE, string]
   class Article
     include Wp2txt
-    attr_accessor :elements, :title, :categories
+    attr_accessor :elements, :title, :categories, :page_id, :revision_id
 
     def initialize(text, title = "", strip_tmarker = false)
       @title = title.strip

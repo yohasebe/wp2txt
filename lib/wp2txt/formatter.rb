@@ -14,6 +14,24 @@ module Wp2txt
 
     # Format article based on configuration and output format
     def format_article(article, config)
+      with_page_ids(format_article_body(article, config), article)
+    end
+
+    # JSON records carry the dump's page and revision IDs right after the title,
+    # when the reader supplied them, so a record can be traced back to its source.
+    def with_page_ids(result, article)
+      return result unless result.is_a?(Hash) && (article.page_id || article.revision_id)
+
+      result.each_with_object({}) do |(key, value), out|
+        out[key] = value
+        next unless key == "title"
+
+        out["page_id"] = article.page_id
+        out["revision_id"] = article.revision_id
+      end
+    end
+
+    def format_article_body(article, config)
       # Store original title for magic word expansion in content
       original_title = article.title.dup
       article.title = format_wiki(article.title, config)

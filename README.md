@@ -172,13 +172,16 @@ CATEGORIES: Category1, Category2, Category3
 Each line contains one JSON object:
 
 ```json
-{"title": "Article Title", "categories": ["Cat1", "Cat2"], "text": "...", "redirect": null}
+{"title": "Article Title", "page_id": 12345, "revision_id": 67890, "categories": ["Cat1", "Cat2"], "text": "...", "redirect": null}
 ```
+
+`page_id` and `revision_id` are the dump's own `<id>` values for the page and its
+revision, so a record can be traced back to the exact version of the article it came from.
 
 For redirect articles:
 
 ```json
-{"title": "NYC", "categories": [], "text": "", "redirect": "New York City"}
+{"title": "NYC", "page_id": 23456, "revision_id": 78901, "categories": [], "text": "", "redirect": "New York City"}
 ```
 
 ## Cache Management

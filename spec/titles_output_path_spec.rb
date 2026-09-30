@@ -36,6 +36,18 @@ RSpec.describe "titles extraction and SQL file output" do
     File.readlines(path).map { |l| JSON.parse(l) }
   end
 
+  describe "extract_corpus across several batches with worker processes" do
+    it "writes each record once (workers must not re-flush the output buffer)" do
+      stub_const("Wp2txt::Corpus::EXTRACT_BATCH_SIZE", 1)
+      out = File.join(@dir, "batched.jsonl")
+      titles = ["Film A", "Film B", "Person X"]
+      result = @corpus.extract_corpus(output_path: out, content: "full", titles: titles, num_processes: 2)
+      records = read_jsonl(out)
+      expect(records.map { |r| r["title"] }.tally).to eq(titles.to_h { |t| [t, 1] })
+      expect(records.size).to eq(result[:records_written])
+    end
+  end
+
   describe "extract_corpus titles:" do
     it "extracts an explicit set with normalization, dedup, and input order" do
       out = File.join(@dir, "t.jsonl")
