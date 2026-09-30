@@ -84,7 +84,7 @@ $ wp2txt --count-links -L ja         # how many articles link to each article
   index (a mismatch is refused) and creates `page_properties` with columns `page_id`
   (integer primary key), `qid` (nullable text), `disambiguation` (integer, default 0,
   not null), and `sort_key` (nullable text). A row exists only for a page with at least
-  one of these properties. Re-importing replaces the unreleased `page_qids` table.
+  one of these properties.
   The source file's name, size, SHA-256, import time, page count, each property's count,
   and the count of invalid UTF-8 sort keys skipped are reported under
   `dump_info.page_properties`. Once imported, JSON records always carry `qid`,
