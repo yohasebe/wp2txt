@@ -162,19 +162,23 @@ module Wp2txt
         skipped_invalid: meta[:langlinks_skipped_invalid].to_i }
     end
 
-    # Provenance of the Wikidata item IDs (wp2txt --import-page-props), or nil
+    # Provenance and counts of imported page properties, or nil
     def page_props_provenance
       return nil unless File.exist?(@db_path)
 
       meta = read_metadata
-      return nil unless meta && meta[:page_props_imported_at]
+      return nil unless meta && meta[:page_props_imported_at] && page_properties_imported?
 
       { source: meta[:page_props_source],
         source_size: meta[:page_props_source_size].to_i,
         source_sha256: meta[:page_props_source_sha256],
         imported_at: meta[:page_props_imported_at],
         imported_with: meta[:page_props_wp2txt_version],
-        qid_count: meta[:page_props_qid_count].to_i }
+        page_count: meta[:page_props_page_count].to_i,
+        qid_count: meta[:page_props_qid_count].to_i,
+        disambiguation_count: meta[:page_props_disambiguation_count].to_i,
+        sort_key_count: meta[:page_props_sort_key_count].to_i,
+        skipped_invalid_sort_keys: meta[:page_props_skipped_invalid_sort_keys].to_i }
     end
 
     # How incoming links were counted (wp2txt --count-links), or nil
@@ -191,16 +195,32 @@ module Wp2txt
         with_inlinks: meta[:links_with_inlinks].to_i }
     end
 
-    # Wikidata item ID of a page, when page_props were imported
-    def qid_for(page_id)
-      return nil unless page_id && File.exist?(@db_path)
+    # An incomplete import must not be reported as an absent property.
+    def self.page_properties_imported?(db)
+      !!db.get_first_value(<<~SQL)
+        SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'page_properties'
+        AND EXISTS (SELECT 1 FROM metadata WHERE key = 'page_props_imported_at')
+      SQL
+    end
 
-      @has_qids = !open_db.get_first_value(
-        "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'page_qids'"
-      ).nil? if @has_qids.nil?
-      return nil unless @has_qids
+    def page_properties_imported?
+      File.exist?(@db_path) && self.class.page_properties_imported?(open_db)
+    rescue SQLite3::Exception
+      false
+    end
 
-      open_db.get_first_value("SELECT qid FROM page_qids WHERE page_id = ?", [page_id])
+    def self.property_values(row = nil)
+      qid, sort_key, disambiguation = row
+      { qid: qid, sort_key: sort_key, disambiguation: disambiguation == 1 }
+    end
+
+    # nil means not imported; null/false values mean imported but absent.
+    def properties_for(page_id)
+      return nil unless page_properties_imported?
+
+      self.class.property_values(open_db.get_first_row(
+        "SELECT qid, sort_key, disambiguation FROM page_properties WHERE page_id = ?", [page_id]
+      ))
     rescue SQLite3::Exception
       nil
     end

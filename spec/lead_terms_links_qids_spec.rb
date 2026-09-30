@@ -84,7 +84,7 @@ RSpec.describe "lead terms, incoming links, and Wikidata IDs" do
       path = page_props_file(PAGE_PROPS_SQL.b)
       result = described_class.new(db).import!(path)
       expect(result[:row_count]).to eq(2)
-      rows = SQLite3::Database.new(db, readonly: true).execute("SELECT page_id, qid FROM page_qids ORDER BY page_id")
+      rows = SQLite3::Database.new(db, readonly: true).execute("SELECT page_id, qid FROM page_properties ORDER BY page_id")
       expect(rows).to eq([[1, "Q1490"], [3, "Q9"]])
       expect(result[:provenance][:source_sha256]).to eq(Digest::SHA256.file(path).hexdigest)
       expect(described_class.new(db).import!(path)[:status]).to eq(:already_imported)
@@ -183,7 +183,7 @@ RSpec.describe "lead terms, incoming links, and Wikidata IDs" do
 
       expect(turbo["東京"].keys.first(4)).to eq(%w[title page_id revision_id qid])
       expect(turbo["東京"]["qid"]).to eq("Q1490")
-      expect(turbo["記事B"]).not_to have_key("qid")
+      expect(turbo["記事B"].slice("qid", "sort_key", "disambiguation")).to eq("qid" => nil, "sort_key" => nil, "disambiguation" => false)
       expect(turbo["東京"]["lead_terms"].first.slice("text", "notes"))
         .to eq("text" => "東京", "notes" => %w[とうきょう Tokyo])
       # (the default path skips articles with empty text; compare what both emit)

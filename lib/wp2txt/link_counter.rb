@@ -126,7 +126,10 @@ module Wp2txt
     end
 
     def normalize_target(raw)
-      title = special_chr(raw).split("#", 2).first.to_s.strip.sub(/\A:/, "")
+      # Decode each reference in the original input, never references created
+      # by decoding another one (special_chr has two decoding stages).
+      decoded = raw.gsub(/&(?:#[xX][0-9a-fA-F]+|#\d+|[a-zA-Z][a-zA-Z0-9]*);/) { |entity| special_chr(entity) }
+      title = decoded.split("#", 2).first.to_s.strip.sub(/\A:/, "")
       MetadataIndex.normalize_title(title, case_rule: @case_rule || "first-letter")
     end
 

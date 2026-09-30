@@ -259,10 +259,10 @@ module Wp2txt
         config[opt] = opts[opt]
       end
 
-      # Wikidata item IDs, when imported into the index of the full cached dump
+      # Page properties, when imported into the index of the full cached dump
       if format == :json && opts[:lang]
         full_dump = Wp2txt::DumpManager.new(opts[:lang], cache_dir: opts[:cache_dir]).cached_multistream_path
-        config[:qids] = load_qids(full_dump, opts[:cache_dir])
+        config[:page_properties] = load_page_properties(full_dump, opts[:cache_dir])
       end
 
       # Section extraction options

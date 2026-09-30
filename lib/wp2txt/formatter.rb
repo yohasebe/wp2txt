@@ -17,13 +17,14 @@ module Wp2txt
       with_source_fields(format_article_body(article, config), article)
     end
 
-    # JSON records carry the dump's page and revision IDs (and the Wikidata
-    # item ID, when imported) right after the title, so a record can be traced
+    # JSON records carry the dump's page and revision IDs (and page properties,
+    # when imported) right after the title, so a record can be traced
     # back to its source; lead terms, when requested, come last.
     def with_source_fields(result, article)
       return result unless result.is_a?(Hash)
 
-      ids = { "page_id" => article.page_id, "revision_id" => article.revision_id, "qid" => article.qid }.compact
+      ids = { "page_id" => article.page_id, "revision_id" => article.revision_id }.compact
+      ids.merge!(article.page_properties.transform_keys(&:to_s)) if article.page_properties
       out = result.each_with_object({}) do |(key, value), acc|
         acc[key] = value
         acc.merge!(ids) if key == "title"

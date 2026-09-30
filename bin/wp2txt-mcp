@@ -80,7 +80,7 @@ end
 
 server.define_tool(
   name: "dump_info",
-  description: "Dump identity (language/date), available index tiers, and article/category/section counts, plus where optional data came from (interlanguage links, Wikidata IDs, incoming-link counts) when imported. Call first to learn what this corpus contains.",
+  description: "Dump identity (language/date), available index tiers, and article/category/section counts, plus provenance and counts for imported page properties (Wikidata IDs, disambiguation flags, sort keys), interlanguage links, and incoming-link counts. Call first to learn what this corpus contains.",
   input_schema: { properties: {}, required: [] }
 ) do |server_context:|
   respond { corpus.dump_info }

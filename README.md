@@ -177,8 +177,18 @@ Each line contains one JSON object:
 
 `page_id` and `revision_id` are the dump's own `<id>` values for the page and its
 revision, so a record can be traced back to the exact version of the article it came from.
-If Wikidata IDs have been imported into the metadata index for the dump
-(`--import-page-props`, see [docs/INDEXES.md](docs/INDEXES.md)), a `qid` field follows them.
+If page properties have been imported into the dump's metadata index
+(`--import-page-props`, see [docs/INDEXES.md](docs/INDEXES.md)), three fields always
+follow the source IDs: `qid`, `sort_key`, and `disambiguation`. Missing QIDs and sort
+keys are `null`; an absent disambiguation flag is `false`. Before import, all three
+fields are omitted.
+
+`disambiguation` is MediaWiki's own flag, which identifies pages that a title-based
+check would miss. `sort_key` is the stored sorting key, whose meaning varies by wiki:
+Japanese Wikipedia commonly uses normalized readings without voicing marks and with
+small kana enlarged; English Wikipedia may use "surname, given name". It is not a
+reading itself, but can be used to compare reading candidates. WP2TXT returns the
+stored value without interpreting it.
 
 With `--lead-terms`, each record also lists the terms the article introduces in its lead:
 
@@ -204,7 +214,8 @@ With `--lead-terms`, each record also lists the terms the article introduces in 
   to you.
 
 `--lead-terms` cannot be combined with `--ractor`. The experimental Ractor JSON path
-also omits page IDs, revision IDs, and Wikidata QIDs; the CLI warns when it is selected.
+also omits page IDs and revision IDs; the CLI warns when it is selected. Imported
+page properties are attached in the parent process on this path too.
 
 For redirect articles:
 
