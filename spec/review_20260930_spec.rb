@@ -93,7 +93,7 @@ RSpec.describe '2026-09-30 review regressions' do
     end
   end
 
-  %w[nowiki pre math code syntaxhighlight source gallery score timeline chem ce graph mapframe].each do |tag|
+  %w[nowiki pre math syntaxhighlight source gallery score timeline chem ce graph mapframe templatedata].each do |tag|
     it "#3 skips #{tag} contents and self-closing forms while preserving source offsets" do
       text = "<#{tag.upcase} data-x='>'>'''偽'''（にせ）{{ruby|偽|にせ}}</#{tag.upcase}>\n\n" \
              "<#{tag} />'''東京'''（とうきょう）。"
@@ -160,7 +160,7 @@ RSpec.describe '2026-09-30 review regressions' do
   end
 
   it '#9 excludes every non-wikitext tag and comments from incoming links' do
-    %w[nowiki pre math code syntaxhighlight source gallery score timeline chem ce graph mapframe].each do |tag|
+    %w[nowiki pre math syntaxhighlight source score chem ce graph mapframe templatedata].each do |tag|
       expect(counts("<#{tag}>[[東京]]</#{tag}>[[大阪]]<#{tag}/><!-- [[京都]] -->")).to eq('大阪' => 1)
     end
   end
@@ -168,7 +168,7 @@ RSpec.describe '2026-09-30 review regressions' do
   it 'handles empty text and binary invalid bytes in the shared region helper' do
     expect(terms('')).to eq([])
     expect(counts('')).to eq({})
-    expect(Wp2txt::WikitextRegions.remove("<nowiki>\xFF</nowiki>\xFE".b)).to eq("\xFE".b)
+    expect(Wp2txt::WikitextRegions.remove_literal("<nowiki>\xFF</nowiki>\xFE".b)).to eq("\xFE".b)
   end
 
   def cli(*options)

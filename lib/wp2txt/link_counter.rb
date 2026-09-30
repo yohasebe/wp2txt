@@ -109,7 +109,7 @@ module Wp2txt
       return if Wp2txt::REDIRECT_REGEX.match?(text)
 
       reached = {} # target => true if reached directly at least once
-      WikitextRegions.remove(text).scan(LINK_REGEX) do |(raw)|
+      WikitextRegions.remove_literal(text).scan(LINK_REGEX) do |(raw)|
         name = normalize_target(raw)
         next if name.empty?
 

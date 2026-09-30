@@ -1,29 +1,37 @@
 # frozen_string_literal: true
 
 module Wp2txt
-  # Regions whose contents are not parsed as article wikitext. Keep the same
-  # recognition rules for lead terms and incoming links.
+  # Literal regions suppress wikitext parsing. Galleries and timelines can
+  # contain links, but their contents are not the article's lead prose.
   module WikitextRegions
-    TAGS = %w[nowiki pre math code syntaxhighlight source gallery score timeline chem ce graph mapframe].freeze
+    LITERAL_TAGS = %w[nowiki pre math chem ce score syntaxhighlight source graph mapframe templatedata].freeze
+    NON_PROSE_TAGS = %w[gallery timeline].freeze
     COMMENT = /<!--.*?(?:-->|\z)/m
-    REGION = /<!--.*?(?:-->|\z)|<(?<tag>#{TAGS.join('|')})(?=[\s\/>])(?:"[^"]*"|'[^']*'|[^'">])*?(?:\/>|>.*?(?:<\/\k<tag>\s*>|\z))/mi
-    REGION_AT = /\G(?:#{REGION})/
+
+    def self.region_pattern(tags)
+      /<!--.*?(?:-->|\z)|<(?<tag>#{tags.join('|')})(?=[\s\/>])(?:"[^"]*"|'[^']*'|[^'">])*?(?:\/>|>.*?(?:<\/\k<tag>\s*>|\z))/mi
+    end
+
+    LITERAL_REGION = region_pattern(LITERAL_TAGS)
+    LEAD_REGION = region_pattern(LITERAL_TAGS + NON_PROSE_TAGS)
+    LITERAL_REGION_AT = /\G(?:#{LITERAL_REGION})/
+    LEAD_REGION_AT = /\G(?:#{LEAD_REGION})/
 
     module_function
 
-    def end_at(text, offset)
-      match = REGION_AT.match(text, offset)
+    def end_at(text, offset, lead: false)
+      match = (lead ? LEAD_REGION_AT : LITERAL_REGION_AT).match(text, offset)
       match.end(0) if match
     end
 
-    def remove(text)
-      text.gsub(REGION, "")
+    def remove_literal(text)
+      text.gsub(LITERAL_REGION, "")
     end
 
     # One space per codepoint, including internal newlines: an excluded
     # region must not introduce a paragraph or heading boundary.
-    def mask(text)
-      text.gsub(REGION) { |region| " " * region.length }
+    def mask_lead(text)
+      text.gsub(LEAD_REGION) { |region| " " * region.length }
     end
 
     def split_pipes(text)

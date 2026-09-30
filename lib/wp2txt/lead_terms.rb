@@ -32,7 +32,7 @@ module Wp2txt
     def extract(wikitext, render:)
       return [] if wikitext.nil? || wikitext.empty?
 
-      visible = WikitextRegions.mask(wikitext)
+      visible = WikitextRegions.mask_lead(wikitext)
       bolds, rubies, lead_end = scan(visible, visible.length, source: wikitext)
       original_render = render
       render = ->(fragment) { original_render.call(fragment.gsub(WikitextRegions::COMMENT, "")) }
@@ -164,7 +164,7 @@ module Wp2txt
       i = start
       while i < limit
         two = text[i, 2]
-        if text[i] == "<" && (stop = WikitextRegions.end_at(text, i))
+        if text[i] == "<" && (stop = WikitextRegions.end_at(text, i, lead: true))
           i = stop
           next
         elsif ["{{", "[["].include?(two)
@@ -191,7 +191,7 @@ module Wp2txt
       i = 0
       while i < text.length
         two = text[i, 2]
-        if text[i] == "<" && (stop = WikitextRegions.end_at(text, i))
+        if text[i] == "<" && (stop = WikitextRegions.end_at(text, i, lead: true))
           parts.last << text[i...stop]
           i = stop
         elsif ["{{", "[["].include?(two)

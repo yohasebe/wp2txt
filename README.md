@@ -192,7 +192,9 @@ With `--lead-terms`, each record also lists the terms the article introduces in 
 - `source: "bold"` — a bold term in the first lead paragraph that has one (up to five),
   with the parenthesized text written right after it, split at top-level commas and
   semicolons into `notes` (`notes_text` keeps it unsplit). Bold text inside templates,
-  image captions, references, and non-wikitext regions such as `nowiki` and `pre` is not counted.
+  image captions, references, literal regions such as `nowiki` and `pre`, and
+  `gallery`/`timeline` content is not counted. `code` is an ordinary formatting tag:
+  bold text inside it can be a lead term.
 - `source: <template name>` — a reading template such as `{{読み仮名}}`, reported as
   `text` and `reading`.
 - `span` gives character offsets `[start, end)` into the article's wikitext as stored in
