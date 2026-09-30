@@ -14,21 +14,22 @@ module Wp2txt
 
     # Format article based on configuration and output format
     def format_article(article, config)
-      with_page_ids(format_article_body(article, config), article)
+      with_source_fields(format_article_body(article, config), article)
     end
 
-    # JSON records carry the dump's page and revision IDs right after the title,
-    # when the reader supplied them, so a record can be traced back to its source.
-    def with_page_ids(result, article)
-      return result unless result.is_a?(Hash) && (article.page_id || article.revision_id)
+    # JSON records carry the dump's page and revision IDs (and the Wikidata
+    # item ID, when imported) right after the title, so a record can be traced
+    # back to its source; lead terms, when requested, come last.
+    def with_source_fields(result, article)
+      return result unless result.is_a?(Hash)
 
-      result.each_with_object({}) do |(key, value), out|
-        out[key] = value
-        next unless key == "title"
-
-        out["page_id"] = article.page_id
-        out["revision_id"] = article.revision_id
+      ids = { "page_id" => article.page_id, "revision_id" => article.revision_id, "qid" => article.qid }.compact
+      out = result.each_with_object({}) do |(key, value), acc|
+        acc[key] = value
+        acc.merge!(ids) if key == "title"
       end
+      out["lead_terms"] = article.lead_terms if article.lead_terms
+      out
     end
 
     def format_article_body(article, config)

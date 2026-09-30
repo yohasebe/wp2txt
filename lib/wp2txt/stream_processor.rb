@@ -19,8 +19,12 @@ module Wp2txt
 
     attr_reader :buffer_size, :pages_processed, :bytes_read, :redirects_skipped
 
-    def initialize(input_path, bz2_gem: false, adaptive_buffer: true, validate_bz2: true, skip_redirects: true)
+    # keep_raw_text: also hand back each article's wikitext as stored in the
+    # dump (before comment removal), as :raw_text among the with_ids values
+    def initialize(input_path, bz2_gem: false, adaptive_buffer: true, validate_bz2: true, skip_redirects: true,
+                   keep_raw_text: false)
       @input_path = input_path
+      @keep_raw_text = keep_raw_text
       @bz2_gem = bz2_gem
       @buffer = +""
       @pending_bytes = +"".b
@@ -257,6 +261,7 @@ module Wp2txt
       return nil unless Wp2txt.namespace_id(namespace).zero?
 
       text = text_node.content
+      raw_text = text if @keep_raw_text
 
       # Early redirect detection and skip (before expensive processing)
       # Redirects start with # or ＃ followed by redirect keyword and [[target]]
@@ -272,7 +277,9 @@ module Wp2txt
       end
 
       @pages_processed += 1
-      [title, text, Wp2txt.page_ids(page_xml)]
+      meta = Wp2txt.page_ids(page_xml)
+      meta[:raw_text] = raw_text if @keep_raw_text
+      [title, text, meta]
     rescue Nokogiri::XML::SyntaxError
       # Skip malformed XML
       nil

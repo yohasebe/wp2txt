@@ -4,6 +4,8 @@ require "json"
 require_relative "metadata_index"
 require_relative "fts_index"
 require_relative "langlinks_importer"
+require_relative "page_props_importer"
+require_relative "link_counter"
 require_relative "corpus"
 require_relative "multistream"
 require_relative "memory_monitor"
@@ -322,9 +324,92 @@ module Wp2txt
         end
       end
       CliUI::EXIT_SUCCESS
-    rescue ArgumentError => e
+    rescue ArgumentError, Wp2txt::Error => e
       print_error(e.message)
       CliUI::EXIT_ERROR
+    end
+
+    # Import each article's Wikidata item ID from the page_props dump of the
+    # same date as the metadata index
+    def run_import_page_props(opts)
+      db_path, dump_date, manager = built_index_for(opts)
+      return CliUI::EXIT_ERROR unless db_path
+
+      source = opts[:page_props_file] || begin
+        print_header("Downloading page_props for '#{opts[:lang]}' (#{dump_date})")
+        manager.download_page_props(date: dump_date)
+      end
+      print_mode_banner("Import Wikidata IDs", { "Source" => File.basename(source), "Metadata DB" => db_path })
+
+      time_start = Time.now
+      result = PagePropsImporter.new(db_path).import!(source, force: opts[:update_cache])
+      if result[:status] == :already_imported
+        print_success("Wikidata IDs already imported (at #{result[:imported_at]}, #{result[:row_count]} pages).")
+        print_info_message("Use -U/--update-cache to re-import.")
+      else
+        print_success("Wikidata IDs imported: #{result[:row_count]} pages in #{format_duration(Time.now - time_start)}")
+        print_info("SHA-256", result[:provenance][:source_sha256].to_s)
+      end
+      CliUI::EXIT_SUCCESS
+    rescue ArgumentError, Wp2txt::Error => e
+      print_error(e.message)
+      CliUI::EXIT_ERROR
+    end
+
+    # Count incoming links to every article and store them in the metadata index
+    def run_count_links(opts)
+      db_path, _dump_date, manager = built_index_for(opts)
+      return CliUI::EXIT_ERROR unless db_path
+
+      multistream = manager.cached_multistream_path
+      stream_offsets, = load_stream_offsets(manager.cached_index_path, opts)
+      num_processes = opts[:num_procs] || MemoryMonitor.optimal_processes
+      print_mode_banner("Count Incoming Links", {
+        "Dump" => File.basename(multistream), "Streams" => stream_offsets.size.to_s,
+        "Processes" => num_processes.to_s
+      })
+
+      time_start = Time.now
+      last_report = Time.now
+      result = LinkCounter.new(multistream, stream_offsets, db_path: db_path,
+                                                           num_processes: num_processes).count! do |done, total|
+        now = Time.now
+        if !quiet? && (now - last_report >= DEFAULT_PROGRESS_INTERVAL || done == total)
+          last_report = now
+          puts pastel.dim(format("  [%s] %d/%d batches", now.strftime("%H:%M:%S"), done, total))
+        end
+      end
+      print_success("Incoming links counted for #{result[:articles]} articles " \
+                    "(#{result[:with_inlinks]} linked at least once) in #{format_duration(Time.now - time_start)}")
+      CliUI::EXIT_SUCCESS
+    rescue ArgumentError, Wp2txt::Error => e
+      print_error(e.message)
+      CliUI::EXIT_ERROR
+    end
+
+    # The metadata index of the cached dump for --lang, or nil with an error printed
+    # @return [Array(String, String, DumpManager)] [db_path, dump_date, manager]
+    def built_index_for(opts)
+      manager = DumpManager.new(opts[:lang], cache_dir: opts[:cache_dir],
+                                             dump_expiry_days: CLI.config.dump_expiry_days)
+      multistream = manager.cached_multistream_path
+      unless File.exist?(multistream)
+        print_error("No cached dump found for '#{opts[:lang]}'.")
+        print_info_message("Download and index it with: wp2txt --build-index -L #{opts[:lang]}")
+        return nil
+      end
+
+      db_path = MetadataIndex.path_for(multistream, cache_dir: opts[:cache_dir])
+      meta = MetadataIndex.new(db_path)
+      unless meta.built?
+        meta.close
+        print_error("Metadata index not found for this dump.")
+        print_info_message("Build it first with: wp2txt --build-index -L #{opts[:lang]}")
+        return nil
+      end
+      dump_date = meta.stats[:dump_name][/\d{8}\z/]
+      meta.close
+      [db_path, dump_date, manager]
     end
 
     # Query the metadata index and print matching article titles

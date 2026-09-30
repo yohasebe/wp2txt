@@ -866,6 +866,27 @@ module Wp2txt
       File.join(@cache_dir, "#{@lang}wiki-#{date}-langlinks.sql.gz")
     end
 
+    def page_props_url(date)
+      wiki = "#{@lang}wiki"
+      "#{DUMP_BASE_URL}/#{wiki}/#{date}/#{wiki}-#{date}-page_props.sql.gz"
+    end
+
+    def cached_page_props_path(date)
+      File.join(@cache_dir, "#{@lang}wiki-#{date}-page_props.sql.gz")
+    end
+
+    # Download the page_props dump for an explicit dump date (must match the index)
+    def download_page_props(date:, force: false)
+      path = cached_page_props_path(date)
+      return path if File.exist?(path) && !force
+
+      url = page_props_url(date)
+      puts "Downloading page_props: #{url}"
+      $stdout.flush
+      download_file(url, path)
+      path
+    end
+
     # Download the langlinks dump for an explicit dump date. The date MUST
     # come from the built metadata index (not latest_dump_date) so the
     # imported links stay pinned to the indexed dump version.

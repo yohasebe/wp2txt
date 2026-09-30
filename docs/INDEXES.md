@@ -71,6 +71,46 @@ $ wp2txt --import-langlinks -L ja --langlinks-langs en,de,fr,zh,ko
 This adds a `langlinks` table (`ll_from` = source page_id, `ll_lang`, `ll_title`) that can
 be joined in SQL. Tip: filter `ll_title != ''` — real dumps contain a few empty-title rows.
 
+### Wikidata IDs and incoming links
+
+Two more signals can be added to an existing metadata index, each with one command:
+
+```console
+$ wp2txt --import-page-props -L ja   # each article's Wikidata item ID
+$ wp2txt --count-links -L ja         # how many articles link to each article
+```
+
+- `--import-page-props` reads the official `page_props` dump of the **same date** as the
+  index (a mismatch is refused) and adds `page_qids` (`page_id`, `qid`). The source file's
+  name, size, SHA-256, and import time are reported by `dump_info`. Once imported, JSON
+  output carries a `qid` field next to `page_id`, and `get_article` / `extract_corpus`
+  include it too.
+- `--count-links` scans the dump and adds `page_inlinks` (`page_id`, `inlinks`,
+  `via_redirects`) for every article. Each linking article counts **once** per target,
+  however many times it links; a link to a redirect counts for the redirect's target
+  (`via_redirects` is how many articles reached it only that way). Only links written in
+  articles' own text count — links that navigation templates add when a page is rendered
+  are not in the dump, so they are not counted. Commented-out links and links from
+  redirects or other namespaces do not count. Japanese Wikipedia takes about 12 minutes on
+  an Apple Silicon laptop.
+
+Together with langlinks these let a query select articles by how referenced they are
+within an edition, how many editions cover them, and what Wikidata says they are:
+
+```sql
+SELECT p.title, i.inlinks, q.qid,
+       (SELECT COUNT(DISTINCT ll_lang) FROM langlinks l WHERE l.ll_from = p.page_id) AS editions
+FROM pages p
+JOIN page_inlinks i USING (page_id)
+LEFT JOIN page_qids q USING (page_id)
+WHERE p.namespace = 0 AND p.redirect_to IS NULL AND i.inlinks >= 5
+ORDER BY i.inlinks DESC
+```
+
+Link counts measure how much an edition refers to a topic, not whether it is a proper
+noun: common nouns ("singer", "high school") rank high too. Use the Wikidata ID to tell
+kinds of entities apart.
+
 ## 4. The MCP server
 
 `wp2txt-mcp` exposes a local dump to any MCP-capable LLM client (Claude, ChatGPT, Gemini,
@@ -105,7 +145,7 @@ $ claude mcp add wp2txt -- docker run -i --rm -v wp2txt:/root/.wp2txt ghcr.io/yo
 
 | Tool | Purpose |
 |------|---------|
-| `dump_info` | Dump identity, installed indexes, corpus statistics, langlinks provenance |
+| `dump_info` | Dump identity, installed indexes, corpus statistics, provenance of langlinks, Wikidata IDs, and link counts |
 | `get_article` / `get_sections` / `list_headings` / `get_categories` | Single-article access (redirect-aware) |
 | `find_articles` | Exhaustive filtered listing (category recursion, category AND / pattern match, section headings, title match) |
 | `category_tree` / `section_stats` | Scope exploration and heading-frequency discovery |

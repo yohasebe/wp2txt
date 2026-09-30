@@ -4,6 +4,7 @@ require "sqlite3"
 require "set"
 require "time"
 require "zlib"
+require_relative "sql_dump_reader"
 require_relative "metadata_index"
 require_relative "version"
 
@@ -27,15 +28,6 @@ module Wp2txt
     # a title-normalization mismatch
     SANITY_SAMPLE_SIZE = 1000
     SANITY_WARN_THRESHOLD = 0.9
-
-    INSERT_PREFIX = /\A\s*INSERT\s+INTO\s+`langlinks`\s+VALUES\b/i
-    STATEMENT_START = /\A\s*INSERT\s+INTO\s/i
-
-    # MySQL backslash escapes inside mysqldump string literals
-    UNESCAPES = {
-      "0" => "\0", "'" => "'", '"' => '"', "b" => "\b", "n" => "\n",
-      "r" => "\r", "t" => "\t", "Z" => "\x1A", "\\" => "\\"
-    }.freeze
 
     def initialize(db_path, cache_dir: nil)
       @db_path = db_path
@@ -234,38 +226,18 @@ module Wp2txt
     # tagged UTF-8 and validated — a garbled title could never join
     # pages.title anyway, so such rows are skipped (and counted), not scrubbed.
     def each_source_row(source_path)
-      io = if source_path.end_with?(".gz")
-             # GzipReader ignores set_encoding; the encoding must be given
-             # at open time (lines must come out as BINARY — see below)
-             Zlib::GzipReader.open(source_path, encoding: Encoding::BINARY.to_s)
-           else
-             File.open(source_path, "rb")
-           end
-
       skipped = 0
-      # Dumps write each INSERT either on one line or with one tuple per line
-      # after the INSERT header (current dumps do the latter), so read every line
-      # of a langlinks INSERT statement up to its terminating semicolon.
-      in_langlinks_insert = false
-      begin
-        io.each_line do |line|
-          in_langlinks_insert = INSERT_PREFIX.match?(line) if STATEMENT_START.match?(line)
-          next unless in_langlinks_insert
-
-          in_langlinks_insert = false if line.rstrip.end_with?(";")
-          line.scan(TUPLE_REGEX) do |ll_from, ll_lang, ll_title|
-            lang = unescape_mysql(ll_lang).force_encoding(Encoding::UTF_8)
-            title = unescape_mysql(ll_title).force_encoding(Encoding::UTF_8)
-            unless lang.valid_encoding? && title.valid_encoding?
-              skipped += 1
-              next
-            end
-
-            yield ll_from.to_i, lang, title
+      SqlDumpReader.each_insert_line(source_path, "langlinks") do |line|
+        line.scan(TUPLE_REGEX) do |ll_from, ll_lang, ll_title|
+          lang = SqlDumpReader.unescape(ll_lang).force_encoding(Encoding::UTF_8)
+          title = SqlDumpReader.unescape(ll_title).force_encoding(Encoding::UTF_8)
+          unless lang.valid_encoding? && title.valid_encoding?
+            skipped += 1
+            next
           end
+
+          yield ll_from.to_i, lang, title
         end
-      ensure
-        io.close
       end
       skipped
     end
@@ -278,12 +250,8 @@ module Wp2txt
     # (equivalent to the old parser skipping malformed tuples)
     TUPLE_REGEX = /\((\d+),'((?:[^'\\]|\\.)*)','((?:[^'\\]|\\.)*)'\)/
 
-    UNESCAPE_REGEX = /\\(.)/m
 
     # Resolve MySQL backslash escapes in a captured string literal
     # (same mapping as the old hand-rolled parser)
-    def unescape_mysql(str)
-      str.gsub(UNESCAPE_REGEX) { UNESCAPES[::Regexp.last_match(1)] || ::Regexp.last_match(1) }
-    end
   end
 end

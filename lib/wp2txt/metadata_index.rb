@@ -161,6 +161,49 @@ module Wp2txt
         skipped_invalid: meta[:langlinks_skipped_invalid].to_i }
     end
 
+    # Provenance of the Wikidata item IDs (wp2txt --import-page-props), or nil
+    def page_props_provenance
+      return nil unless File.exist?(@db_path)
+
+      meta = read_metadata
+      return nil unless meta && meta[:page_props_imported_at]
+
+      { source: meta[:page_props_source],
+        source_size: meta[:page_props_source_size].to_i,
+        source_sha256: meta[:page_props_source_sha256],
+        imported_at: meta[:page_props_imported_at],
+        imported_with: meta[:page_props_wp2txt_version],
+        qid_count: meta[:page_props_qid_count].to_i }
+    end
+
+    # How incoming links were counted (wp2txt --count-links), or nil
+    def links_provenance
+      return nil unless File.exist?(@db_path)
+
+      meta = read_metadata
+      return nil unless meta && meta[:links_counted_at]
+
+      { counted_at: meta[:links_counted_at],
+        rule_version: meta[:links_rule_version],
+        counted_with: meta[:links_wp2txt_version],
+        article_count: meta[:links_article_count].to_i,
+        with_inlinks: meta[:links_with_inlinks].to_i }
+    end
+
+    # Wikidata item ID of a page, when page_props were imported
+    def qid_for(page_id)
+      return nil unless page_id && File.exist?(@db_path)
+
+      @has_qids = !open_db.get_first_value(
+        "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'page_qids'"
+      ).nil? if @has_qids.nil?
+      return nil unless @has_qids
+
+      open_db.get_first_value("SELECT qid FROM page_qids WHERE page_id = ?", [page_id])
+    rescue SQLite3::Exception
+      nil
+    end
+
     def close
       @db&.close
       @db = nil

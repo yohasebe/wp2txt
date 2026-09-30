@@ -111,8 +111,7 @@ module Wp2txt
 
         if page
           article = Article.new(page[:text], page[:title], !config[:marker])
-          article.page_id = page[:id]
-          article.revision_id = page[:revision_id]
+          set_source_fields(article, page[:id], page[:revision_id], page[:text], config)
           result = format_article(article, config)
           writer.write(result)
           extracted_count += 1
@@ -255,9 +254,15 @@ module Wp2txt
         bz2_gem: opts[:bz2_gem]
       }
 
-      %i[title list heading table pre ref redirect multiline category category_only
+      %i[lead_terms title list heading table pre ref redirect multiline category category_only
          summary_only metadata_only marker extract_citations expand_templates].each do |opt|
         config[opt] = opts[opt]
+      end
+
+      # Wikidata item IDs, when imported into the index of the full cached dump
+      if format == :json && opts[:lang]
+        full_dump = Wp2txt::DumpManager.new(opts[:lang], cache_dir: opts[:cache_dir]).cached_multistream_path
+        config[:qids] = load_qids(full_dump, opts[:cache_dir])
       end
 
       # Section extraction options
@@ -482,8 +487,7 @@ module Wp2txt
 
         pages.each do |page|
           article = Article.new(page[:text], page[:title], !config[:marker])
-          article.page_id = page[:id]
-          article.revision_id = page[:revision_id]
+          set_source_fields(article, page[:id], page[:revision_id], page[:text], config)
           result = format_article(article, config)
           writer.write(result)
           extracted_count += 1
@@ -497,8 +501,7 @@ module Wp2txt
 
           if page
             article = Article.new(page[:text], page[:title], !config[:marker])
-            article.page_id = page[:id]
-            article.revision_id = page[:revision_id]
+            set_source_fields(article, page[:id], page[:revision_id], page[:text], config)
             result = format_article(article, config)
             writer.write(result)
             extracted_count += 1
