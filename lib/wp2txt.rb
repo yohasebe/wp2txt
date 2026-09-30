@@ -269,12 +269,14 @@ module Wp2txt
         end
         page << line if inside_page
       end
-      if page.empty?
-        false
-      else
-        page.force_encoding("utf-8")
+      return false if page.empty?
+
+      page.force_encoding("utf-8")
+      # Corrupt input must not be cleaned into different text without a trace
+      unless page.valid_encoding?
+        title = page[%r{<title>([^<]*)</title>}, 1]&.scrub("?")
+        raise Wp2txt::EncodingError, "invalid UTF-8 in page #{title.inspect} of #{@input_file}"
       end
-    rescue ::Encoding::InvalidByteSequenceError, ::Encoding::UndefinedConversionError
       page
     end
 

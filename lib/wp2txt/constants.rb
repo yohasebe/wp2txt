@@ -6,6 +6,17 @@ module Wp2txt
     (value || "0").to_i
   end
 
+  # Page and revision IDs from one <page> element of a dump. The page's own
+  # <id> precedes <revision>; the revision's <id> is its first child (the
+  # contributor's <id> comes later). Only the header before <text> is read.
+  def self.page_ids(page_xml)
+    head = page_xml[0, page_xml.index("<text") || page_xml.size]
+    {
+      page_id: head[%r{<page>.*?<id>(\d+)</id>}m, 1]&.to_i,
+      revision_id: head[%r{<revision>\s*<id>(\d+)</id>}, 1]&.to_i
+    }
+  end
+
   # =========================================================================
   # Custom Exception Classes
   # =========================================================================

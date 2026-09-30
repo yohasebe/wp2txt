@@ -111,6 +111,8 @@ module Wp2txt
 
         if page
           article = Article.new(page[:text], page[:title], !config[:marker])
+          article.page_id = page[:id]
+          article.revision_id = page[:revision_id]
           result = format_article(article, config)
           writer.write(result)
           extracted_count += 1
@@ -480,6 +482,8 @@ module Wp2txt
 
         pages.each do |page|
           article = Article.new(page[:text], page[:title], !config[:marker])
+          article.page_id = page[:id]
+          article.revision_id = page[:revision_id]
           result = format_article(article, config)
           writer.write(result)
           extracted_count += 1
@@ -493,6 +497,8 @@ module Wp2txt
 
           if page
             article = Article.new(page[:text], page[:title], !config[:marker])
+            article.page_id = page[:id]
+            article.revision_id = page[:revision_id]
             result = format_article(article, config)
             writer.write(result)
             extracted_count += 1

@@ -64,20 +64,28 @@ module Wp2txt
 
     # Iterate over each page in the input
     # Yields [title, text] for each page
-    def each_page
-      return enum_for(:each_page) unless block_given?
+    # Yields title and text of each article. With with_ids: true, also yields
+    # { page_id:, revision_id: } taken from the dump.
+    def each_page(with_ids: false, &block)
+      return enum_for(:each_page, with_ids: with_ids) unless block
+
+      emit = if with_ids
+               ->(title, text, ids) { block.call(title, text, ids) }
+             else
+               ->(title, text, _ids) { block.call(title, text) }
+             end
 
       if File.directory?(@input_path)
         # Process XML files in directory
         Dir.glob(File.join(@input_path, "*.xml")).sort.each do |xml_file|
-          process_xml_file(xml_file) { |title, text| yield title, text }
+          process_xml_file(xml_file) { |title, text, ids| emit.call(title, text, ids) }
         end
       elsif @input_path.end_with?(".bz2")
         # Process bz2 compressed file with streaming
-        process_bz2_stream { |title, text| yield title, text }
+        process_bz2_stream { |title, text, ids| emit.call(title, text, ids) }
       elsif @input_path.end_with?(".xml")
         # Process single XML file
-        process_xml_file(@input_path) { |title, text| yield title, text }
+        process_xml_file(@input_path) { |title, text, ids| emit.call(title, text, ids) }
       else
         raise ArgumentError, "Unsupported input format: #{@input_path}"
       end
@@ -162,20 +170,32 @@ module Wp2txt
     def fill_buffer
       chunk = @file_pointer.read(@buffer_size)
       unless chunk
-        @buffer << @pending_bytes.to_s.dup.force_encoding(Encoding::UTF_8).scrub("")
-        @pending_bytes = +"".b
+        unless @pending_bytes.to_s.empty?
+          raise Wp2txt::EncodingError,
+                "input ends in the middle of a UTF-8 character (byte #{@bytes_read}): #{@input_path}"
+        end
         return false
       end
 
-      @bytes_read += chunk.bytesize
-      bytes = @pending_bytes.to_s.b + chunk.b
-      # Retain a trailing UTF-8 sequence until the next read. Only complete
-      # chunks are scrubbed, so valid characters split by read are preserved.
+      carried = @pending_bytes.to_s.b
+      start = @bytes_read - carried.bytesize # stream position of the first carried byte
+      bytes = carried + chunk.b
+      # A read can end partway through a multi-byte character; carry those
+      # bytes into the next read rather than judging half a character.
       tail = bytes[/[\xC2-\xF4][\x80-\xBF]{0,2}\z/n]
       width = tail && (tail.getbyte(0) < 0xE0 ? 2 : tail.getbyte(0) < 0xF0 ? 3 : 4)
       @pending_bytes = tail && tail.bytesize < width ? tail : +"".b
-      bytes = bytes.byteslice(0, bytes.bytesize - @pending_bytes.bytesize)
-      @buffer << bytes.force_encoding(Encoding::UTF_8).scrub("")
+      bytes = bytes.byteslice(0, bytes.bytesize - @pending_bytes.bytesize).force_encoding(Encoding::UTF_8)
+      # Anything still invalid is corrupt input. Dropping it would change the
+      # text without a trace, so stop and say where it is.
+      unless bytes.valid_encoding?
+        bad = bytes.each_char.find_index { |c| !c.valid_encoding? }.to_i
+        offset = start + bytes[0, bad].bytesize
+        raise Wp2txt::EncodingError,
+              "invalid UTF-8 near decompressed byte #{offset}: #{@input_path}"
+      end
+      @bytes_read += chunk.bytesize
+      @buffer << bytes
 
       # Adaptive buffer adjustment: if memory is low, reduce buffer size
       if @adaptive_buffer && MemoryMonitor.memory_low?
@@ -252,7 +272,7 @@ module Wp2txt
       end
 
       @pages_processed += 1
-      [title, text]
+      [title, text, Wp2txt.page_ids(page_xml)]
     rescue Nokogiri::XML::SyntaxError
       # Skip malformed XML
       nil

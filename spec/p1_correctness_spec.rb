@@ -40,10 +40,25 @@ RSpec.describe "P1 correctness contracts" do
       end
     end
 
-    it "scrubs invalid bytes and incomplete EOF without losing adjacent valid text" do
-      processor = processor_for("é\xFFあ😀\xE3\x81".b, 1)
-      nil while processor.send(:fill_buffer)
-      expect(processor.instance_variable_get(:@buffer)).to eq("éあ😀")
+    it "stops on an invalid byte and reports where it is" do
+      processor = processor_for("éあ\xFF😀".b, 1)
+      expect { nil while processor.send(:fill_buffer) }
+        .to raise_error(Wp2txt::EncodingError, /byte 5\b/)
+    end
+
+    it "stops when the input ends partway through a character" do
+      processor = processor_for("éあ\xE3\x81".b, 1)
+      expect { nil while processor.send(:fill_buffer) }
+        .to raise_error(Wp2txt::EncodingError, /middle of a UTF-8 character/)
+    end
+
+    it "passes valid text through unchanged at every buffer size" do
+      text = "é\nあ😀終\n" * 7
+      [1, 2, 3, 5, 64].each do |size|
+        processor = processor_for(text.b, size)
+        nil while processor.send(:fill_buffer)
+        expect(processor.instance_variable_get(:@buffer)).to eq(text)
+      end
     end
 
     it "handles empty input" do
@@ -105,7 +120,7 @@ RSpec.describe "P1 correctness contracts" do
     it "retains the historical ns=0 default for missing ns in both parsers" do
       xml = page_xml(id: 1, ns: 0, title: "作品: 東京", text: "本文").sub(/<ns>.*?<\/ns>/, "")
       processor = Wp2txt::StreamProcessor.new("unused.xml", adaptive_buffer: false)
-      expect(processor.send(:parse_page_xml, xml)).to eq(["作品: 東京", "本文"])
+      expect(processor.send(:parse_page_xml, xml)).to eq(["作品: 東京", "本文", { page_id: 1, revision_id: 100 }])
       rows = { pages: [], categories: [], sections: [], hierarchy: [] }
       Wp2txt::MetadataIndexBuilder.scan_page(xml, rows)
       expect(rows[:pages].first[2]).to eq(0)

@@ -95,6 +95,11 @@ module Wp2txt
       @early_terminated == true
     end
 
+    # Where the stream holding the last found article ends. Scanning stops as
+    # soon as every target is found, so without this the reader cannot tell how
+    # far that stream extends and would read the dump to its end.
+    attr_reader :stream_end_offset
+
     def find_by_title(title)
       @entries_by_title[title]
     end
@@ -179,6 +184,14 @@ module Wp2txt
       end
     end
 
+    def next_stream_offset_after(io, offset)
+      io.each_line do |line|
+        next_offset = line.split(":", 2).first.to_i
+        return next_offset if next_offset > offset
+      end
+      nil
+    end
+
     def parse_index_stream(io)
       count = 0
       io.each_line do |line|
@@ -205,6 +218,7 @@ module Wp2txt
           @found_targets << title if @target_titles.include?(title)
           if @found_targets.size == @target_titles.size
             @early_terminated = true
+            @stream_end_offset = next_stream_offset_after(io, offset)
             print "\r  Found all #{@target_titles.size} target articles" if @show_progress
             puts if @show_progress
             break
@@ -223,6 +237,10 @@ module Wp2txt
 
   # Reads articles from multistream bz2 files
   class MultistreamReader
+    # A single multistream bz2 stream holds about 100 pages; anything this large
+    # past the last known offset is several streams, not one.
+    MAX_TAIL_STREAM_BYTES = 64 * 1024 * 1024
+
     attr_reader :multistream_path, :index
 
     # Initialize reader with multistream file and index
@@ -357,7 +375,14 @@ module Wp2txt
         if next_offset
           compressed_data = f.read(next_offset - offset)
         else
-          # Last stream - read to end
+          # Last stream of the dump: the rest of the file is that one stream.
+          # A large remainder means the end was never recorded, and reading it
+          # in one call fails outright on some platforms (EINVAL on macOS).
+          remaining = File.size(@multistream_path) - offset
+          if remaining > MAX_TAIL_STREAM_BYTES
+            raise Wp2txt::Error, "cannot locate the end of the stream at offset #{offset} " \
+                                 "(#{remaining} bytes to end of file); the index may be incomplete"
+          end
           compressed_data = f.read
         end
 
@@ -372,7 +397,9 @@ module Wp2txt
       # here would silently read gigabytes to EOF, so fail fast instead
       raise "Stream offset #{current_offset} not found in index (#{offsets.size} streams known)" unless idx
 
-      offsets[idx + 1]
+      return offsets[idx + 1] if idx + 1 < offsets.size
+
+      @index.respond_to?(:stream_end_offset) ? @index.stream_end_offset : nil
     end
 
     def decompress_bz2(data)
@@ -394,6 +421,7 @@ module Wp2txt
           return {
             title: page_title,
             id: page_node.at_xpath("id")&.text&.to_i,
+            revision_id: page_node.at_xpath("revision/id")&.text&.to_i,
             text: page_node.at_xpath(".//text")&.text || ""
           }
         end
@@ -409,6 +437,7 @@ module Wp2txt
         page = {
           title: page_node.at_xpath("title")&.text,
           id: page_node.at_xpath("id")&.text&.to_i,
+          revision_id: page_node.at_xpath("revision/id")&.text&.to_i,
           text: page_node.at_xpath(".//text")&.text || ""
         }
         yield page if page[:title]

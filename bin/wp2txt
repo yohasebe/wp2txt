@@ -45,14 +45,14 @@ class WpApp
   def calculate_num_processes(opts)
     optimal = Wp2txt::MemoryMonitor.optimal_processes
 
-    if opts[:num_procs]
-      # User specified a value - use it if reasonable
-      requested = opts[:num_procs].to_i
-      max_allowed = Etc.nprocessors
-      [requested, max_allowed, 1].max == requested ? requested : optimal
-    else
-      optimal
-    end.tap { |n| n = 1 if n < 1 }
+    return optimal unless opts[:num_procs]
+
+    requested = opts[:num_procs].to_i
+    used = requested.clamp(1, Etc.nprocessors)
+    if used != requested
+      print_warning("--num-procs #{requested} is outside 1..#{Etc.nprocessors}; using #{used}.")
+    end
+    used
   end
 
   # Process articles using turbo mode (split-first architecture from v1.x)
@@ -244,6 +244,9 @@ class WpApp
           next if redirect_page?(text)
 
           article = Article.new(text, title, strip_tmarker)
+          ids = Wp2txt.page_ids(page_xml)
+          article.page_id = ids[:page_id]
+          article.revision_id = ids[:revision_id]
           result = format_article(article, config)
           next unless result
 
@@ -254,7 +257,9 @@ class WpApp
             out.puts(result)
           end
           article_count += 1
-        rescue StandardError
+        rescue StandardError => e
+          # Keep going, but never lose an article silently
+          warn "wp2txt: skipped #{title.inspect}: #{e.class}: #{e.message}"
           next
         end
       end
@@ -355,8 +360,8 @@ class WpApp
     end
     puts
 
-    stream.each_page do |title, text|
-      pages << [title, text]
+    stream.each_page(with_ids: true) do |title, text, ids|
+      pages << [title, text, ids]
       page_count += 1
 
       # Process batch when full
@@ -449,8 +454,13 @@ class WpApp
                 )
               else
                 # Fall back to Parallel gem (process-based parallelism)
-                Parallel.map(pages, in_processes: num_processes) do |title, text|
+                # Anything the writer still buffers would be inherited by every
+                # forked worker and written again as each one exits.
+                writer.flush
+                Parallel.map(pages, in_processes: num_processes) do |title, text, ids|
                   article = Article.new(text, title, strip_tmarker)
+                  article.page_id = ids&.dig(:page_id)
+                  article.revision_id = ids&.dig(:revision_id)
                   format_article(article, config)
                 end
               end
