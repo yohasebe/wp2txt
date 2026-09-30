@@ -574,8 +574,9 @@ module Wp2txt
   # Helper to check if template name matches any in a list (case-insensitive)
   def template_matches?(name, template_list)
     return false if template_list.nil? || template_list.empty?
-    normalized_name = name.to_s.strip.downcase
-    template_list.any? { |t| t.downcase == normalized_name }
+    # MediaWiki treats "_" and " " in template names as the same character
+    normalized_name = name.to_s.tr("_", " ").strip.downcase
+    template_list.any? { |t| t.tr("_", " ").downcase == normalized_name }
   end
 
   def correct_inline_template(str, enabled_markers = [], extract_citations = false)
