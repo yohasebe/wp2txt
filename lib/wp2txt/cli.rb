@@ -412,6 +412,13 @@ module Wp2txt
           Optimist.die "--lead-terms requires --format json"
         end
 
+        if opts[:lead_terms] && opts[:ractor]
+          Optimist.die "--lead-terms cannot be combined with --ractor"
+        end
+        if opts[:ractor] && opts[:format].to_s == "json"
+          warn "Warning: --ractor JSON output does not include page IDs, revision IDs, or Wikidata QIDs"
+        end
+
         if opts[:langlinks_file] && !opts[:import_langlinks]
           Optimist.die "--langlinks-file requires --import-langlinks"
         end

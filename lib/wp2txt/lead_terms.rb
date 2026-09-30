@@ -1,5 +1,7 @@
 # frozen_string_literal: true
 
+require_relative "wikitext_regions"
+
 module Wp2txt
   # Finds the terms an article introduces in its lead: bold spans in the first
   # paragraph that has one, the parenthesized notes written right after each,
@@ -15,6 +17,7 @@ module Wp2txt
     HEADING = /^={2,6}[^=\n].*?={2,6}[ \t]*$/
     OPENERS = { "(" => ")", "（" => "）" }.freeze
     SEPARATORS = ["、", ",", "，", ";", "；"].freeze
+    PARAGRAPH_BREAK = /\n[ \t\r]*\n/
     # Regions whose bold text is not the article's own lead prose
     SKIP_OPEN = { "{{" => "}}", "{|" => "|}", "<!--" => "-->" }.freeze
     REF_OPEN = /\A<ref(?:\s[^>]*)?>/i
@@ -29,12 +32,14 @@ module Wp2txt
     def extract(wikitext, render:)
       return [] if wikitext.nil? || wikitext.empty?
 
-      lead_end = (wikitext =~ HEADING) || wikitext.length
-      bolds, rubies = scan(wikitext, lead_end)
+      visible = WikitextRegions.mask(wikitext)
+      bolds, rubies, lead_end = scan(visible, visible.length, source: wikitext)
+      original_render = render
+      render = ->(fragment) { original_render.call(fragment.gsub(WikitextRegions::COMMENT, "")) }
       terms = []
 
       if (first = bolds.first)
-        paragraph = paragraph_bounds(wikitext, first[0], lead_end)
+        paragraph = paragraph_bounds(visible, first[0], lead_end)
         bolds.select { |s, e| s >= paragraph[0] && e <= paragraph[1] }.first(MAX_TERMS).each do |s, e|
           terms << bold_term(wikitext, s, e, paragraph[1], render)
         end
@@ -50,19 +55,23 @@ module Wp2txt
 
     # Top-level bold spans [start, end) including the quote marks, and ruby
     # templates [start, end, [name, text, reading]] found in the lead
-    def scan(text, limit)
+    def scan(text, limit, source: text)
       bolds = []
       rubies = []
       i = 0
       open_bold = nil
       while i < limit
-        if text[i] == "\n"
+        if (i.zero? || text[i - 1] == "\n") && text[i] == "=" &&
+           HEADING.match?(text[i...(text.index("\n", i) || limit)])
+          limit = i
+          break
+        elsif text[i] == "\n"
           open_bold = nil # bold does not continue across lines
           i += 1
         elsif (close = SKIP_OPEN[text[i, 4] == "<!--" ? "<!--" : text[i, 2]])
           opener = text[i, 4] == "<!--" ? "<!--" : text[i, 2]
           stop = matching_end(text, i, opener, close)
-          if opener == "{{" && (ruby = ruby_template(text[(i + 2)...(stop - 2)]))
+          if opener == "{{" && (ruby = ruby_template(source[(i + 2)...(stop - 2)]))
             rubies << [i, stop, ruby]
           end
           i = stop
@@ -86,7 +95,7 @@ module Wp2txt
           i += 1
         end
       end
-      [bolds, rubies]
+      [bolds, rubies, limit]
     end
 
     # End index (exclusive) of the construct opened at start, honouring nesting
@@ -123,9 +132,9 @@ module Wp2txt
     end
 
     def paragraph_bounds(text, pos, limit)
-      start = text.rindex("\n\n", pos)
-      start = start ? start + 2 : 0
-      stop = text.index("\n\n", pos) || limit
+      start = 0
+      text[0...pos].to_enum(:scan, PARAGRAPH_BREAK).each { start = Regexp.last_match.end(0) }
+      stop = text.index(PARAGRAPH_BREAK, pos) || limit
       [start, [stop, limit].min]
     end
 
@@ -134,7 +143,8 @@ module Wp2txt
       term = { "text" => render.call(plain_ruby(inner)).strip, "notes" => [], "notes_text" => nil,
                "source" => "bold", "span" => { "bold" => [s, e] } }
       j = e
-      j += 1 while j < limit && [" ", "\t", "　"].include?(text[j])
+      j += 1 while j < limit && [" ", "\t", "　", "\r", "\n"].include?(text[j])
+      return term if j >= limit
       closer = OPENERS[text[j]]
       return term unless closer
 
@@ -154,7 +164,10 @@ module Wp2txt
       i = start
       while i < limit
         two = text[i, 2]
-        if ["{{", "[["].include?(two)
+        if text[i] == "<" && (stop = WikitextRegions.end_at(text, i))
+          i = stop
+          next
+        elsif ["{{", "[["].include?(two)
           i = matching_end(text, i, two, two == "{{" ? "}}" : "]]")
           next
         end
@@ -163,7 +176,7 @@ module Wp2txt
         elsif [closer, ")", "）"].include?(text[i])
           depth -= 1
           return i + 1 if depth.zero?
-        elsif text[i] == "\n"
+        elsif text[i] == "\n" && /\A\n[ \t\r]*\n/.match?(text[i..])
           return nil
         end
         i += 1
@@ -178,7 +191,10 @@ module Wp2txt
       i = 0
       while i < text.length
         two = text[i, 2]
-        if ["{{", "[["].include?(two)
+        if text[i] == "<" && (stop = WikitextRegions.end_at(text, i))
+          parts.last << text[i...stop]
+          i = stop
+        elsif ["{{", "[["].include?(two)
           depth += 1
           parts.last << two
           i += 2
