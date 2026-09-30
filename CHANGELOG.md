@@ -8,6 +8,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 Entries were rewritten in August 2026 to describe what changed for people using
 wp2txt, rather than how it was implemented. The changes themselves are unaltered.
 
+## [2.3.4] - 2026-09-30
+
+- **Records are no longer duplicated in `--no-turbo` output or in large `extract_corpus` runs**: the last record written before each batch could appear once more for every worker process — up to eight identical lines in a row. The default mode for `.bz2` dumps was not affected. If you extracted more than 200 articles with `extract_corpus`, or used `--no-turbo`, check earlier output for repeated lines; the repeats are byte-for-byte identical, so removing exact duplicate lines restores it
+- **`--num-procs` is now honoured**: any value smaller than the number of CPU cores was silently replaced with the automatic choice. The value you give is used, and one outside 1 to the core count is adjusted with a warning
+- **`--articles` no longer fails on large dumps**: extracting specific articles could stop with `Invalid argument` (seen on macOS) when the last requested article sat early in a multi-gigabyte dump
+- **JSON records include `page_id` and `revision_id`**: the dump's own IDs for the page and its revision, right after `title`, in every mode — so each record can be traced to the exact version it came from. From Ruby, `StreamProcessor#each_page(with_ids: true)` yields them as a third value; plain `each_page` is unchanged
+- **Corrupt input now stops processing instead of being cleaned silently**: invalid UTF-8 raises `Wp2txt::EncodingError` naming where it was found. Official dumps are valid UTF-8, so this only triggers on damaged files
+- **Articles that fail to render are reported**: the default mode skipped them without a word; each one is now named on stderr with the reason
+
 ## [2.3.3] - 2026-09-08
 
 - **Short searches no longer report a false zero**: in Japanese, Chinese, and Korean indexes a phrase of one or two characters could match nothing and come back as `0 matches`, which reads exactly like a term that is genuinely absent from the dump. Such a search now fails with an explicit error instead. If you recorded a zero result for a short term with an earlier version, re-check it
