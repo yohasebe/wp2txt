@@ -171,6 +171,19 @@ module Wp2txt
       nil
     end
 
+    # Templates whose rendering the text-cleaning stage defines (see
+    # Wp2txt#correct_inline_template), keyed by normalized name. Limited to
+    # kinds whose output does not depend on marker settings.
+    def rendered_by_cleaner?(template_name)
+      @rendered_by_cleaner ||= [Wp2txt::RUBY_TEXT_TEMPLATES, Wp2txt::INTERWIKI_LINK_TEMPLATES]
+                               .flatten.to_set { |name| name.to_s.tr("_", " ").strip.downcase }
+      @rendered_by_cleaner.include?(template_name.tr("_", " "))
+    end
+
+    def text_renderer
+      @text_renderer ||= Object.new.extend(Wp2txt)
+    end
+
     def expand_single_template(content)
       parts = split_template_parts(content)
       return "" if parts.empty?
@@ -263,6 +276,12 @@ module Wp2txt
         # Handle lang-xx templates (e.g., lang-fr, lang-de, lang-ja)
         if template_name.start_with?("lang-")
           expand_lang_xx(template_name, params)
+        elsif rendered_by_cleaner?(template_name)
+          # These carry words the article needs (a reading, a link's display
+          # text). Deleting them dropped those words; leaving the raw template
+          # for later confused links that contain it (an image caption with a
+          # "|" inside). Render them now, with the cleaner's own rules.
+          text_renderer.correct_inline_template("{{#{expand(content)}}}")
         else
           @preserve_unknown ? "{{#{content}}}" : ""
         end

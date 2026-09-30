@@ -82,7 +82,7 @@
     "Cite web", "Citeweb", "Cit"
   ],
   "ruby_text_templates": [
-    "読み仮名", "よみがな", "ふりがな",
+    "読み仮名", "読み仮名 ruby不使用", "よみがな", "ふりがな",
     "ruby", "Ruby", "ruby-ja", "Ruby-ja",
     "ruby text", "ruby annotation",
     "rubi", "rubytext",
