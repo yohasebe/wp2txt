@@ -65,6 +65,33 @@ RSpec.describe Wp2txt::LanglinksImporter do
     rows
   end
 
+  # Current dumps put the INSERT header on its own line and one tuple per line
+  MULTILINE_SQL = <<~MSQL
+    INSERT INTO `langlinks` VALUES
+    (1,'en','Film A'),
+    (1,'ja','映画A'),
+    (2,'en','It\\'s a Film; Really');
+    INSERT INTO `pagelinks` VALUES
+    (9,'Ignored',0);
+    INSERT INTO `langlinks` VALUES
+    (3,'fr','Film B');
+  MSQL
+
+  describe "dumps with one tuple per line" do
+    it "imports every tuple of every langlinks statement, and nothing else" do
+      path = write_langlinks("testwiki-20260101-langlinks.sql.gz", MULTILINE_SQL, gzip: true)
+      expect(import(path)[:row_count]).to eq(4)
+      expect(langlinks_rows).to contain_exactly(
+        [1, "en", "Film A"], [1, "ja", "映画A"], [2, "en", "It's a Film; Really"], [3, "fr", "Film B"]
+      )
+    end
+
+    it "refuses to report success when no rows could be read" do
+      path = write_langlinks("testwiki-20260101-langlinks.sql", "-- nothing here\nUNLOCK TABLES;\n")
+      expect { import(path) }.to raise_error(Wp2txt::Error, /no langlinks rows found/)
+    end
+  end
+
   describe "parsing and normalization" do
     it "imports tuples with escapes, commas, parens, and multiple INSERT statements" do
       path = write_langlinks("testwiki-20260101-langlinks.sql")

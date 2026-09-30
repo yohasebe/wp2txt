@@ -28,7 +28,8 @@ module Wp2txt
     SANITY_SAMPLE_SIZE = 1000
     SANITY_WARN_THRESHOLD = 0.9
 
-    INSERT_PREFIX = /\A\s*INSERT\s+INTO\s+`langlinks`\s+VALUES\s+/i
+    INSERT_PREFIX = /\A\s*INSERT\s+INTO\s+`langlinks`\s+VALUES\b/i
+    STATEMENT_START = /\A\s*INSERT\s+INTO\s/i
 
     # MySQL backslash escapes inside mysqldump string literals
     UNESCAPES = {
@@ -99,13 +100,22 @@ module Wp2txt
         batch.clear
       end
 
+      rows_seen = 0
       skipped_invalid = each_source_row(source_path) do |ll_from, ll_lang, ll_title|
+        rows_seen += 1
         next if lang_filter && !lang_filter.include?(ll_lang)
 
         batch << [ll_from, ll_lang, MetadataIndex.normalize_title(ll_title)]
         flush.call if batch.size >= BATCH_SIZE
       end
       flush.call unless batch.empty?
+
+      # Reporting success after reading nothing would leave every language
+      # query silently empty; an unreadable dump must fail loudly instead.
+      if rows_seen.zero? && skipped_invalid.zero?
+        raise Wp2txt::Error, "no langlinks rows found in #{File.basename(source_path)}; " \
+                             "the file may be empty or in an unrecognized format"
+      end
 
       # Indexes are created after the load, not before (insert speed)
       db.execute("CREATE INDEX idx_langlinks_from ON langlinks(ll_from, ll_lang)")
@@ -233,10 +243,16 @@ module Wp2txt
            end
 
       skipped = 0
+      # Dumps write each INSERT either on one line or with one tuple per line
+      # after the INSERT header (current dumps do the latter), so read every line
+      # of a langlinks INSERT statement up to its terminating semicolon.
+      in_langlinks_insert = false
       begin
         io.each_line do |line|
-          next unless INSERT_PREFIX.match?(line)
+          in_langlinks_insert = INSERT_PREFIX.match?(line) if STATEMENT_START.match?(line)
+          next unless in_langlinks_insert
 
+          in_langlinks_insert = false if line.rstrip.end_with?(";")
           line.scan(TUPLE_REGEX) do |ll_from, ll_lang, ll_title|
             lang = unescape_mysql(ll_lang).force_encoding(Encoding::UTF_8)
             title = unescape_mysql(ll_title).force_encoding(Encoding::UTF_8)
