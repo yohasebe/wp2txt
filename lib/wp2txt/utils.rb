@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require "strscan"
+require_relative "wikitext_regions"
 require_relative "constants"
 require_relative "regex"
 require_relative "text_processing"
@@ -584,7 +585,7 @@ module Wp2txt
     return str unless str.include?("{{")
 
     process_nested_single_pass(str, "{{", "}}") do |contents|
-      parts = contents.split("|")
+      parts = WikitextRegions.split_pipes(contents)
       template_name = (parts[0] || "").strip
       template_name_lower = template_name.downcase
 

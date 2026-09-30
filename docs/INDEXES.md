@@ -90,9 +90,18 @@ $ wp2txt --count-links -L ja         # how many articles link to each article
   however many times it links; a link to a redirect counts for the redirect's target
   (`via_redirects` is how many articles reached it only that way). Only links written in
   articles' own text count — links that navigation templates add when a page is rendered
-  are not in the dump, so they are not counted. Commented-out links and links from
-  redirects or other namespaces do not count. Japanese Wikipedia takes about 12 minutes on
+  are not in the dump, so they are not counted. Links inside comments or literal
+  regions (`nowiki`, `pre`, `math`, `chem`, `ce`, `score`, `syntaxhighlight`, `source`,
+  `graph`, `mapframe`, `templatedata`) and links from redirects or other namespaces
+  do not count. Links inside `gallery`, `timeline`, and ordinary formatting tags
+  such as `code` do count. Lead-term extraction separately excludes `gallery` and
+  `timeline` because their contents are not lead prose.
+  Japanese Wikipedia takes about 12 minutes on
   an Apple Silicon laptop.
+  Counting rule version 2 decodes title entities and respects the dump's siteinfo case
+  rule, recorded as `case_rule` in metadata when the index is built. Existing indexes
+  without this value use `first-letter`; rebuild the metadata index before counting
+  links for a case-sensitive wiki. Re-run `--count-links` to replace counts from rule 1.
 
 Together with langlinks these let a query select articles by how referenced they are
 within an edition, how many editions cover them, and what Wikidata says they are:

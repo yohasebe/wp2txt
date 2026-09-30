@@ -39,9 +39,10 @@ module Wp2txt
 
     # Normalize a page title the way MediaWiki treats titles:
     # underscores to spaces, trimmed, first letter capitalized
-    def self.normalize_title(name)
+    def self.normalize_title(name, case_rule: "first-letter")
       n = name.to_s.tr("_", " ").strip.squeeze(" ")
       return n if n.empty?
+      return n if case_rule == "case-sensitive"
 
       n[0].upcase + n[1..].to_s
     end
@@ -273,7 +274,7 @@ module Wp2txt
       end
     end
 
-    def finalize_build!(source_path)
+    def finalize_build!(source_path, case_rule: "first-letter")
       db = open_db
       db.execute("CREATE INDEX IF NOT EXISTS idx_pages_title ON pages(title)")
       db.execute("CREATE INDEX IF NOT EXISTS idx_pc_category ON page_categories(category)")
@@ -291,6 +292,7 @@ module Wp2txt
         source_size: stat.size,
         source_mtime: stat.mtime.to_i,
         dump_name: dump_name,
+        case_rule: case_rule,
         built_at: Time.now.utc.iso8601
       )
       db.execute("ANALYZE")
@@ -672,6 +674,7 @@ module Wp2txt
     # Build the index. Yields (batches_done, batches_total) after each batch.
     # @return [MetadataIndex] the built index
     def build(&progress)
+      case_rule = case_rule_from_header
       index = MetadataIndex.new(@db_path)
       index.prepare_build!
       # Close before Parallel forks workers so children do not inherit a
@@ -695,8 +698,18 @@ module Wp2txt
         self.class.scan_batch(@multistream_path, batch)
       end
 
-      index.finalize_build!(@multistream_path)
+      index.finalize_build!(@multistream_path, case_rule: case_rule)
       index
+    end
+
+    # The siteinfo may occupy its own stream before the first page offset.
+    def case_rule_from_header
+      return "first-letter" if @stream_offsets.empty?
+
+      header_end = @stream_offsets.first.positive? ? @stream_offsets.first : @stream_offsets[1]
+      xml = self.class.decompress_bz2(File.binread(@multistream_path, header_end))
+      siteinfo = xml[%r{<siteinfo\b[^>]*>(.*?)</siteinfo>}m, 1].to_s
+      siteinfo[%r{<case>\s*(first-letter|case-sensitive)\s*</case>}, 1] || "first-letter"
     end
 
     # Scan a batch of [offset, next_offset] stream pairs.

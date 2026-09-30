@@ -5,6 +5,8 @@ require "sqlite3"
 require "time"
 require_relative "metadata_index"
 require_relative "version"
+require_relative "text_processing"
+require_relative "wikitext_regions"
 
 module Wp2txt
   # Counts, for every article, how many other articles link to it, and stores
@@ -21,9 +23,11 @@ module Wp2txt
   #   templates add when rendered (navigation boxes) are not in the dump text
   # - commented-out links do not count
   class LinkCounter
-    RULE_VERSION = "1"
+    include Wp2txt
+
+    RULE_VERSION = "2"
     STREAMS_PER_BATCH = 50
-    LINK_REGEX = /\[\[([^\[\]|#<>{}\n]+)/
+    LINK_REGEX = /\[\[([^\[\]|<>{}\n]+)(?=\||\]\])/
     COMMENT_REGEX = /<!--.*?-->/m
 
     def initialize(multistream_path, stream_offsets, db_path:, num_processes: 4)
@@ -66,11 +70,12 @@ module Wp2txt
     # Articles (title => page_id) and redirects (title => target title)
     def load_titles
       db = SQLite3::Database.new(@db_path, readonly: true)
+      @case_rule = db.get_first_value("SELECT value FROM metadata WHERE key = 'case_rule'") || "first-letter"
       titles = {}
       redirects = {}
       db.execute("SELECT page_id, title, redirect_to FROM pages WHERE namespace = 0") do |id, title, target|
         if target
-          redirects[title] = MetadataIndex.normalize_title(target)
+          redirects[title] = normalize_target(target)
         else
           titles[title] = id
         end
@@ -104,8 +109,8 @@ module Wp2txt
       return if Wp2txt::REDIRECT_REGEX.match?(text)
 
       reached = {} # target => true if reached directly at least once
-      text.gsub(COMMENT_REGEX, "").scan(LINK_REGEX) do |(raw)|
-        name = MetadataIndex.normalize_title(raw.sub(/\A:/, ""))
+      WikitextRegions.remove_literal(text).scan(LINK_REGEX) do |(raw)|
+        name = normalize_target(raw)
         next if name.empty?
 
         if (target = @redirects[name])
@@ -118,6 +123,11 @@ module Wp2txt
         direct[target] += 1
         via[target] += 1 unless directly
       end
+    end
+
+    def normalize_target(raw)
+      title = special_chr(raw).split("#", 2).first.to_s.strip.sub(/\A:/, "")
+      MetadataIndex.normalize_title(title, case_rule: @case_rule || "first-letter")
     end
 
     def write(titles, direct, via)
