@@ -9,7 +9,7 @@ require 'open3'
 require 'tmpdir'
 require_relative 'support/multistream_fixture'
 
-RSpec.describe '2026-09-30 review regressions' do
+RSpec.describe 'lead terms and link counting on unusual wikitext' do
   include MultistreamFixture
 
   let(:cleaner) { Object.new.extend(Wp2txt) }

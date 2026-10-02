@@ -140,8 +140,8 @@ RSpec.describe "lead terms, incoming links, and Wikidata IDs" do
     end
 
     it "does not split inside nested brackets, templates, or links" do
-      text = "'''井上陽水'''（いのうえ ようすい、[[1948年]]（昭和23年、戊子）[[8月30日]] - 、{{lang|en|a, b}}）は歌手。"
-      expect(terms(text).first["notes"]).to eq(["いのうえ ようすい", "1948年（昭和23年、戊子）8月30日 -", "a, b"])
+      text = "'''山野太郎'''（やまの たろう、[[2001年]]（平成13年、辛巳）[[4月1日]] - 、{{lang|en|a, b}}）は架空の人物。"
+      expect(terms(text).first["notes"]).to eq(["やまの たろう", "2001年（平成13年、辛巳）4月1日 -", "a, b"])
     end
 
     it "reports reading templates as pairs and keeps their reading out of the bold text" do
