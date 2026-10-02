@@ -406,7 +406,7 @@ local build sends the working tree as its context, so untracked files ride
 along, while a runner starts from a clean checkout.
 
 ```bash
-rake check_image   # Build locally and run the same gate the workflow runs
+rake check_image   # Build from a clean copy of the last commit and run the workflow's gate
 ```
 
 The gate (`scripts/verify_image.rb`) lists what the image holds under `/wp2txt`

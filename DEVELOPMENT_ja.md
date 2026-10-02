@@ -402,7 +402,7 @@ docs/INDEXES.md の MCP ツール表は spec/docs_sync_spec.rb が実際のサ�
 Dockerイメージのビルドとプッシュ：
 
 ```bash
-rake check_image   # ローカルでビルドし、CI と同じゲートを走らせる
+rake check_image   # 最新のコミットのクリーンな複製からビルドし、CI と同じゲートを走らせる
 ```
 
 ## リリースプロセス

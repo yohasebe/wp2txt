@@ -20,11 +20,7 @@ tmp
 *.~
 tags
 
-# Claude Code development files
-CLAUDE.md
 
-# Private design/research notes (not for publication)
-research-notes/
 
 # Error logs
 error_log.txt
@@ -36,4 +32,6 @@ benchmark_results/
 
 # Developer-specific Ruby version
 .ruby-version
-.private-doc-tokens
+
+# Machine-local files (never committed)
+.local/
