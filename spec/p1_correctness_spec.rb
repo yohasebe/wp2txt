@@ -356,17 +356,20 @@ RSpec.describe "P1 correctness contracts" do
       Rake.application = previous
     end
 
-    [[false, "Cannot connect to daemon"], [false, "image missing"], [true, "LEAK:/wp2txt/tmp\n"]].each do |success, output|
-      it "fails verification for #{output.strip}" do
-        allow(Open3).to receive(:capture2e).and_return([output, double(success?: success)])
-        expect { suppress_stderr { Rake::Task[:verify_image].invoke("test-image") } }.to raise_error(SystemExit)
-      end
+    it "builds from a clean clone and hands the image to the CI gate with that clone as context" do
+      commands = []
+      allow(TOPLEVEL_BINDING.receiver).to receive(:sh) { |*args| commands << args }
+      Rake::Task[:check_image].invoke
+      clone, build, gate = commands
+      expect(clone.first(4)).to eq(%w[git clone --quiet --no-local])
+      dir = clone.last
+      expect(build).to eq(["docker", "build", "-t", "wp2txt-verify:local", dir])
+      expect(gate).to eq(["ruby", "scripts/verify_image.rb", "wp2txt-verify:local", "--context", dir])
     end
 
-    it "passes only after a successful clean container inspection" do
-      expect(Open3).to receive(:capture2e).with("docker", "run", "--rm", "test-image", "sh", "-c", kind_of(String))
-        .and_return(["", double(success?: true)])
-      expect { Rake::Task[:verify_image].invoke("test-image") }.to output(/OK:/).to_stdout
+    it "no longer carries a hand-written list of forbidden paths" do
+      expect(Rake::Task.task_defined?(:verify_image)).to be(false)
+      expect(defined?(IMAGE_FORBIDDEN_PATHS)).to be_nil
     end
   end
 end
