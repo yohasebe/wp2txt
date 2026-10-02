@@ -8,6 +8,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 Entries were rewritten in August 2026 to describe what changed for people using
 wp2txt, rather than how it was implemented. The changes themselves are unaltered.
 
+## [2.4.0] - 2026-10-02
+
+- **Readings and link text are no longer dropped from Japanese articles**: template expansion, on by default, removed `{{読み仮名}}`, ruby templates, and `{{仮リンク}}` before they could be rendered, so a lead like "'''{{読み仮名|言語|げんご}}'''は…" came out as "は…" and names linked through 仮リンク vanished from running text (one in six Japanese articles uses 仮リンク). Re-extract if you rely on these articles
+- **Interlanguage links import from current dumps again**: dumps now write one row per line, which the importer read as nothing while still reporting success. If you imported langlinks from a dump dated September 2026 or later, re-import with `-U`. An import that reads no rows now fails instead of succeeding quietly
+- **`--lead-terms` (JSON output)**: lists the terms an article introduces in its lead — the bold terms of the first lead paragraph that has one (up to five), the parenthesized text written right after each (split at top-level commas and semicolons, and unsplit), and reading templates as text/reading pairs. Each term carries character offsets into the article's wikitext as stored in the dump, so its source can be cut out and checked. Nothing is interpreted: whether a note is a reading, a native spelling, or a date is left to you. Not available with `--ractor`
+- **`--count-links`**: adds, for every article in an existing metadata index, how many articles link to it — each linking article counted once, through one redirect hop, using the wiki's own capitalization rule, and ignoring links that the wiki does not render (comments, `nowiki`, `pre`, `math`, and similar). About 12 minutes for Japanese Wikipedia
+- **`--import-page-props`**: adds each article's Wikidata ID, MediaWiki's disambiguation mark, and its sort key from the `page_props` dump of the same date as the index. Once imported, JSON output, `get_article`, and `extract_corpus` carry `qid`, `sort_key`, and `disambiguation` (null or false when a page has none). The disambiguation mark finds many more disambiguation pages than their titles do. On Japanese Wikipedia the sort key is a reading normalized for sorting (voicing marks dropped), useful for checking reading candidates
+- **`dump_info` reports where the new data came from**, including the `page_props` file's SHA-256 and the rule used to count links
+
 ## [2.3.4] - 2026-09-30
 
 - **Records are no longer duplicated in `--no-turbo` output or in large `extract_corpus` runs**: the last record written before each batch could appear once more for every worker process — up to eight identical lines in a row. The default mode for `.bz2` dumps was not affected. If you extracted more than 200 articles with `extract_corpus`, or used `--no-turbo`, check earlier output for repeated lines; the repeats are byte-for-byte identical, so removing exact duplicate lines restores it

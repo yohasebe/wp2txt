@@ -1,13 +1,11 @@
 .git
 .github
-.claude
 image
 pkg
 spec
 coverage
 tmp
 .bundle
-research-notes
 benchmark_results
 data/output_samples
 scripts
@@ -15,10 +13,8 @@ scripts
 .solargraph.yml
 .rubocop.yml
 Gemfile.lock
-.private-doc-tokens
 **/.DS_Store
 .ruby-version
-CLAUDE.md
 DEVELOPMENT.md
 DEVELOPMENT_ja.md
 *.gem

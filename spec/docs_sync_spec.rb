@@ -37,14 +37,14 @@ RSpec.describe "documentation surface sync" do
     expect(phantom).to be_empty, "documented tools that do not exist: #{phantom.join(', ')}"
   end
 
-  # Tripwire: tracked files must not contain tokens listed in .private-doc-tokens,
+  # Tripwire: tracked files must not contain tokens listed in .local/doc-tokens,
   # an untracked, machine-local file (one substring per line; # starts a comment).
   # The file exists only on machines that maintain such a list; everywhere else
   # (CI, other contributors) this example skips — loudly, so a silently dead
   # check cannot be mistaken for a passing one.
   it "keeps machine-local private tokens out of tracked files" do
-    token_file = File.join(repo_root, ".private-doc-tokens")
-    skip "SKIPPED: no .private-doc-tokens on this machine — tripwire not checked" unless File.exist?(token_file)
+    token_file = File.join(repo_root, ".local", "doc-tokens")
+    skip "SKIPPED: no .local/doc-tokens on this machine — tripwire not checked" unless File.exist?(token_file)
 
     tokens = File.readlines(token_file, encoding: "UTF-8")
                  .map(&:strip).reject { |t| t.empty? || t.start_with?("#") }

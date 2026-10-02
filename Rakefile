@@ -30,34 +30,23 @@ end
 Rake::Task["build"].enhance([:normalize_permissions])
 
 # Pre-release gate: verify the built gem's payload against spec.files and scan
-# it for names, content, and modes that must never ship (code-security protocol).
+# it for names, content, and modes that must never ship.
 Rake::Task["build"].enhance { sh "ruby", "scripts/verify_gem.rb" }
 
 # =============================================================================
 # Docker
 # =============================================================================
 
-# Paths that must never reach a published image. The image is built from the
-# working tree, so anything ignored locally (private notes, scratch files)
-# would otherwise ride along.
-IMAGE_FORBIDDEN_PATHS = %w[/wp2txt/research-notes /wp2txt/tmp /wp2txt/.git /wp2txt/CLAUDE.md /wp2txt/.claude /wp2txt/.private-doc-tokens].freeze
-
-desc "Verify a built image contains no private material (run before pushing)"
-task :verify_image, [:tag] do |_t, args|
-  tag = args[:tag] || "wp2txt-verify:local"
-  checks = IMAGE_FORBIDDEN_PATHS.map { |p| "test -e #{p} && echo LEAK:#{p}" }.join("; ")
-  out, status = Open3.capture2e("docker", "run", "--rm", tag, "sh", "-c", "#{checks}; true")
-  abort "Image verification failed for #{tag}: #{out}" unless status.success?
-  leaks = out.lines.grep(/^LEAK:/).map(&:strip)
-  abort "Image #{tag} contains private paths:\n  #{leaks.join("\n  ")}" unless leaks.empty?
-
-  puts "OK: #{tag} contains none of #{IMAGE_FORBIDDEN_PATHS.join(', ')}"
-end
-
-desc "Build the image locally and verify it, without pushing"
+desc "Build the image from a clean copy of the last commit and run the gate CI runs"
 task :check_image do
-  sh "docker build -t wp2txt-verify:local ."
-  Rake::Task[:verify_image].invoke
+  # A clean clone is what CI builds from: files that exist only in this working
+  # tree never reach the context, and the gate compares the image against it.
+  require "tmpdir"
+  Dir.mktmpdir("wp2txt-image-") do |dir|
+    sh "git", "clone", "--quiet", "--no-local", ".", dir
+    sh "docker", "build", "-t", "wp2txt-verify:local", dir
+    sh "ruby", "scripts/verify_image.rb", "wp2txt-verify:local", "--context", dir
+  end
 end
 
 desc "Explain how images are published (they are built and pushed by CI)"
