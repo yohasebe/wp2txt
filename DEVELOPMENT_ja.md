@@ -397,6 +397,20 @@ docs/INDEXES.md の MCP ツール表は spec/docs_sync_spec.rb が実際のサ�
 - RuboCop設定は`.rubocop.yml`
 - 全体でUTF-8エンコーディング
 
+## 追跡するファイル
+
+追跡するファイルはすべて `scripts/tracked_paths.allow` のどれかの行に合い、各行もどれかの
+追跡ファイルに合う必要がある。gem は `git ls-files` から作られるので、コミットは公開の第一歩になる。
+
+```bash
+ruby scripts/check_tracked_paths.rb               # index（次のコミットの中身）を検査
+ruby scripts/check_tracked_paths.rb --tree HEAD   # コミットを、その中の許可リストで検査
+ln -s ../../scripts/pre-push .git/hooks/pre-push  # push する各コミットを送信前に検査
+```
+
+CI も最初にこの検査を走らせる。新しいファイルを追跡するときは、その場所と種類を表す
+最も狭い行を足し（Markdown は 1 本ずつ名前で書く）、許可リストも一緒にステージする。
+
 ## Docker
 
 Dockerイメージのビルドとプッシュ：

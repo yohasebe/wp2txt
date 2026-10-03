@@ -398,6 +398,22 @@ docs/INDEXES.md is checked against the actual server surface by spec/docs_sync_s
 - RuboCop configuration in `.rubocop.yml`
 - UTF-8 encoding throughout
 
+## Tracked Files
+
+Every tracked file must match a line of `scripts/tracked_paths.allow`, and every
+line there must match a tracked file. The gem is built from `git ls-files`, so
+committing a file is the first step of publishing it.
+
+```bash
+ruby scripts/check_tracked_paths.rb               # the index (what the next commit holds)
+ruby scripts/check_tracked_paths.rb --tree HEAD   # a commit, by the list inside it
+ln -s ../../scripts/pre-push .git/hooks/pre-push  # check each pushed commit before it leaves
+```
+
+CI runs the same check first. When a new file belongs in the repository, add the
+narrowest line that describes its place and kind (name Markdown files one by one)
+and stage the list with it.
+
 ## Docker
 
 Images are published by GitHub Actions when a `v*` tag is pushed

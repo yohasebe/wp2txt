@@ -8,7 +8,18 @@ on:
     - cron: '42 5 * * *'
 
 jobs:
+  tracked-paths:
+    name: Tracked files match the allow list
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+    - uses: ruby/setup-ruby@v1
+      with:
+        ruby-version: '3.3'
+    - run: ruby scripts/check_tracked_paths.rb
+
   test:
+    needs: tracked-paths
     strategy:
       fail-fast: false
       matrix:

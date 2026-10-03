@@ -1,0 +1,51 @@
+# Paths this repository may track. scripts/check_tracked_paths.rb fails when a
+# tracked file matches no line here, and when a line here matches no tracked
+# file (so a stale line cannot quietly widen what is allowed).
+#
+# Lines are File.fnmatch globs with FNM_PATHNAME | FNM_DOTMATCH: `*` stays
+# within one directory and also matches dotfiles, `**/` spans any depth.
+# `{a,b}` is expanded by the checker, and every alternative must match a
+# tracked file.
+#
+# Write a place and a kind of file; name a single file only when it is the
+# one file of its kind in that place. Markdown is named, never globbed.
+#
+# Adding a line is a decision about what may be published: this repository
+# is public, the gem is built from `git ls-files`, and the image from a clean
+# checkout.
+
+# --- Repository root --------------------------------------------------------
+.dockerignore
+.gitignore
+.solargraph.yml
+CHANGELOG.md
+DEVELOPMENT{,_ja}.md
+Dockerfile
+Gemfile
+LICENSE
+README{,_ja}.md
+Rakefile
+wp2txt.gemspec
+
+# --- Library and commands ---------------------------------------------------
+bin/wp2txt{,-mcp}
+lib/wp2txt.rb
+lib/wp2txt/*.rb
+lib/wp2txt/data/{html_entities,language_metadata,language_tiers,mediawiki_aliases,template_aliases,wikipedia_entities}.json
+
+# --- Documentation ----------------------------------------------------------
+docs/INDEXES.md
+image/*.svg
+
+# --- Tests ------------------------------------------------------------------
+spec/*_spec.rb
+spec/spec_helper.rb
+spec/fixtures/samples.rb
+spec/support/*.rb
+
+# --- Repository tooling (not shipped in the gem) ----------------------------
+.github/FUNDING.yml
+.github/workflows/*.yml
+scripts/*.rb
+scripts/pre-push
+scripts/tracked_paths.allow

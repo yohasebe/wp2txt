@@ -1,0 +1,65 @@
+#!/bin/sh
+# pre-push hook: every commit about to be published must pass the tracked-path
+# allow list (scripts/check_tracked_paths.rb), judged by the allow list inside
+# that commit. CI runs the same check, but a pushed commit is public by then.
+#
+# Each commit in the pushed range is checked, not only the tip: a file added
+# and removed again is still published in the history.
+#
+# Install: ln -s ../../scripts/pre-push .git/hooks/pre-push
+# Bypass:  git push --no-verify
+
+zero=0000000000000000000000000000000000000000
+root=$(git rev-parse --show-toplevel)
+checker="$root/scripts/check_tracked_paths.rb"
+status=0
+checked=0
+
+while read -r local_ref local_sha remote_ref remote_sha; do
+  [ -z "$local_sha" ] && continue
+  [ "$local_sha" = "$zero" ] && continue   # branch deletion
+  # When the remote tip is not here (the remote moved on and was not fetched,
+  # or this is a force push), fall back to every commit no remote has yet.
+  # A range that cannot be listed stops the push: an empty list is not "clean".
+  if [ "$remote_sha" != "$zero" ] && git cat-file -e "$remote_sha^{commit}" 2>/dev/null; then
+    commits=$(git rev-list "$remote_sha..$local_sha") || commits="ERROR"
+  else
+    commits=$(git rev-list "$local_sha" --not --remotes) || commits="ERROR"
+  fi
+  if [ "$commits" = "ERROR" ]; then
+    echo "[pre-push] could not list the commits pushed to $remote_ref; refusing to push unchecked" >&2
+    status=1
+    continue
+  fi
+  for c in $commits; do
+    short=$(git rev-parse --short "$c")
+    if ! git cat-file -e "$c:scripts/tracked_paths.allow" 2>/dev/null; then
+      # Only commits a remote already has may pass without a list; a new
+      # commit without one has deleted the list or branched from before it.
+      if [ -n "$(git branch -r --contains "$c" 2>/dev/null)" ]; then
+        echo "[pre-push] $short: already on a remote and carries no allow list; not checked" >&2
+      else
+        echo "[pre-push] $short: new commit without scripts/tracked_paths.allow; refusing to push" >&2
+        status=1
+      fi
+      continue
+    fi
+    if [ ! -f "$checker" ]; then
+      echo "[pre-push] $checker is missing; refusing to push $short unchecked" >&2
+      status=1
+      continue
+    fi
+    checked=$((checked + 1))
+    if ! out=$(ruby "$checker" --tree "$c"); then
+      echo "[pre-push] $short ($local_ref) is not allowed to be published:" >&2
+      printf '%s\n' "$out" >&2
+      status=1
+    fi
+  done
+done
+
+# The loop runs in this shell (stdin is redirected, not piped), so the counter
+# survives. Say what was checked even on success: silence would look the same
+# as a hook that checked nothing.
+[ $status -eq 0 ] && echo "[pre-push] $checked commit(s) checked against the path allow list" >&2
+exit $status

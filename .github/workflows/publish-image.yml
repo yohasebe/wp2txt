@@ -34,6 +34,14 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: '3.3'
+
+      # Nothing is built from a commit that tracks files it should not
+      - name: Tracked files match the allow list
+        run: ruby scripts/check_tracked_paths.rb
+
       - name: Work out the version and whether to publish
         id: plan
         run: |
@@ -59,10 +67,6 @@ jobs:
           echo "version=$file_version" >> "$GITHUB_OUTPUT"
           echo "publish=$publish" >> "$GITHUB_OUTPUT"
           echo "Version $file_version; publish=$publish"
-
-      - uses: ruby/setup-ruby@v1
-        with:
-          ruby-version: '3.3'
 
       - uses: docker/setup-qemu-action@v3
 
